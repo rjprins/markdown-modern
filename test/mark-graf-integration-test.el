@@ -12,6 +12,7 @@
 (require 'ert)
 (require 'mark-graf)
 (require 'mark-graf-export)
+(require 'mark-graf-ts)
 
 ;;; Full Document Tests
 
@@ -264,6 +265,28 @@ def hello():
     (should-not (mark-graf-node-language node))
     (should-not (mark-graf-node-children node))
     (should (equal (mark-graf-node-properties node) '(:foo bar)))))
+
+;;; Tree-sitter Inline Collector Tests
+;;; These require the markdown and markdown-inline grammars to be installed.
+
+(ert-deftest integration/tree-sitter-code-span-content-is-literal ()
+  "Tree-sitter inline collector treats code-span content as literal.
+Markdown markers inside backticks (underscores, asterisks, brackets, etc.)
+must not be surfaced as emphasis, strong, link, or image nodes, even though
+the inline grammar still parses them as such inside the code_span."
+  (skip-unless (and (treesit-language-available-p 'markdown)
+                    (treesit-language-available-p 'markdown-inline)))
+  (with-temp-buffer
+    (insert "`foo_bar_baz` and `**not bold**` and `[t](u)`")
+    (let ((mark-graf-ts--use-tree-sitter t))
+      (mark-graf-ts--init)
+      (let ((types (mapcar #'mark-graf-node-type
+                           (mark-graf-ts--inline-elements-in
+                            (point-min) (point-max)))))
+        (should (member 'code-span types))
+        (should-not (member 'emphasis types))
+        (should-not (member 'strong types))
+        (should-not (member 'link types))))))
 
 ;;; Performance Smoke Test
 
