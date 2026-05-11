@@ -123,6 +123,55 @@ Test that PATTERN matches INPUT and captures EXPECTED groups."
   "`<div class=\"foo\">`"
   "<div class=\"foo\">")
 
+(defun mg-test--fallback-types (input)
+  "Return the list of node types produced by fallback-parsing INPUT."
+  (with-temp-buffer
+    (insert input)
+    (mapcar #'mark-graf-node-type
+            (mark-graf-ts--fallback-parse-region (point-min) (point-max)))))
+
+(ert-deftest regex/fallback-code-span-underscores-are-literal ()
+  "Fallback parsing must not treat underscores inside code spans as emphasis."
+  (should (equal (mg-test--fallback-types "`foo_bar_baz`")
+                 '(code-span))))
+
+(ert-deftest regex/fallback-code-span-asterisk-emphasis-is-literal ()
+  "Fallback parsing must not treat *...* inside code spans as emphasis."
+  (should (equal (mg-test--fallback-types "`*italic*`")
+                 '(code-span))))
+
+(ert-deftest regex/fallback-code-span-strong-is-literal ()
+  "Fallback parsing must not treat **...** inside code spans as strong."
+  (should (equal (mg-test--fallback-types "`**bold**`")
+                 '(code-span))))
+
+(ert-deftest regex/fallback-code-span-link-syntax-is-literal ()
+  "Fallback parsing must not treat link syntax inside code spans as a link."
+  (should (equal (mg-test--fallback-types "`[text](http://example.com)`")
+                 '(code-span))))
+
+(ert-deftest regex/fallback-code-span-image-syntax-is-literal ()
+  "Fallback parsing must not treat image syntax inside code spans as an image."
+  (should (equal (mg-test--fallback-types "`![alt](img.png)`")
+                 '(code-span))))
+
+(ert-deftest regex/fallback-code-span-math-is-literal ()
+  "Fallback parsing must not treat $...$ inside code spans as math."
+  (should (equal (mg-test--fallback-types "`$x+y$`")
+                 '(code-span))))
+
+(ert-deftest regex/fallback-emphasis-adjacent-to-code-span ()
+  "Emphasis immediately after a code span (no whitespace) is still detected.
+The emphasis regex requires a non-`*_` prefix character, and the closing
+backtick of the preceding code span is a valid such prefix."
+  (should (equal (mg-test--fallback-types "`_skip_`_real_")
+                 '(code-span emphasis))))
+
+(ert-deftest regex/fallback-strong-adjacent-to-code-span ()
+  "Strong immediately after a code span (no whitespace) is still detected."
+  (should (equal (mg-test--fallback-types "`**a**`**b**")
+                 '(code-span strong))))
+
 ;;; Link Pattern Tests
 
 (mg-regex-test link-basic

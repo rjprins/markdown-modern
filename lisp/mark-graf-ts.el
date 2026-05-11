@@ -378,11 +378,13 @@ Optional START and END limit the range."
                         "code_span" "inline_link" "full_reference_link"
                         "image" "uri_autolink" "email_autolink"))
       (push node result))
-    ;; Recurse into children
-    (dotimes (i (treesit-node-child-count node))
-      (setq result (append result
-                           (mark-graf-ts--collect-inline-nodes
-                            (treesit-node-child node i)))))
+    ;; Recurse into children, but not inside inline code. Markdown content inside
+    ;; a code span must stay literal, including underscores and asterisks.
+    (unless (string= type "code_span")
+      (dotimes (i (treesit-node-child-count node))
+        (setq result (append result
+                             (mark-graf-ts--collect-inline-nodes
+                              (treesit-node-child node i))))))
     result))
 
 ;;; Fallback Regex-based Parsing
@@ -422,6 +424,7 @@ Handles Windows CRLF line endings with \\r?.")
   (condition-case err
       (let ((elements '())
             (code-block-regions '())    ; Track code block regions to exclude
+            (code-span-regions '())     ; Track inline code spans to exclude
             (blockquote-regions '()))   ; Track blockquote regions to exclude
         (save-excursion
       ;; FIRST: Find all fenced code blocks to know what regions to skip
@@ -467,21 +470,48 @@ Handles Windows CRLF line endings with \\r?.")
           (push (cons quote-start (min quote-end end)) blockquote-regions)
           (goto-char (min quote-end end))))
 
-      ;; Helper to check if position is inside a code block or blockquote
-      (cl-flet ((in-code-block-p (pos)
-                  (cl-some (lambda (region)
-                            (and (>= pos (car region))
-                                 (<= pos (cdr region))))
-                          code-block-regions))
-                (in-special-block-p (pos)
-                  (or (cl-some (lambda (region)
-                                (and (>= pos (car region))
-                                     (<= pos (cdr region))))
-                              code-block-regions)
-                      (cl-some (lambda (region)
-                                (and (>= pos (car region))
-                                     (<= pos (cdr region))))
-                              blockquote-regions))))
+      ;; Helpers for skipping regions where inline markup should not be parsed.
+      ;; `in-literal-region-p' treats the position right after a closing backtick
+      ;; as *outside* the span — emphasis adjacent to it can use that backtick
+      ;; as its required non-`*_' prefix character.
+      (cl-labels ((in-code-block-p (pos)
+                    (cl-some (lambda (region)
+                               (and (>= pos (car region))
+                                    (<= pos (cdr region))))
+                             code-block-regions))
+                  (in-special-block-p (pos)
+                    (or (cl-some (lambda (region)
+                                   (and (>= pos (car region))
+                                        (<= pos (cdr region))))
+                                 code-block-regions)
+                        (cl-some (lambda (region)
+                                   (and (>= pos (car region))
+                                        (<= pos (cdr region))))
+                                 blockquote-regions)))
+                  (in-literal-region-p (pos)
+                    (or (cl-some (lambda (region)
+                                   (and (>= pos (car region))
+                                        (< pos (cdr region))))
+                                 code-block-regions)
+                        (cl-some (lambda (region)
+                                   (and (>= pos (car region))
+                                        (< pos (cdr region))))
+                                 code-span-regions))))
+
+        ;; Find inline code spans before other inline markup so emphasis, links,
+        ;; and math markers inside backticks are treated as literal text.
+        (goto-char start)
+        (while (and (< (point) end)
+                    (re-search-forward mark-graf-ts--code-span-regex end t))
+          (unless (in-special-block-p (match-beginning 0))
+            (let ((span-start (match-beginning 0))
+                  (span-end (min (match-end 0) end)))
+              (push (cons span-start span-end) code-span-regions)
+              (push (make-mark-graf-node
+                     :type 'code-span
+                     :start span-start
+                     :end span-end)
+                    elements))))
 
         ;; Find headings (not in code blocks)
         (goto-char start)
@@ -599,13 +629,13 @@ Handles Windows CRLF line endings with \\r?.")
                 ;; No closing $$, skip
                 (goto-char end)))))
 
-        ;; Find inline math ($...$) - not in code blocks, not display math
+        ;; Find inline math ($...$) - not in code blocks/spans, not display math
         (goto-char start)
         (while (and (< (point) end)
                     (re-search-forward "\\$\\([^$\n]+\\)\\$" end t))
           (let ((pos (match-beginning 0))
                 (mend (match-end 0)))
-            (unless (or (in-code-block-p pos)
+            (unless (or (in-literal-region-p pos)
                         (and (> pos (point-min))
                              (eq (char-before pos) ?$))
                         (and (< mend (point-max))
@@ -616,64 +646,58 @@ Handles Windows CRLF line endings with \\r?.")
                      :end (min mend end))
                     elements))))
 
-        ;; Find inline elements - ONLY outside code blocks
+        ;; Find inline elements - outside code blocks and code spans
         (goto-char start)
         (while (and (< (point) end)
                     (re-search-forward mark-graf-ts--strong-regex end t))
-          (unless (in-code-block-p (match-beginning 1))
-            (push (make-mark-graf-node
-                   :type 'strong
-                   :start (match-beginning 1)
-                   :end (min (match-end 1) end))
-                  elements)))
+          (let ((pos (match-beginning 1)))
+            (unless (in-literal-region-p pos)
+              (push (make-mark-graf-node
+                     :type 'strong
+                     :start pos
+                     :end (min (match-end 1) end))
+                    elements))))
 
         (goto-char start)
         (while (and (< (point) end)
                     (re-search-forward mark-graf-ts--emphasis-regex end t))
-          (unless (in-code-block-p (match-beginning 1))
-            (push (make-mark-graf-node
-                   :type 'emphasis
-                   :start (match-beginning 1)
-                   :end (min (match-end 1) end))
-                  elements)))
-
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward mark-graf-ts--code-span-regex end t))
-          (unless (in-special-block-p (match-beginning 0))
-            (push (make-mark-graf-node
-                   :type 'code-span
-                   :start (match-beginning 0)
-                   :end (min (match-end 0) end))
-                  elements)))
+          (let ((pos (match-beginning 1)))
+            (unless (in-literal-region-p pos)
+              (push (make-mark-graf-node
+                     :type 'emphasis
+                     :start pos
+                     :end (min (match-end 1) end))
+                    elements))))
 
         ;; Find images (before links so links can skip image positions)
         (goto-char start)
         (while (and (< (point) end)
                     (re-search-forward mark-graf-ts--image-regex end t))
-          (unless (in-code-block-p (match-beginning 0))
-            (push (make-mark-graf-node
-                   :type 'image
-                   :start (match-beginning 0)
-                   :end (min (match-end 0) end)
-                   :properties (list :alt (match-string 1)
-                                    :url (match-string 2)))
-                  elements)))
+          (let ((pos (match-beginning 0)))
+            (unless (in-literal-region-p pos)
+              (push (make-mark-graf-node
+                     :type 'image
+                     :start pos
+                     :end (min (match-end 0) end)
+                     :properties (list :alt (match-string 1)
+                                       :url (match-string 2)))
+                    elements))))
 
         (goto-char start)
         (while (and (< (point) end)
                     (re-search-forward mark-graf-ts--link-regex end t))
-          (unless (or (in-code-block-p (match-beginning 0))
-                      ;; Skip if preceded by ! (that's an image, not a link)
-                      (and (> (match-beginning 0) (point-min))
-                           (eq (char-before (match-beginning 0)) ?!)))
-            (push (make-mark-graf-node
-                   :type 'link
-                   :start (match-beginning 0)
-                   :end (min (match-end 0) end)
-                   :properties (list :text (match-string 1)
-                                    :url (match-string 2)))
-                  elements)))))
+          (let ((pos (match-beginning 0)))
+            (unless (or (in-literal-region-p pos)
+                        ;; Skip if preceded by ! (that's an image, not a link)
+                        (and (> pos (point-min))
+                             (eq (char-before pos) ?!)))
+              (push (make-mark-graf-node
+                     :type 'link
+                     :start pos
+                     :end (min (match-end 0) end)
+                     :properties (list :text (match-string 1)
+                                       :url (match-string 2)))
+                    elements))))))
       (nreverse elements))
     (error
      (message "mark-graf: Parse error: %s" (error-message-string err))
