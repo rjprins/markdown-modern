@@ -128,5 +128,29 @@
       (should img1)
       (should (eq img1 img2)))))
 
+;;; Inline markup inside headings (tree-sitter path)
+
+(ert-deftest jit/heading-renders-inline-code-span ()
+  "Inline code spans inside a heading are rendered (backticks hidden).
+This is the tree-sitter path: the regex fallback emits the span separately,
+but under tree-sitter the heading must descend into its own inline markup."
+  (skip-unless (and (treesit-language-available-p 'markdown)
+                    (treesit-language-available-p 'markdown-inline)))
+  (with-temp-buffer
+    (setq-local mark-graf--rendering-enabled t)
+    (mark-graf-render--init)
+    (insert "## A `code` and `more` heading\n")
+    (setq-local mark-graf-ts--use-tree-sitter t)
+    (mark-graf-ts--init)
+    (mark-graf--jit-fontify (point-min) (point-max))
+    (let ((delims 0) (contents 0))
+      (dolist (ov (overlays-in (point-min) (point-max)))
+        (pcase (overlay-get ov 'mark-graf-type)
+          ('code-delim (setq delims (1+ delims)))
+          ('code-content (setq contents (1+ contents)))))
+      ;; Two spans: 4 hidden delimiter overlays, 2 styled content overlays.
+      (should (= delims 4))
+      (should (= contents 2)))))
+
 (provide 'mark-graf-jit-test)
 ;;; mark-graf-jit-test.el ends here

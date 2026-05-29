@@ -271,7 +271,14 @@
           ;; Apply face to content
           (let ((ov (mark-graf-render--get-overlay content-start end)))
             (overlay-put ov 'face face)
-            (overlay-put ov 'mark-graf-type 'heading-content)))))))
+            (overlay-put ov 'mark-graf-type 'heading-content))
+          ;; Render inline markup inside the heading (code spans, emphasis,
+          ;; links).  Under tree-sitter these are not returned as separate
+          ;; block elements, so the heading must descend into them itself,
+          ;; the way paragraphs do.  In the regex fallback this is a no-op
+          ;; (no inline parser) and the spans are emitted independently.
+          (dolist (inline (mark-graf-ts--inline-elements-in content-start end))
+            (ignore-errors (mark-graf-render--render-element inline))))))))
 
 (defun mark-graf-render--strong (elem)
   "Render strong/bold element ELEM."
