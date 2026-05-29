@@ -123,10 +123,19 @@
 
 (defcustom mark-graf-text-width 90
   "Maximum width in characters for rendered text content.
-Content will be visually constrained to this width.
+Only takes effect when `mark-graf-manage-text-width' is non-nil.
 Set to nil to use the full window width."
   :type '(choice (integer :tag "Character width")
                  (const :tag "Full window width" nil))
+  :group 'mark-graf)
+
+(defcustom mark-graf-manage-text-width nil
+  "Whether mark-graf constrains the visual text width itself.
+When non-nil, `mark-graf-mode' sets `fill-column' to `mark-graf-text-width'
+and turns on `visual-line-mode' (and `visual-fill-column-mode' if available)
+to constrain reading width.  When nil (the default), mark-graf does not touch
+`fill-column' or line wrapping, leaving those to your own configuration."
+  :type 'boolean
   :group 'mark-graf)
 
 (defcustom mark-graf-left-margin 4
@@ -471,8 +480,9 @@ single source of truth shared between point-motion reveal and jit-lock.")
           (setq-local line-prefix indent-str)
           (setq-local wrap-prefix indent-str))
 
-        ;; Set up text width for readable line lengths
-        (when mark-graf-text-width
+        ;; Constrain reading width only when explicitly opted in -- otherwise
+        ;; leave `fill-column' and line wrapping to the user's configuration.
+        (when (and mark-graf-manage-text-width mark-graf-text-width)
           (setq-local fill-column mark-graf-text-width)
           (visual-line-mode 1)
           ;; Use visual-fill-column if available for proper width limiting
@@ -535,10 +545,12 @@ single source of truth shared between point-motion reveal and jit-lock.")
     (kill-buffer mark-graf--code-edit-buffer))
   (setq mark-graf--code-edit-buffer nil)
 
-  ;; Disable visual modes
-  (visual-line-mode -1)
-  (when (fboundp 'visual-fill-column-mode)
-    (visual-fill-column-mode -1))
+  ;; Disable visual modes only if we enabled them (see setup), so we don't
+  ;; clobber a user who manages line wrapping themselves.
+  (when mark-graf-manage-text-width
+    (visual-line-mode -1)
+    (when (fboundp 'visual-fill-column-mode)
+      (visual-fill-column-mode -1)))
 
   ;; Reset line prefix
   (setq-local line-prefix nil)
@@ -599,26 +611,35 @@ code and overlays take effect."
     (message "mark-graf: reloaded %d modules, re-rendered %d buffer(s)"
              (length mark-graf--modules) (length buffers))))
 
+(defvar-local mark-graf--saved-wrap-state nil
+  "Saved (VISUAL-LINE-MODE . VISUAL-FILL-COLUMN-MODE) before horizontal scroll.")
+
 ;;;###autoload
 (defun mark-graf-toggle-truncate-lines ()
-  "Toggle between wrapped reading and horizontal-scroll view.
+  "Toggle between line wrapping and a horizontal-scroll view.
 Tables render at their natural width and are never truncated; when one is
 wider than the window, turn this on to read it by scrolling horizontally
-\(\\[scroll-left] / \\[scroll-right], or just move point) instead of having
-long lines wrap.  Toggling off restores `visual-line-mode' wrapping (and
-`visual-fill-column-mode' if present)."
+\(\\[scroll-left] / \\[scroll-right]) instead of having long lines wrap.
+This remembers and restores whatever wrapping minor modes were active, so it
+does not impose `visual-line-mode' on a buffer that was not using it."
   (interactive)
   (if truncate-lines
+      ;; Restore the wrapping state we saved when enabling truncation.
       (progn
         (setq truncate-lines nil)
-        (visual-line-mode 1)
-        (when (and (fboundp 'visual-fill-column-mode) mark-graf-text-width)
+        (when (car mark-graf--saved-wrap-state) (visual-line-mode 1))
+        (when (and (cdr mark-graf--saved-wrap-state)
+                   (fboundp 'visual-fill-column-mode))
           (visual-fill-column-mode 1))
-        (message "mark-graf: line wrapping on"))
+        (message "mark-graf: line wrapping restored"))
+    ;; Switch to horizontal scroll: truncation can't coexist with these.
+    (setq mark-graf--saved-wrap-state
+          (cons (bound-and-true-p visual-line-mode)
+                (bound-and-true-p visual-fill-column-mode)))
     (when (and (fboundp 'visual-fill-column-mode)
                (bound-and-true-p visual-fill-column-mode))
       (visual-fill-column-mode -1))
-    (visual-line-mode -1)
+    (when (bound-and-true-p visual-line-mode) (visual-line-mode -1))
     (setq truncate-lines t)
     (setq-local auto-hscroll-mode 'current-line)
     (message "mark-graf: horizontal scroll on (lines no longer wrap)")))
