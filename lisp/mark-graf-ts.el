@@ -414,8 +414,9 @@ Optional START and END limit the range."
   "Regex for inline links.")
 
 (defconst mark-graf-ts--code-block-regex
-  "^[ \t]?[ \t]?[ \t]?\\(```\\|~~~\\)\\([a-zA-Z0-9_+-]*\\)?[ \t]*\r?$"
+  "^[ \t]?[ \t]?[ \t]?\\(?:```\\|~~~\\)\\([a-zA-Z0-9_+-]*\\)?[ \t]*\r?$"
   "Regex for fenced code block start/end.
+Group 1 captures the language (empty for a bare fence).
 Allows up to 3 spaces indent per CommonMark spec.
 Handles Windows CRLF line endings with \\r?.")
 
