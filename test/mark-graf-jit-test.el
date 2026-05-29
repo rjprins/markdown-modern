@@ -98,21 +98,29 @@
     (goto-char 6)
     (should-not (mark-graf--markup-element-at (point)))))
 
-;;; Reveal guard under re-render
+;;; Reveal keeps styling
 
-(ert-deftest jit/reveal-guard-keeps-element-raw ()
-  "A revealed element stays markup-visible after a jit-lock re-render."
+(ert-deftest jit/reveal-shows-markup-but-keeps-styling ()
+  "Revealing an element shows its raw markers but preserves its face.
+After reveal there must be no marker-hiding (display) overlays in the span,
+but the styling face overlay (bold) must remain."
   (mark-graf-jit-test--with-buffer "text **bold** end\n"
     (let* ((pos (progn (goto-char (point-min)) (search-forward "bold") (match-beginning 0)))
            (region (mark-graf--markup-element-at pos)))
       (should region)
       (setq mark-graf--revealed-region region)
-      ;; Re-render the whole buffer the way jit-lock would on scroll.
+      ;; Re-render the whole buffer the way jit-lock would on scroll; the
+      ;; reveal guard should re-reveal markup while keeping faces.
       (mark-graf--jit-fontify (point-min) (point-max))
-      ;; The guard must have cleared overlays inside the revealed span, so the
-      ;; raw markup (** delimiters) is visible there.
-      (should (= 0 (length (mark-graf-jit-test--mark-graf-overlays
-                            (car region) (cdr region))))))))
+      (let ((display-ovs 0) (face-ovs 0))
+        (dolist (ov (mark-graf-jit-test--mark-graf-overlays (car region) (cdr region)))
+          (when (overlay-get ov 'display) (setq display-ovs (1+ display-ovs)))
+          (when (and (overlay-get ov 'face) (not (overlay-get ov 'display)))
+            (setq face-ovs (1+ face-ovs))))
+        ;; Markers are visible (no display overlays hide them) ...
+        (should (= display-ovs 0))
+        ;; ... but the bold styling is preserved.
+        (should (> face-ovs 0))))))
 
 ;;; Mermaid image cache idempotency
 

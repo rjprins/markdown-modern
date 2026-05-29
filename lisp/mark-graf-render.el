@@ -203,6 +203,19 @@
   (with-silent-modifications
     (mark-graf-render--clear-region start end)))
 
+(defun mark-graf-render--reveal-markup (start end)
+  "Reveal raw markup in START..END while preserving styling.
+Releases only the overlays that hide or replace source text (those carrying
+a `display' property: the marker/delimiter \"\" overlays, plus table, bullet,
+image and similar replacements), so the markdown syntax becomes visible.
+Overlays that merely apply a face (heading size, bold, italic, code colour)
+are kept, so revealed text stays formatted."
+  (with-silent-modifications
+    (dolist (ov (overlays-in start end))
+      (when (and (overlay-get ov 'mark-graf)
+                 (overlay-get ov 'display))
+        (mark-graf-render--release-overlay ov)))))
+
 ;;; Element Rendering Dispatch
 
 (defun mark-graf-render--render-element (elem)

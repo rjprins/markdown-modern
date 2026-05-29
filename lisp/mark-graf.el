@@ -734,11 +734,12 @@ the true rendered extent."
            (bstart (car b))
            (bend (cdr b)))
       (mark-graf-render--render-region bstart bend)
-      ;; Keep the element under point revealed across re-renders.
+      ;; Keep the element under point revealed across re-renders (markup
+      ;; visible, styling preserved).
       (when (and mark-graf--revealed-region
                  (< (car mark-graf--revealed-region) bend)
                  (> (cdr mark-graf--revealed-region) bstart))
-        (mark-graf-render--clear-region
+        (mark-graf-render--reveal-markup
          (max bstart (car mark-graf--revealed-region))
          (min bend (cdr mark-graf--revealed-region))))
       `(jit-lock-bounds ,bstart . ,bend))))
@@ -830,9 +831,10 @@ actually changes."
           (let ((b (mark-graf--extend-region-to-blocks (car old) (cdr old))))
             (mark-graf-render--render-region (car b) (cdr b))))
         (setq mark-graf--revealed-region new)
-        ;; Reveal the new element: drop its overlays so raw markup shows.
+        ;; Reveal the new element: show its raw markup but keep the styling
+        ;; (heading stays big, emphasis stays emphasised, ...).
         (when new
-          (mark-graf-render--clear-region (car new) (cdr new)))))))
+          (mark-graf-render--reveal-markup (car new) (cdr new)))))))
 
 ;;; Core Functions
 
