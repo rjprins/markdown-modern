@@ -570,6 +570,32 @@ providing a seamless reading/writing experience.
 ;; (add-to-list 'auto-mode-alist '("\\.md\\'" . mark-graf-mode))
 ;; Or call M-x mark-graf-mode manually in a markdown buffer
 
+(defconst mark-graf--modules
+  '(mark-graf-ts mark-graf-mermaid mark-graf-render
+    mark-graf-elements mark-graf-commands mark-graf-export mark-graf)
+  "mark-graf source modules, in load order.")
+
+;;;###autoload
+(defun mark-graf-reload ()
+  "Reload mark-graf source from `load-path' and re-render open buffers.
+Picks up the latest edits to the package without restarting Emacs: each
+module file is re-loaded (newest source wins via `load-prefer-newer'), then
+`mark-graf-mode' is re-applied to every live mark-graf buffer so the new
+code and overlays take effect."
+  (interactive)
+  (let ((buffers (seq-filter
+                  (lambda (b) (buffer-local-value 'mark-graf--rendering-enabled b))
+                  (seq-filter (lambda (b)
+                                (provided-mode-derived-p
+                                 (buffer-local-value 'major-mode b) 'mark-graf-mode))
+                              (buffer-list)))))
+    (dolist (m mark-graf--modules)
+      (load (symbol-name m) nil 'nomessage))
+    (dolist (b buffers)
+      (with-current-buffer b (mark-graf-mode)))
+    (message "mark-graf: reloaded %d modules, re-rendered %d buffer(s)"
+             (length mark-graf--modules) (length buffers))))
+
 ;;; Fenced Code Block Helpers
 
 (defun mark-graf--fenced-code-block-at (pos)
