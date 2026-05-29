@@ -35,6 +35,7 @@ test:
 		-l mark-graf-commands-test \
 		-l mark-graf-regex-test \
 		-l mark-graf-integration-test \
+		-l mark-graf-jit-test \
 		-f ert-run-tests-batch-and-exit
 
 # Run only export tests

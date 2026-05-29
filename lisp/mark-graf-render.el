@@ -62,9 +62,6 @@
 (defvar-local mark-graf-render--overlay-pool nil
   "Pool of reusable overlays.")
 
-(defvar-local mark-graf-render--rendered-regions nil
-  "Hash table of rendered region markers.")
-
 (defvar-local mark-graf-render--rendering-p nil
   "Non-nil when rendering is in progress.")
 
@@ -105,7 +102,6 @@
   "Initialize the rendering engine for current buffer."
   (setq mark-graf-render--overlays '())
   (setq mark-graf-render--overlay-pool '())
-  (setq mark-graf-render--rendered-regions (make-hash-table :test 'equal))
   (mark-graf-render--setup-display-chars))
 
 (defun mark-graf-render--setup-display-chars ()
@@ -206,68 +202,6 @@
   "Remove rendering from region START to END."
   (with-silent-modifications
     (mark-graf-render--clear-region start end)))
-
-(defun mark-graf-render--render-line (line-num)
-  "Render markdown elements on line LINE-NUM.
-If the line is part of a table, expands to render the entire table,
-because tree-sitter cannot find the pipe_table node from a single-line range."
-  (save-excursion
-    (goto-char (point-min))
-    (forward-line (1- line-num))
-    (let ((bol (line-beginning-position))
-          (eol (line-end-position)))
-      ;; If the line looks like a table row, render the full table
-      (if (save-match-data (looking-at "^[ \t]*|.+|[ \t]*$"))
-          (let ((table-start bol)
-                (table-end eol))
-            ;; Scan backward for table start
-            (save-excursion
-              (while (and (not (bobp))
-                          (progn (forward-line -1)
-                                 (save-match-data
-                                   (looking-at "^[ \t]*|.+|[ \t]*$"))))
-                (setq table-start (line-beginning-position))))
-            ;; Scan forward for table end
-            (save-excursion
-              (while (and (progn (forward-line 1) (not (eobp)))
-                          (save-match-data
-                            (looking-at "^[ \t]*|.+|[ \t]*$")))
-                (setq table-end (line-end-position))))
-            (mark-graf-render--render-region table-start table-end))
-        (mark-graf-render--render-region bol eol)))))
-
-(defun mark-graf-render--unrender-line (line-num)
-  "Remove rendering from line LINE-NUM, revealing raw markdown for editing.
-For table rows the overlay covering the source line plus its newline
-is removed so the user can see and edit the pipe-delimited text.
-A lightweight overlay is placed on the line to override buffer-local
-`line-prefix' so the raw text aligns with the rendered table rows."
-  (save-excursion
-    (goto-char (point-min))
-    (forward-line (1- line-num))
-    (let ((bol (line-beginning-position))
-          (eol (line-end-position)))
-      ;; For table rows the per-row overlay spans bol..(1+ eol);
-      ;; clear that full range so the display property is removed.
-      (mark-graf-render--unrender-region
-       bol (min (1+ eol) (point-max)))
-      ;; Place a lightweight overlay to suppress the buffer-local
-      ;; line-prefix on this line, so the raw pipe text starts at
-      ;; column 0 like the rendered table rows around it.
-      (let ((ov (make-overlay bol eol nil t nil)))
-        (overlay-put ov 'mark-graf t)
-        (overlay-put ov 'mark-graf-type 'unrender-prefix)
-        (overlay-put ov 'line-prefix "")
-        (overlay-put ov 'wrap-prefix "")
-        (overlay-put ov 'priority 200)
-        (push ov mark-graf-render--overlays)))))
-
-(defun mark-graf-render--ensure-rendered (start end)
-  "Ensure region from START to END is rendered."
-  (let ((key (cons start end)))
-    (unless (gethash key mark-graf-render--rendered-regions)
-      (mark-graf-render--render-region start end)
-      (puthash key t mark-graf-render--rendered-regions))))
 
 ;;; Element Rendering Dispatch
 
@@ -583,8 +517,9 @@ A lightweight overlay is placed on the line to override buffer-local
              ;; Remote URL - check cache or fetch async
              ((and full-path (mark-graf-render--url-p image-path))
               (let ((cache-file (mark-graf-render--image-cache-path image-path)))
-                (if (file-exists-p cache-file)
-                    ;; Already cached
+                (if (and (file-exists-p cache-file)
+                         (> (file-attribute-size (file-attributes cache-file)) 0))
+                    ;; Already cached (non-empty): reuse, never re-fetch on re-render
                     (mark-graf-render--display-image start end cache-file alt-text image-path)
                   ;; Show placeholder and fetch async
                   (mark-graf-render--image-placeholder start end alt-text image-path)
@@ -1673,42 +1608,38 @@ hide opening $$ line, display converted content, hide closing $$ line."
                                  svg))))
           (if svg-string
               (condition-case img-err
-                  (progn
-                    (message "mark-graf: rendering mermaid SVG (len=%d)" (length svg-string))
-                    (mark-graf-render--display-mermaid-svg start end svg-string))
+                  (mark-graf-render--display-mermaid-svg start end svg-string cache-key)
                 (error
                  (message "mark-graf: mermaid SVG display error: %s" (error-message-string img-err))
                  (mark-graf-render--mermaid-source-fallback elem)))
             ;; Unsupported diagram type or error - show as styled code block
             (mark-graf-render--mermaid-source-fallback elem)))))))
 
-(defun mark-graf-render--display-mermaid-svg (start end svg-string)
+(defun mark-graf-render--display-mermaid-svg (start end svg-string &optional cache-key)
   "Display SVG-STRING as an inline image in region START to END.
-Writes SVG to a temp file for reliable cross-platform image creation."
+The image is built from the SVG data in memory (no temp file) and cached by
+CACHE-KEY (or the SVG hash).  Because jit-lock re-renders a block every time it
+scrolls back into view, caching the image object means the SVG is converted to
+an image only once per unique diagram, not on every render."
   (when (and svg-string
              (> (length svg-string) 0)
              (<= start (point-max))
              (<= end (point-max)))
-    ;; Write SVG to temp file - more reliable than in-memory on Windows
-    (let* ((tmp-file (make-temp-file "mark-graf-mermaid-" nil ".svg"))
-           (image nil))
-      (unwind-protect
-          (progn
-            (with-temp-file tmp-file
-              (insert svg-string))
-            (setq image (create-image tmp-file 'svg nil
-                                      :scale 2.0
-                                      :max-width (* 2 (or mark-graf-image-max-width 600))))
-            (when image
-              (mark-graf-render--clear-region start end)
-              (let ((ov (mark-graf-render--get-overlay start end)))
-                (overlay-put ov 'display image)
-                (overlay-put ov 'help-echo "Mermaid diagram (SVG)")
-                (overlay-put ov 'mark-graf-type 'mermaid-svg)
-                (overlay-put ov 'priority 200))))
-        ;; Don't delete the temp file immediately - Emacs needs it for display
-        ;; Schedule deletion after a delay
-        (run-with-timer 10 nil #'delete-file tmp-file)))))
+    (let* ((key (cons 'img (or cache-key (md5 svg-string))))
+           (cache (mark-graf-render--mermaid-cache))
+           (image (or (gethash key cache)
+                      (let ((img (create-image svg-string 'svg t
+                                               :scale 2.0
+                                               :max-width (* 2 (or mark-graf-image-max-width 600)))))
+                        (puthash key img cache)
+                        img))))
+      (when image
+        (mark-graf-render--clear-region start end)
+        (let ((ov (mark-graf-render--get-overlay start end)))
+          (overlay-put ov 'display image)
+          (overlay-put ov 'help-echo "Mermaid diagram (SVG)")
+          (overlay-put ov 'mark-graf-type 'mermaid-svg)
+          (overlay-put ov 'priority 200))))))
 
 (defun mark-graf-render--mermaid-source-fallback (elem)
   "Render Mermaid ELEM as styled code block for unsupported diagram types."

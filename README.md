@@ -7,7 +7,8 @@ mark-graf brings a seamless live preview experience to Emacs, combining inline W
 ## Features
 
 - **Inline WYSIWYG rendering** - Headings, bold, italic, code, links, images rendered in-place
-- **Three editing paradigms** - Line-at-point, block-at-point, or full hybrid mode
+- **Reveal-at-point editing** - The raw markup of the element under the cursor is shown for in-place editing, then re-rendered when you move away
+- **Fast, viewport-driven rendering** - Powered by `jit-lock`, so only on-screen content is rendered
 - **Full GFM support** - Tables, task lists, fenced code blocks, strikethrough
 - **Syntax highlighting** - Code blocks highlighted using native Emacs modes
 - **Image display** - Inline images with automatic scaling
@@ -64,23 +65,24 @@ Or activate manually with `M-x mark-graf-mode` in any markdown buffer.
 | `C-c C-t 2` | `mark-graf-insert-heading-2` | Insert ## heading |
 | `C-c C-l` | `mark-graf-insert-link` | Insert link |
 | `C-c C-i` | `mark-graf-insert-image` | Insert image |
-| `C-c C-v v` | `mark-graf-toggle-view` | Toggle source/rendered |
 | `C-c C-e h` | `mark-graf-export-html` | Export to HTML |
 
-### Editing Paradigms
+### Editing Model
 
-Configure `mark-graf-edit-style` to control when raw markdown is revealed:
+mark-graf has a single view mode. Markdown is always rendered inline; when the
+cursor enters the scope of a markup element, that element's raw markup is
+revealed so you can edit it in place, and re-rendered once the cursor leaves:
 
-```elisp
-;; Show source only on current line (default)
-(setq mark-graf-edit-style 'line)
+- On a heading line, the `#` markers appear.
+- Inside (or right next to) emphasis, a code span, or a link, that element's
+  delimiters appear.
+- Inside a fenced code block or table, the raw block is shown.
 
-;; Show source for entire block (good for tables, code blocks)
-(setq mark-graf-edit-style 'block)
+Plain prose is never disturbed, so moving the cursor through ordinary text does
+no work. There is no source/rendered toggle to manage.
 
-;; Full WYSIWYG - source revealed only on demand
-(setq mark-graf-edit-style 'hybrid)
-```
+You can also reveal the element at point on demand with
+`mark-graf-toggle-element-at-point` (`C-c C-v e`).
 
 ### Navigation
 
@@ -140,17 +142,6 @@ All options available under `M-x customize-group RET mark-graf`:
 (setq mark-graf-image-max-height 600)
 ```
 
-### Behavior
-
-```elisp
-;; Update timing
-(setq mark-graf-update-delay 'on-leave)  ; or 0.3 for delay, 'immediate
-
-;; Lazy rendering for large files
-(setq mark-graf-lazy-rendering t)
-(setq mark-graf-large-file-threshold 100000)
-```
-
 ### Media
 
 ```elisp
@@ -165,11 +156,9 @@ All options available under `M-x customize-group RET mark-graf`:
   :ensure t
   :mode ("\\.md\\'" "\\.markdown\\'")
   :custom
-  (mark-graf-edit-style 'block)
   (mark-graf-heading-scale '(1.8 1.5 1.3 1.1 1.05 1.0))
   (mark-graf-heading-use-variable-pitch t)
   (mark-graf-image-max-width 800)
-  (mark-graf-lazy-rendering t)
   :hook
   (mark-graf-mode . visual-line-mode)
   :config
@@ -199,14 +188,11 @@ All options available under `M-x customize-group RET mark-graf`:
 | `C-c C-t !` | Promote heading |
 | `C-c C-t @` | Demote heading |
 
-### View Toggles (C-c C-v prefix)
+### Reveal (C-c C-v prefix)
 
 | Key | Command |
 |-----|---------|
-| `C-c C-v s` | Show source |
-| `C-c C-v r` | Show rendered |
-| `C-c C-v v` | Toggle view |
-| `C-c C-v e` | Toggle element at point |
+| `C-c C-v e` | Reveal raw markup for the element at point |
 
 ### Export (C-c C-e prefix)
 

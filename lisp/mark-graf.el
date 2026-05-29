@@ -30,8 +30,11 @@
 ;; approach of org-modern.
 ;;
 ;; Features:
-;; - Inline rendering of markdown using text properties and overlays
-;; - Three editing paradigms: line-at-point, block-at-point, hybrid
+;; - Inline rendering of markdown using text properties and overlays,
+;;   driven by `jit-lock' so only the visible region is rendered
+;; - Reveal-at-point: the raw markup of the element under the cursor
+;;   (heading markers, emphasis/code delimiters, fences, ...) is shown for
+;;   in-place editing, and re-rendered when the cursor leaves
 ;; - Full GFM support including tables, task lists, and fenced code blocks
 ;; - Image and diagram rendering
 ;; - Built-in HTML export with optional Pandoc integration
@@ -93,38 +96,6 @@
 
 ;;; Customization Variables
 
-(defcustom mark-graf-edit-style 'line
-  "Editing paradigm for revealing raw markdown syntax.
-`line'   - Reveal syntax on current line only
-`block'  - Reveal syntax for entire containing block
-`hybrid' - Keep syntax hidden, reveal on demand"
-  :type '(choice (const :tag "Line at point" line)
-                 (const :tag "Block at point" block)
-                 (const :tag "Hybrid overlay" hybrid))
-  :group 'mark-graf)
-
-(defcustom mark-graf-update-delay 'on-leave
-  "When to re-render markdown after editing.
-`immediate' or 0 - Re-render on every keystroke
-Number (e.g., 0.3) - Re-render after idle delay in seconds
-`on-leave' - Re-render when cursor leaves element"
-  :type '(choice (const :tag "Immediate" immediate)
-                 (const :tag "On leave" on-leave)
-                 (number :tag "Delay (seconds)"))
-  :group 'mark-graf)
-
-(defcustom mark-graf-edit-reveal-delay 0.1
-  "Seconds to wait before revealing syntax after cursor movement.
-Set to 0 for immediate reveal, higher values reduce flicker."
-  :type 'number
-  :group 'mark-graf)
-
-(defcustom mark-graf-edit-hide-delay 0.3
-  "Seconds to wait before hiding syntax after cursor leaves element.
-Set to 0 for immediate hide."
-  :type 'number
-  :group 'mark-graf)
-
 (defcustom mark-graf-heading-scale '(1.8 1.5 1.3 1.1 1.05 1.0)
   "Height scale factors for heading levels 1-6."
   :type '(list number number number number number number)
@@ -175,16 +146,6 @@ When enabled, code blocks use Emacs font-lock for the specified language."
 When enabled, the background color extends to the right margin."
   :type 'boolean
   :group 'mark-graf-code)
-
-(defcustom mark-graf-lazy-rendering t
-  "Whether to use lazy rendering for off-screen content."
-  :type 'boolean
-  :group 'mark-graf-performance)
-
-(defcustom mark-graf-large-file-threshold 100000
-  "Character count above which large file optimizations activate."
-  :type 'integer
-  :group 'mark-graf-performance)
 
 ;;; Faces
 
@@ -405,57 +366,13 @@ No background is used to avoid issues with visual-line-mode wrapping."
 (defvar-local mark-graf--rendering-enabled t
   "Whether rendering is currently enabled in this buffer.")
 
-(defvar-local mark-graf--current-element nil
-  "The element currently being edited (revealed).")
-
-(defvar-local mark-graf--reveal-timer nil
-  "Timer for delayed syntax reveal.")
-
-(defvar-local mark-graf--hide-timer nil
-  "Timer for delayed syntax hide.")
-
-(defvar-local mark-graf--update-timer nil
-  "Timer for delayed re-rendering after edits.")
-
-(defvar-local mark-graf--dirty-regions nil
-  "List of (START . END) regions needing re-render.")
-
-(defvar-local mark-graf--overlay-pool nil
-  "Pool of reusable overlays.")
-
-(defvar-local mark-graf--last-point nil
-  "Last known cursor position for movement detection.")
-
-(defvar-local mark-graf--revealed-line nil
-  "Line number currently revealed in `line' edit-style.")
-
-(defvar-local mark-graf--revealed-code-block nil
-  "Cons (START . END) of the currently block-revealed code block, or nil.
-When cursor is inside a fenced code block in `line' edit-style,
-the entire block is revealed instead of just one line.")
-
-(defvar-local mark-graf--revealed-math-block nil
-  "Cons (START . END) of the currently block-revealed display math block, or nil.
-When cursor is inside a display math block in `line' edit-style,
-the entire block is revealed instead of just one line.")
-
-(defvar-local mark-graf--revealed-table nil
-  "Cons (START . END) of the table the cursor is currently inside, or nil.
-Tables need full-region re-rendering because per-line rendering via
-tree-sitter cannot find the pipe_table node from a single-line range.")
+(defvar-local mark-graf--revealed-region nil
+  "Cons (START . END) of the markup element currently revealed at point.
+Nil when point is in plain prose with no markup to reveal.  This is the
+single source of truth shared between point-motion reveal and jit-lock.")
 
 (defvar-local mark-graf--code-edit-buffer nil
   "Indirect buffer currently editing a code block, or nil.")
-
-(defvar-local mark-graf--full-render-done-p nil
-  "Non-nil when the entire buffer has been rendered at least once.
-Used to skip destructive scroll-triggered re-renders for small files.")
-
-(defvar-local mark-graf--initial-render-p nil
-  "Non-nil when buffer has just been rendered and cursor line is still rendered.
-Design decision: on initial file open, all lines including the cursor line
-are rendered for a clean appearance.  The reveal-on-edit behavior only kicks
-in when the cursor actually moves to a different line.")
 
 ;;; Mode Definition
 
@@ -510,10 +427,7 @@ in when the cursor actually moves to a different line.")
     (define-key map (kbd "C-c |") #'mark-graf-insert-table)
     (define-key map (kbd "C-c C-c ^") #'mark-graf-table-sort)
 
-    ;; View toggles
-    (define-key map (kbd "C-c C-v s") #'mark-graf-show-source)
-    (define-key map (kbd "C-c C-v r") #'mark-graf-show-rendered)
-    (define-key map (kbd "C-c C-v v") #'mark-graf-toggle-view)
+    ;; Reveal raw markdown for the element at point on demand
     (define-key map (kbd "C-c C-v e") #'mark-graf-toggle-element-at-point)
     (define-key map (kbd "C-c C-x C-v") #'mark-graf-toggle-element-at-point)
 
@@ -568,39 +482,18 @@ in when the cursor actually moves to a different line.")
             (mark-graf--apply-text-width)
             (add-hook 'window-size-change-functions #'mark-graf--on-window-size-change)))
 
-        ;; Set up hooks
-        (add-hook 'post-command-hook #'mark-graf--post-command nil t)
-        (add-hook 'after-change-functions #'mark-graf--after-change nil t)
-        (add-hook 'window-scroll-functions #'mark-graf--on-scroll nil t)
-        ;; Clean up when switching to another major mode
-        (add-hook 'change-major-mode-hook #'mark-graf--teardown-buffer nil t)
-
         ;; Initialize rendering
         (mark-graf-render--init)
 
-        ;; Render buffer - for small files render all, otherwise defer visible region
-        (if (< (buffer-size) mark-graf-large-file-threshold)
-            ;; Small file: render entire buffer immediately
-            (progn
-              (mark-graf-render--render-region (point-min) (point-max))
-              (setq mark-graf--full-render-done-p t)
-              ;; Track cursor line but keep it rendered on initial open.
-              (when (eq mark-graf-edit-style 'line)
-                (setq mark-graf--revealed-line (line-number-at-pos (point)))
-                (setq mark-graf--initial-render-p t))
-              (redisplay t))
-          ;; Large file: defer rendering of visible region
-          (let ((buf (current-buffer)))
-            (run-with-timer 0 nil
-                            (lambda ()
-                              (when (buffer-live-p buf)
-                                (with-current-buffer buf
-                                  (mark-graf--render-visible)
-                                  ;; Track cursor line but keep it rendered (same as small file path)
-                                  (when (eq mark-graf-edit-style 'line)
-                                    (setq mark-graf--revealed-line (line-number-at-pos (point)))
-                                    (setq mark-graf--initial-render-p t))
-                                  (redisplay t)))))))
+        ;; Set up hooks.  Rendering itself is driven by jit-lock, which renders
+        ;; only the visible region (and re-renders on scroll/edit).  The
+        ;; post-command hook reveals the markup of the element under point, and
+        ;; the after-change hook invalidates the edited block for jit-lock.
+        (jit-lock-register #'mark-graf--jit-fontify)
+        (add-hook 'post-command-hook #'mark-graf--update-reveal nil t)
+        (add-hook 'after-change-functions #'mark-graf--after-change nil t)
+        ;; Clean up when switching to another major mode
+        (add-hook 'change-major-mode-hook #'mark-graf--teardown-buffer nil t)
 
         ;; Set up imenu
         (setq-local imenu-create-index-function #'mark-graf-imenu-create-index))
@@ -625,26 +518,15 @@ in when the cursor actually moves to a different line.")
 
 (defun mark-graf--teardown-buffer ()
   "Clean up mark-graf-mode resources from buffer."
-  ;; Cancel timers
-  (when mark-graf--reveal-timer
-    (cancel-timer mark-graf--reveal-timer))
-  (when mark-graf--hide-timer
-    (cancel-timer mark-graf--hide-timer))
-  (when mark-graf--update-timer
-    (cancel-timer mark-graf--update-timer))
-
-  ;; Remove hooks
-  (remove-hook 'post-command-hook #'mark-graf--post-command t)
+  ;; Stop jit-lock rendering and remove hooks
+  (jit-lock-unregister #'mark-graf--jit-fontify)
+  (remove-hook 'post-command-hook #'mark-graf--update-reveal t)
   (remove-hook 'after-change-functions #'mark-graf--after-change t)
-  (remove-hook 'window-scroll-functions #'mark-graf--on-scroll t)
   (remove-hook 'change-major-mode-hook #'mark-graf--teardown-buffer t)
   (remove-hook 'window-size-change-functions #'mark-graf--on-window-size-change)
 
   ;; Reset state
-  (setq mark-graf--full-render-done-p nil)
-  (setq mark-graf--revealed-code-block nil)
-  (setq mark-graf--revealed-math-block nil)
-  (setq mark-graf--revealed-table nil)
+  (setq mark-graf--revealed-region nil)
   (when (and mark-graf--code-edit-buffer
              (buffer-live-p mark-graf--code-edit-buffer))
     (kill-buffer mark-graf--code-edit-buffer))
@@ -739,389 +621,180 @@ Plist keys: :block-start :block-end :content-start :content-end :language."
                                 language
                               nil))))))))
 
-(defun mark-graf--display-math-block-at (pos)
-  "Return (START . END) if POS is inside a display math block, nil otherwise.
-Display math blocks are delimited by $$ on their own lines."
-  (save-match-data
-    (save-excursion
-      (goto-char (point-min))
-      (catch 'found
-        (while (re-search-forward "^\\$\\$[ \t]*$" nil t)
-          (let ((open-start (line-beginning-position)))
-            (forward-line 1)
-            (when (re-search-forward "^\\$\\$[ \t]*$" nil t)
-              (let ((close-end (line-end-position)))
-                ;; Include trailing newline if present
-                (when (< close-end (point-max))
-                  (setq close-end (1+ close-end)))
-                (when (and (>= pos open-start) (<= pos close-end))
-                  (throw 'found (cons open-start close-end)))))))
-        nil))))
+;;; JIT Rendering and Reveal-at-Point
+;;
+;; Rendering is driven by `jit-lock': it calls `mark-graf--jit-fontify' over
+;; the visible region (and on scroll/edit), so only on-screen text is rendered.
+;; A single piece of state, `mark-graf--revealed-region', tracks the markup
+;; element under point.  On cursor movement `mark-graf--update-reveal' shows the
+;; raw markup of that element (so it can be edited) and re-hides the previous
+;; one.  `mark-graf--jit-fontify' consults the same variable so the revealed
+;; element stays revealed across re-renders.
 
-(defun mark-graf--table-at (pos)
-  "Return (START . END) if POS is inside a markdown table, nil otherwise.
-Scans backward and forward from POS looking for consecutive pipe-table lines."
-  (save-match-data
-    (save-excursion
-      (goto-char pos)
-      (beginning-of-line)
-      ;; Check if current line is a table row
-      (when (looking-at "^[ \t]*|.+|[ \t]*$")
-        ;; Scan backward for the start of the table
-        (let ((table-start (line-beginning-position)))
-          (save-excursion
-            (while (and (not (bobp))
-                        (progn (forward-line -1)
-                               (looking-at "^[ \t]*|.+|[ \t]*$")))
-              (setq table-start (line-beginning-position))))
-          ;; Scan forward for the end of the table
-          (let ((table-end (line-end-position)))
-            (save-excursion
-              (while (and (progn (forward-line 1)
-                                 (not (eobp)))
-                          (looking-at "^[ \t]*|.+|[ \t]*$"))
-                (setq table-end (line-end-position))))
-            (cons table-start table-end)))))))
+(defun mark-graf--extend-region-to-blocks (start end)
+  "Expand START..END outward to whole containing-block bounds, clamped to buffer.
+Ensures jit-lock never renders a partial table, fenced block, or list.
+Uses tree-sitter `mark-graf-ts--containing-block-bounds' when available,
+otherwise a regex paragraph/fence heuristic."
+  (if mark-graf-ts--use-tree-sitter
+      (let ((b (mark-graf-ts--containing-block-bounds start end)))
+        (cons (max (point-min) (min start (car b)))
+              (min (point-max) (max end (cdr b)))))
+    (mark-graf--fallback-extend-region start end)))
+
+(defun mark-graf--fallback-extend-region (start end)
+  "Regex fallback for `mark-graf--extend-region-to-blocks'.
+Expands to the enclosing fenced code block and the surrounding
+blank-line-delimited paragraph window."
+  (save-excursion
+    ;; If START or END is inside a fenced code block, cover the whole fence.
+    (let ((fb (or (mark-graf--fenced-code-block-at start)
+                  (mark-graf--fenced-code-block-at end))))
+      (when fb
+        (setq start (min start (car fb))
+              end (max end (cdr fb)))))
+    (let (rstart rend)
+      ;; Backward to the first content line of the paragraph.
+      (goto-char start)
+      (forward-line 0)
+      (while (and (not (bobp)) (not (looking-at-p "^[ \t]*$")))
+        (forward-line -1))
+      (when (looking-at-p "^[ \t]*$") (forward-line 1))
+      (setq rstart (point))
+      ;; Forward to the blank line (or eob) after the paragraph.
+      (goto-char end)
+      (forward-line 0)
+      (while (and (not (eobp)) (not (looking-at-p "^[ \t]*$")))
+        (forward-line 1))
+      (setq rend (point))
+      (cons (max (point-min) (min rstart start))
+            (min (point-max) (max rend end))))))
+
+(defun mark-graf--jit-fontify (start end)
+  "Render mark-graf overlays for the block(s) spanning START..END.
+This is the `jit-lock' fontify function.  It widens to whole-block bounds,
+renders, then re-reveals the element under point so the revealed markup
+survives scroll/edit re-renders.  Returns a `jit-lock-bounds' cons reporting
+the true rendered extent."
+  (when mark-graf--rendering-enabled
+    (let* ((b (mark-graf--extend-region-to-blocks start end))
+           (bstart (car b))
+           (bend (cdr b)))
+      (mark-graf-render--render-region bstart bend)
+      ;; Keep the element under point revealed across re-renders.
+      (when (and mark-graf--revealed-region
+                 (< (car mark-graf--revealed-region) bend)
+                 (> (cdr mark-graf--revealed-region) bstart))
+        (mark-graf-render--clear-region
+         (max bstart (car mark-graf--revealed-region))
+         (min bend (cdr mark-graf--revealed-region))))
+      `(jit-lock-bounds ,bstart . ,bend))))
+
+(defun mark-graf--inline-element-at (pos start end)
+  "Return (S . E) of the smallest inline markup element at POS within START..END.
+Returns nil if POS is not within any inline markup.  Boundary-inclusive, so
+POS immediately before or after the markup counts as inside it."
+  (let ((best nil)
+        (best-size nil))
+    (dolist (el (ignore-errors (mark-graf-ts--inline-elements-in start end)))
+      (let ((s (mark-graf-node-start el))
+            (e (mark-graf-node-end el)))
+        (when (and s e (>= pos s) (<= pos e))
+          (let ((size (- e s)))
+            (when (or (null best-size) (< size best-size))
+              (setq best (cons s e)
+                    best-size size))))))
+    best))
+
+(defconst mark-graf--reveal-block-types
+  '(heading code-block code-block-indented blockquote table hr html-block)
+  "Block-level element types whose whole extent is revealed at point.")
+
+(defconst mark-graf--reveal-inline-types
+  '(emphasis strong strikethrough code-span link link-ref link-ref-collapsed
+    link-shortcut image autolink autolink-email)
+  "Inline markup element types that are revealed individually at point.")
+
+(defun mark-graf--markup-element-at (pos)
+  "Return (START . END) of the smallest markup element whose scope contains POS.
+Return nil when POS is in plain prose with no markup to reveal.  Inline markup
+\(emphasis, code span, link, ...) takes priority over its containing block;
+block-level markup (heading, code block, table, ...) is revealed whole.
+Works with both the tree-sitter and regex-fallback parsers."
+  (if mark-graf-ts--use-tree-sitter
+      (mark-graf--markup-element-at-ts pos)
+    (mark-graf--markup-element-at-fallback pos)))
+
+(defun mark-graf--markup-element-at-ts (pos)
+  "Tree-sitter implementation of `mark-graf--markup-element-at' for POS."
+  (when-let ((block (mark-graf-ts--containing-block pos)))
+    (let ((btype (mark-graf-node-type block))
+          (bstart (mark-graf-node-start block))
+          (bend (mark-graf-node-end block)))
+      (cond
+       ;; Prose containers: reveal the innermost inline markup at point.
+       ((memq btype '(paragraph list-item))
+        (mark-graf--inline-element-at pos bstart bend))
+       ;; Block-level markup: reveal the entire block.
+       ((memq btype mark-graf--reveal-block-types)
+        (cons bstart bend))
+       (t nil)))))
+
+(defun mark-graf--markup-element-at-fallback (pos)
+  "Regex-fallback implementation of `mark-graf--markup-element-at' for POS.
+Parses the block window around POS and returns the smallest markup element
+\(inline or block) containing POS, boundary-inclusive."
+  (let* ((b (mark-graf--fallback-extend-region pos pos))
+         (els (ignore-errors
+                (mark-graf-ts--fallback-parse-region (car b) (cdr b))))
+         (best nil)
+         (best-size nil))
+    (dolist (el els)
+      (let ((type (mark-graf-node-type el))
+            (s (mark-graf-node-start el))
+            (e (mark-graf-node-end el)))
+        (when (and s e (>= pos s) (<= pos e)
+                   (or (memq type mark-graf--reveal-inline-types)
+                       (memq type mark-graf--reveal-block-types)))
+          (let ((size (- e s)))
+            (when (or (null best-size) (< size best-size))
+              (setq best (cons s e)
+                    best-size size))))))
+    best))
+
+(defun mark-graf--update-reveal ()
+  "Reveal the markup of the element at point and re-hide the previous one.
+Run from `post-command-hook'.  Cheap when point stays within the same element
+or in plain prose: it only touches overlays when the element under point
+actually changes."
+  (when mark-graf--rendering-enabled
+    (let ((new (mark-graf--markup-element-at (point)))
+          (old mark-graf--revealed-region))
+      (unless (equal new old)
+        ;; Hide the previously revealed element by cleanly re-rendering its
+        ;; containing block (clear + re-render avoids duplicate overlays).
+        (when old
+          (let ((b (mark-graf--extend-region-to-blocks (car old) (cdr old))))
+            (mark-graf-render--render-region (car b) (cdr b))))
+        (setq mark-graf--revealed-region new)
+        ;; Reveal the new element: drop its overlays so raw markup shows.
+        (when new
+          (mark-graf-render--clear-region (car new) (cdr new)))))))
 
 ;;; Core Functions
 
-(defun mark-graf--post-command ()
-  "Handle post-command processing for cursor movement."
-  (when mark-graf--rendering-enabled
-    (if (eq mark-graf-edit-style 'line)
-        (mark-graf--update-revealed-line)
-      ;; Block/hybrid mode
-      (let ((current-pos (point)))
-        (unless (eq current-pos mark-graf--last-point)
-          (let ((old-element (when mark-graf--last-point
-                               (mark-graf-ts--element-at mark-graf--last-point)))
-                (new-element (mark-graf-ts--element-at current-pos)))
-            (unless (mark-graf--same-element-p old-element new-element)
-              (when old-element
-                (mark-graf--schedule-hide old-element))
-              (when new-element
-                (mark-graf--schedule-reveal new-element))))
-          (setq mark-graf--last-point current-pos))))))
-
-(defun mark-graf--point-on-link-overlay-p ()
-  "Return non-nil if point is on a rendered link overlay."
-  (cl-some (lambda (ov)
-             (and (overlay-get ov 'mark-graf)
-                  (overlay-get ov 'mark-graf-url)))
-           (overlays-at (point))))
-
-(defun mark-graf--leave-special-block ()
-  "Re-render any previously revealed special block (code, math, table).
-Clears the block tracking variables and nulls `mark-graf--revealed-line'
-so that the caller does not attempt a per-line render-line that would
-destroy the freshly created overlays."
-  (when mark-graf--revealed-code-block
-    (mark-graf-render--render-region
-     (car mark-graf--revealed-code-block)
-     (cdr mark-graf--revealed-code-block))
-    (setq mark-graf--revealed-code-block nil)
-    (setq mark-graf--revealed-line nil))
-  (when mark-graf--revealed-math-block
-    (mark-graf-render--render-region
-     (car mark-graf--revealed-math-block)
-     (cdr mark-graf--revealed-math-block))
-    (setq mark-graf--revealed-math-block nil)
-    (setq mark-graf--revealed-line nil))
-  (when mark-graf--revealed-table
-    (mark-graf-render--render-region
-     (car mark-graf--revealed-table)
-     (cdr mark-graf--revealed-table))
-    (setq mark-graf--revealed-table nil)
-    (setq mark-graf--revealed-line nil)))
-
-(defun mark-graf--update-revealed-line ()
-  "Ensure exactly the current line is unrendered and all others are rendered.
-On initial file open, all lines stay rendered until the cursor moves
-to a different line (see `mark-graf--initial-render-p').
-Suppresses unrendering when point lands on a link overlay, so that
-mouse clicks on rendered links work correctly.
-When cursor is inside a fenced code block, display math block, or table,
-special handling ensures the full block is re-rendered correctly."
-  (let ((cur-line (line-number-at-pos (point)))
-        (code-block (mark-graf--fenced-code-block-at (point)))
-        (math-block nil)
-        (table nil))
-    ;; Detect block type at point (check in priority order)
-    (unless code-block
-      (setq math-block (mark-graf--display-math-block-at (point))))
-    (unless (or code-block math-block)
-      (setq table (mark-graf--table-at (point))))
-    (cond
-     ;; Entering or staying in a code block
-     (code-block
-      ;; Leave any other special block
-      (when mark-graf--revealed-math-block
-        (mark-graf-render--render-region
-         (car mark-graf--revealed-math-block)
-         (cdr mark-graf--revealed-math-block))
-        (setq mark-graf--revealed-math-block nil))
-      (when mark-graf--revealed-table
-        (mark-graf-render--render-region
-         (car mark-graf--revealed-table)
-         (cdr mark-graf--revealed-table))
-        (setq mark-graf--revealed-table nil))
-      (let ((old-block mark-graf--revealed-code-block))
-        (cond
-         ;; Same code block - just update revealed line tracking
-         ((equal old-block code-block)
-          (unless (eq cur-line mark-graf--revealed-line)
-            (setq mark-graf--revealed-line cur-line)))
-         ;; Different or new code block
-         (t
-          (setq mark-graf--initial-render-p nil)
-          ;; Re-render old code block if leaving one
-          (when old-block
-            (mark-graf-render--render-region (car old-block) (cdr old-block)))
-          ;; Re-render old single line if leaving line mode
-          (when (and (not old-block) mark-graf--revealed-line)
-            (mark-graf-render--render-line mark-graf--revealed-line))
-          ;; Reveal entire new code block
-          (setq mark-graf--revealed-code-block code-block)
-          (setq mark-graf--revealed-line cur-line)
-          (mark-graf-render--unrender-region (car code-block) (cdr code-block))))))
-
-     ;; Entering or staying in a display math block
-     (math-block
-      ;; Leave any other special block
-      (when mark-graf--revealed-code-block
-        (mark-graf-render--render-region
-         (car mark-graf--revealed-code-block)
-         (cdr mark-graf--revealed-code-block))
-        (setq mark-graf--revealed-code-block nil))
-      (when mark-graf--revealed-table
-        (mark-graf-render--render-region
-         (car mark-graf--revealed-table)
-         (cdr mark-graf--revealed-table))
-        (setq mark-graf--revealed-table nil))
-      (let ((old-block mark-graf--revealed-math-block))
-        (cond
-         ;; Same math block - just update revealed line tracking
-         ((equal old-block math-block)
-          (unless (eq cur-line mark-graf--revealed-line)
-            (setq mark-graf--revealed-line cur-line)))
-         ;; Different or new math block
-         (t
-          (setq mark-graf--initial-render-p nil)
-          ;; Re-render old math block if leaving one
-          (when old-block
-            (mark-graf-render--render-region (car old-block) (cdr old-block)))
-          ;; Re-render old single line if leaving line mode
-          (when (and (not old-block) mark-graf--revealed-line)
-            (mark-graf-render--render-line mark-graf--revealed-line))
-          ;; Reveal entire math block
-          (setq mark-graf--revealed-math-block math-block)
-          (setq mark-graf--revealed-line cur-line)
-          (mark-graf-render--unrender-region (car math-block) (cdr math-block))))))
-
-     ;; Entering or staying in a table
-     (table
-      ;; Leave any other special block
-      (when mark-graf--revealed-code-block
-        (mark-graf-render--render-region
-         (car mark-graf--revealed-code-block)
-         (cdr mark-graf--revealed-code-block))
-        (setq mark-graf--revealed-code-block nil))
-      (when mark-graf--revealed-math-block
-        (mark-graf-render--render-region
-         (car mark-graf--revealed-math-block)
-         (cdr mark-graf--revealed-math-block))
-        (setq mark-graf--revealed-math-block nil))
-      (let ((old-table mark-graf--revealed-table))
-        (cond
-         ;; Same table, same line - nothing to do
-         ((and (equal old-table table) (eq cur-line mark-graf--revealed-line))
-          nil)
-         ;; Same table, different line - re-render full table then reveal new line
-         ((equal old-table table)
-          (mark-graf-render--render-region (car table) (cdr table))
-          (setq mark-graf--revealed-line cur-line)
-          (mark-graf-render--unrender-line cur-line))
-         ;; New or different table
-         (t
-          (setq mark-graf--initial-render-p nil)
-          ;; Re-render old table if leaving one
-          (when old-table
-            (mark-graf-render--render-region (car old-table) (cdr old-table)))
-          ;; Re-render old single line if not from a table
-          (when (and (not old-table) mark-graf--revealed-line)
-            (mark-graf-render--render-line mark-graf--revealed-line))
-          ;; Track new table and reveal current line
-          (setq mark-graf--revealed-table table)
-          (setq mark-graf--revealed-line cur-line)
-          (mark-graf-render--unrender-line cur-line)))))
-
-     ;; Not in any special block
-     (t
-      ;; Re-render any previously revealed special blocks
-      (mark-graf--leave-special-block)
-      ;; Standard line reveal behavior
-      (unless (eq cur-line mark-graf--revealed-line)
-        (unless (mark-graf--point-on-link-overlay-p)
-          (setq mark-graf--initial-render-p nil)
-          (let ((old-line mark-graf--revealed-line))
-            (setq mark-graf--revealed-line cur-line)
-            (when old-line
-              (mark-graf-render--render-line old-line)))
-          (mark-graf-render--unrender-line cur-line)))))))
-
-(defun mark-graf--same-element-p (elem1 elem2)
-  "Return non-nil if ELEM1 and ELEM2 are the same element."
-  (and elem1 elem2
-       (eq (mark-graf-node-start elem1) (mark-graf-node-start elem2))
-       (eq (mark-graf-node-end elem1) (mark-graf-node-end elem2))))
-
-(defun mark-graf--schedule-reveal (element)
-  "Schedule ELEMENT to be revealed after delay."
-  (when mark-graf--reveal-timer
-    (cancel-timer mark-graf--reveal-timer))
-  (if (zerop mark-graf-edit-reveal-delay)
-      (mark-graf--reveal-element element)
-    (setq mark-graf--reveal-timer
-          (run-with-timer mark-graf-edit-reveal-delay nil
-                          #'mark-graf--reveal-element element))))
-
-(defun mark-graf--schedule-hide (element)
-  "Schedule ELEMENT to be hidden (re-rendered) after delay."
-  (when mark-graf--hide-timer
-    (cancel-timer mark-graf--hide-timer))
-  (if (zerop mark-graf-edit-hide-delay)
-      (mark-graf--hide-element element)
-    (setq mark-graf--hide-timer
-          (run-with-timer mark-graf-edit-hide-delay nil
-                          #'mark-graf--hide-element element))))
-
-(defun mark-graf--reveal-element (element)
-  "Reveal raw markdown for ELEMENT (remove rendering)."
-  (when (buffer-live-p (current-buffer))
-    (setq mark-graf--current-element element)
-    (pcase mark-graf-edit-style
-      ('block
-       (mark-graf-render--unrender-region
-        (mark-graf-node-start element)
-        (mark-graf-node-end element)))
-      ('hybrid
-       nil))))
-
-(defun mark-graf--hide-element (element)
-  "Hide raw markdown for ELEMENT (re-render it)."
-  (when (buffer-live-p (current-buffer))
-    (when (eq element mark-graf--current-element)
-      (setq mark-graf--current-element nil))
-    (pcase mark-graf-edit-style
-      ('block
-       (mark-graf-render--render-region
-        (mark-graf-node-start element)
-        (mark-graf-node-end element)))
-      ('hybrid
-       nil))))
-
 (defun mark-graf--after-change (start end _old-len)
-  "Handle buffer modification from START to END with _OLD-LEN removed."
+  "Invalidate the block containing START..END so jit-lock re-renders it.
+This does no rendering itself: it only marks the affected block stale, so the
+heavy work happens lazily in `mark-graf--jit-fontify' on the next redisplay.
+Block widening ensures multi-line edits (closing a fence, adding a table row)
+re-render the whole construct, not just the changed line."
   (when mark-graf--rendering-enabled
-    ;; Mark region as dirty
-    (let ((block-bounds (mark-graf-ts--containing-block-bounds start end)))
-      (push block-bounds mark-graf--dirty-regions))
-    ;; Schedule update
-    (mark-graf--schedule-update)))
-
-(defun mark-graf--schedule-update ()
-  "Schedule deferred update after modifications."
-  (when mark-graf--update-timer
-    (cancel-timer mark-graf--update-timer))
-  (let ((delay (pcase mark-graf-update-delay
-                 ('immediate 0)
-                 ('on-leave nil)
-                 ((pred numberp) mark-graf-update-delay)
-                 (_ 0.3))))
-    (when delay
-      (setq mark-graf--update-timer
-            (run-with-timer delay nil
-                            #'mark-graf--process-dirty-regions)))))
-
-(defun mark-graf--process-dirty-regions ()
-  "Process pending dirty regions and re-render."
-  (when (buffer-live-p (current-buffer))
-    (dolist (region mark-graf--dirty-regions)
-      (when region
-        (mark-graf-render--render-region (car region) (cdr region))))
-    (setq mark-graf--dirty-regions nil)
-    ;; Re-assert revealed state (rendering may have covered it)
-    (when (and (eq mark-graf-edit-style 'line)
-               (not mark-graf--initial-render-p))
-      (cond
-       (mark-graf--revealed-code-block
-        (mark-graf-render--unrender-region
-         (car mark-graf--revealed-code-block)
-         (cdr mark-graf--revealed-code-block)))
-       (mark-graf--revealed-math-block
-        (mark-graf-render--unrender-region
-         (car mark-graf--revealed-math-block)
-         (cdr mark-graf--revealed-math-block)))
-       ;; For tables, only unrender the current line (table stays rendered)
-       ((and mark-graf--revealed-table mark-graf--revealed-line)
-        (mark-graf-render--unrender-line mark-graf--revealed-line))
-       (mark-graf--revealed-line
-        (mark-graf-render--unrender-line mark-graf--revealed-line))))))
-
-(defun mark-graf--render-visible ()
-  "Render only the currently visible region."
-  (let* ((win (get-buffer-window (current-buffer)))
-         (start (if win (window-start win) (point-min)))
-         (end (if win (window-end win t) (min (point-max) (+ (point-min) 10000))))
-         (margin (if mark-graf-lazy-rendering
-                     (* 50 (frame-char-height))
-                   0)))
-    ;; Ensure we have reasonable bounds
-    (when (or (null start) (null end) (<= end start))
-      (setq start (point-min)
-            end (min (point-max) (+ (point-min) 10000))))
-    (mark-graf-render--render-region
-     (max (point-min) (- start margin))
-     (min (point-max) (+ end margin)))))
-
-(defun mark-graf--on-scroll (window start)
-  "Handle scroll event for WINDOW starting at START."
-  (when mark-graf--rendering-enabled
-    ;; Only call ensure-rendered for lazy-rendered (large) files.
-    ;; For fully-rendered small files, this is unnecessary and harmful:
-    ;; ensure-rendered → render-region → clear-region destroys existing
-    ;; overlays, and the re-render may fail to recreate all of them.
-    (unless mark-graf--full-render-done-p
-      (let ((end (window-end window t)))
-        (mark-graf-render--ensure-rendered start end)))
-    ;; Re-assert revealed state
-    (when (and (eq mark-graf-edit-style 'line)
-               (not mark-graf--initial-render-p))
-      (cond
-       (mark-graf--revealed-code-block
-        (mark-graf-render--unrender-region
-         (car mark-graf--revealed-code-block)
-         (cdr mark-graf--revealed-code-block)))
-       (mark-graf--revealed-math-block
-        (mark-graf-render--unrender-region
-         (car mark-graf--revealed-math-block)
-         (cdr mark-graf--revealed-math-block)))
-       ;; For tables, only unrender the current line (table stays rendered)
-       ((and mark-graf--revealed-table mark-graf--revealed-line)
-        (mark-graf-render--unrender-line mark-graf--revealed-line))
-       (mark-graf--revealed-line
-        (mark-graf-render--unrender-line mark-graf--revealed-line))))
-    ;; Schedule deferred redisplay to fix artifacts after large scrolls
-    ;; (e.g. page-down) where overlays with display properties may not
-    ;; redisplay correctly on the first pass
-    (run-with-timer 0 nil
-                    (lambda ()
-                      (when (window-live-p window)
-                        (redisplay))))))
-
-(defun mark-graf--large-file-p ()
-  "Return non-nil if current buffer is considered large."
-  (> (buffer-size) mark-graf-large-file-threshold))
+    (let ((b (mark-graf--extend-region-to-blocks (min start end) (max start end))))
+      (if (fboundp 'jit-lock-refontify)
+          (jit-lock-refontify (car b) (cdr b))
+        (with-silent-modifications
+          (put-text-property (car b) (cdr b) 'fontified nil))))))
 
 ;;; Imenu Support
 

@@ -294,17 +294,6 @@ Use [ and ] to mark region boundaries in INITIAL."
     (mark-graf-up-heading)
     (should (looking-at "## Child"))))
 
-;;; View Toggle Tests
-
-(ert-deftest cmd/toggle-view ()
-  "Toggle between source and rendered view."
-  (with-temp-buffer
-    (setq-local mark-graf--rendering-enabled t)
-    (mark-graf-show-source)
-    (should-not mark-graf--rendering-enabled)
-    (mark-graf-show-rendered)
-    (should mark-graf--rendering-enabled)))
-
 ;;; Utility Function Tests
 
 (ert-deftest cmd/wrap-region-or-insert-no-region ()

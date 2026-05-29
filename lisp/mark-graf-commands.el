@@ -586,32 +586,7 @@ Elsewhere: cycle global visibility."
     (outline-show-all)
     (setq-local mark-graf--visibility-state 'all))))
 
-;;; View Toggle Commands
-
-;;;###autoload
-(defun mark-graf-show-source ()
-  "Show entire buffer as raw markdown source."
-  (interactive)
-  (setq mark-graf--rendering-enabled nil)
-  (mark-graf-render--clear-all)
-  (force-mode-line-update))
-
-;;;###autoload
-(defun mark-graf-show-rendered ()
-  "Show entire buffer with rendering enabled."
-  (interactive)
-  (setq mark-graf--rendering-enabled t)
-  (mark-graf-render--render-region (point-min) (point-max))
-  (setq mark-graf--full-render-done-p t)
-  (force-mode-line-update))
-
-;;;###autoload
-(defun mark-graf-toggle-view ()
-  "Toggle between rendered and source view."
-  (interactive)
-  (if mark-graf--rendering-enabled
-      (mark-graf-show-source)
-    (mark-graf-show-rendered)))
+;;; Element Reveal Command
 
 ;;;###autoload
 (defun mark-graf-toggle-element-at-point ()

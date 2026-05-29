@@ -176,26 +176,18 @@ def hello():
   (with-temp-buffer
     ;; Manually set up mode variables (don't fully activate mode - no tree-sitter)
     (setq-local mark-graf--rendering-enabled t)
-    (setq-local mark-graf--current-element nil)
-    (setq-local mark-graf--dirty-regions nil)
+    (setq-local mark-graf--revealed-region nil)
     ;; Verify
     (should mark-graf--rendering-enabled)
-    (should-not mark-graf--current-element)
-    (should-not mark-graf--dirty-regions)))
+    (should-not mark-graf--revealed-region)))
 
 (ert-deftest integration/customization-variables-exist ()
   "All customization variables are defined with defaults."
-  (should (boundp 'mark-graf-edit-style))
-  (should (boundp 'mark-graf-update-delay))
   (should (boundp 'mark-graf-heading-scale))
   (should (boundp 'mark-graf-display-images))
   (should (boundp 'mark-graf-image-max-width))
-  (should (boundp 'mark-graf-lazy-rendering))
   ;; Check default values
-  (should (eq mark-graf-edit-style 'line))
-  (should (eq mark-graf-update-delay 'on-leave))
-  (should (eq mark-graf-display-images t))
-  (should (eq mark-graf-lazy-rendering t)))
+  (should (eq mark-graf-display-images t)))
 
 (ert-deftest integration/faces-defined ()
   "All faces are properly defined."
