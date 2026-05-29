@@ -431,6 +431,9 @@ single source of truth shared between point-motion reveal and jit-lock.")
     (define-key map (kbd "C-c C-v e") #'mark-graf-toggle-element-at-point)
     (define-key map (kbd "C-c C-x C-v") #'mark-graf-toggle-element-at-point)
 
+    ;; Toggle horizontal-scroll view (for tables wider than the window)
+    (define-key map (kbd "C-c C-v t") #'mark-graf-toggle-truncate-lines)
+
     ;; Code block editing
     (define-key map (kbd "C-c '") #'mark-graf-edit-code-block)
 
@@ -595,6 +598,30 @@ code and overlays take effect."
       (with-current-buffer b (mark-graf-mode)))
     (message "mark-graf: reloaded %d modules, re-rendered %d buffer(s)"
              (length mark-graf--modules) (length buffers))))
+
+;;;###autoload
+(defun mark-graf-toggle-truncate-lines ()
+  "Toggle between wrapped reading and horizontal-scroll view.
+Tables render at their natural width and are never truncated; when one is
+wider than the window, turn this on to read it by scrolling horizontally
+\(\\[scroll-left] / \\[scroll-right], or just move point) instead of having
+long lines wrap.  Toggling off restores `visual-line-mode' wrapping (and
+`visual-fill-column-mode' if present)."
+  (interactive)
+  (if truncate-lines
+      (progn
+        (setq truncate-lines nil)
+        (visual-line-mode 1)
+        (when (and (fboundp 'visual-fill-column-mode) mark-graf-text-width)
+          (visual-fill-column-mode 1))
+        (message "mark-graf: line wrapping on"))
+    (when (and (fboundp 'visual-fill-column-mode)
+               (bound-and-true-p visual-fill-column-mode))
+      (visual-fill-column-mode -1))
+    (visual-line-mode -1)
+    (setq truncate-lines t)
+    (setq-local auto-hscroll-mode 'current-line)
+    (message "mark-graf: horizontal scroll on (lines no longer wrap)")))
 
 ;;; Fenced Code Block Helpers
 

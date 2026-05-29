@@ -1015,12 +1015,13 @@ otherwise cause overflow and garbled wrapping in visual-line-mode."
     (max 40 (- raw-width prefix-width))))
 
 (defun mark-graf-render--table-column-widths (rows)
-  "Calculate column widths from ROWS, respecting max table width.
-Uses window width if `mark-graf-table-max-width' is nil."
+  "Calculate column widths from ROWS at natural content width.
+Columns are sized to their widest cell so no content is truncated.  Tables
+are scaled down to fit only when `mark-graf-table-max-width' is set to a
+number; with the default nil a wide table keeps its natural width and is
+read by scrolling horizontally (see `mark-graf-toggle-truncate-lines')."
   (let ((widths nil)
-        (num-cols 0)
-        (max-width (or mark-graf-table-max-width
-                       (mark-graf-render--table-display-width))))
+        (num-cols 0))
     ;; First pass: get natural widths (using string-width for display accuracy)
     (dolist (row rows)
       (setq num-cols (max num-cols (length row)))
@@ -1037,20 +1038,20 @@ Uses window width if `mark-graf-table-max-width' is nil."
           (setq col (1+ col)))))
     ;; Ensure minimum width of 5 per column
     (setq widths (mapcar (lambda (w) (max 5 (or w 5))) widths))
-    ;; Scale down if total exceeds available space
-    ;; border-overhead: (num-cols + 1) border chars + 2 spaces per column
-    (let* ((border-overhead (+ 1 num-cols (* 2 num-cols)))
-           (available (max num-cols (- max-width border-overhead)))
-           (total (apply #'+ widths)))
-      (when (> total available)
-        ;; Scale proportionally, minimum 5 chars per column
-        (let ((scale (/ (float available) (float total))))
-          (setq widths (mapcar (lambda (w) (max 5 (floor (* w scale)))) widths))))
-      ;; Final safety: if total still exceeds, force equal distribution
-      (let ((new-total (apply #'+ widths)))
-        (when (> new-total available)
-          (let ((per-col (max 5 (/ available num-cols))))
-            (setq widths (mapcar (lambda (_) per-col) widths))))))
+    ;; Scale down only when a fixed maximum width is configured.  By default
+    ;; tables render at natural width (no truncation); over-wide tables are
+    ;; handled by horizontal scrolling, not by clipping cell content.
+    (when mark-graf-table-max-width
+      (let* ((border-overhead (+ 1 num-cols (* 2 num-cols)))
+             (available (max num-cols (- mark-graf-table-max-width border-overhead)))
+             (total (apply #'+ widths)))
+        (when (> total available)
+          (let ((scale (/ (float available) (float total))))
+            (setq widths (mapcar (lambda (w) (max 5 (floor (* w scale)))) widths)))
+          (let ((new-total (apply #'+ widths)))
+            (when (> new-total available)
+              (let ((per-col (max 5 (/ available num-cols))))
+                (setq widths (mapcar (lambda (_) per-col) widths))))))))
     widths))
 
 (defun mark-graf-render--wrap-text (text width)
@@ -1166,8 +1167,7 @@ Always finds the COMPLETE table by scanning beyond element boundaries."
 (defun mark-graf-render--table-create-overlays (rows row-info widths)
   "Create per-row overlays for table ROWS with ROW-INFO and WIDTHS.
 Each source line gets its own overlay, avoiding multi-line display issues."
-  (let* ((max-w (mark-graf-render--table-display-width))
-         (top-border (propertize
+  (let* ((top-border (propertize
                       (concat "┌" (mapconcat (lambda (w) (make-string (+ w 2) ?─)) widths "┬") "┐")
                       'face 'mark-graf-table))
          (bottom-border (propertize
@@ -1193,19 +1193,18 @@ Each source line gets its own overlay, avoiding multi-line display issues."
              (parts nil))
         ;; Top border before first row
         (when is-first
-          (push (mark-graf-render--table-truncate-to-width top-border max-w) parts)
+          (push top-border parts)
           (push "\n" parts))
-        ;; Row content (single line, safety-truncated to display width)
-        (let ((safe-row (mark-graf-render--table-truncate-to-width formatted max-w)))
-          (push (propertize safe-row 'face face) parts))
+        ;; Row content at natural width (no truncation; scroll for overflow)
+        (push (propertize formatted 'face face) parts)
         (push "\n" parts)
         ;; After-row: bottom border on last, separator between data rows
         (cond
          (is-last
-          (push (mark-graf-render--table-truncate-to-width bottom-border max-w) parts)
+          (push bottom-border parts)
           (push "\n" parts))
          ((and (not is-sep) (not next-is-sep))
-          (push (mark-graf-render--table-truncate-to-width row-separator max-w) parts)
+          (push row-separator parts)
           (push "\n" parts)))
         ;; Create overlay covering this source line + its newline
         (let* ((ov-end (min (1+ eol) (point-max)))

@@ -193,6 +193,7 @@ All options available under `M-x customize-group RET mark-graf`:
 | Key | Command |
 |-----|---------|
 | `C-c C-v e` | Reveal raw markup for the element at point |
+| `C-c C-v t` | Toggle horizontal-scroll view (for tables wider than the window) |
 
 ### Export (C-c C-e prefix)
 
