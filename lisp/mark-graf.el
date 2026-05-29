@@ -462,8 +462,8 @@ single source of truth shared between point-motion reveal and jit-lock.")
         ;; Initialize parser
         (mark-graf-ts--init)
 
-        ;; Enable line numbers
-        (display-line-numbers-mode 1)
+        ;; NB: do not force `display-line-numbers-mode' (or other UI minor
+        ;; modes) here -- respect the user's global configuration.
 
         ;; Set up left indentation using line-prefix
         (let ((indent-str (propertize (make-string mark-graf-left-margin ?\s)
