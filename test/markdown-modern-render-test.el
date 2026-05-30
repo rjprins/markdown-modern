@@ -120,5 +120,15 @@ fallback is used."
 ;; Strikethrough is only parsed on the tree-sitter path; see ts/render-* in
 ;; markdown-modern-ts-test.el.
 
+(ert-deftest render/code-block-syntax-highlight ()
+  "A code block gets per-token syntax faces when highlighting is enabled."
+  (skip-unless (fboundp 'python-mode))
+  (markdown-modern-render-test--with "```python\ndef greet():\n    return 1\n```\n" nil
+    (let ((n 0))
+      (dolist (ov (overlays-in (point-min) (point-max)))
+        (when (eq (overlay-get ov 'markdown-modern-type) 'code-highlight)
+          (setq n (1+ n))))
+      (should (> n 0)))))
+
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here

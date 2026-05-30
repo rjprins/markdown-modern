@@ -38,6 +38,7 @@
 (defvar markdown-modern-image-max-width)
 (defvar markdown-modern-image-max-height)
 (defvar markdown-modern-left-margin)
+(defvar markdown-modern-code-block-syntax-highlight)
 
 ;; Variables defined later in this file
 (defvar markdown-modern-math-block-scale)
@@ -699,6 +700,14 @@ Dispatches to mermaid renderer for mermaid code blocks."
                     (overlay-put ov 'priority 10)))
                 (forward-line 1))))
 
+          ;; Syntax-highlight the content on top of the background.
+          (when (and markdown-modern-code-block-syntax-highlight
+                     (stringp detected-lang)
+                     (> (length detected-lang) 0)
+                     (< content-start content-end))
+            (markdown-modern-render--highlight-code
+             content-start content-end detected-lang))
+
           ;; Hide closing fence
           (when (< closing-fence-start end)
             (let ((ov (markdown-modern-render--get-overlay closing-fence-start end)))
@@ -709,8 +718,11 @@ Dispatches to mermaid renderer for mermaid code blocks."
 (defun markdown-modern-render--highlight-code (start end language)
   "Apply syntax highlighting to code from START to END for LANGUAGE."
   (let* ((mode (markdown-modern-render--language-to-mode language))
-         (text (buffer-substring-no-properties start end)))
+         (text (buffer-substring-no-properties start end))
+         (ranges nil))
     (when mode
+      ;; Fontify a copy in a temp buffer and collect (offset end-offset face)
+      ;; ranges -- do NOT create overlays here, this is the wrong buffer.
       (with-temp-buffer
         (insert text)
         (delay-mode-hooks
@@ -718,19 +730,23 @@ Dispatches to mermaid renderer for mermaid code blocks."
               (funcall mode)
             (error nil)))
         (font-lock-ensure)
-        ;; Copy fontification back
-        (let ((pos 1)
-              (source-start start))
+        (let ((pos (point-min)))
           (while (< pos (point-max))
-            (let* ((next-change (or (next-property-change pos) (point-max)))
-                   (face (get-text-property pos 'face)))
+            (let ((next-change (or (next-single-property-change pos 'face)
+                                   (point-max)))
+                  (face (get-text-property pos 'face)))
               (when face
-                (let ((ov (markdown-modern-render--get-overlay
-                           (+ source-start (1- pos))
-                           (+ source-start (1- next-change)))))
-                  (overlay-put ov 'face face)
-                  (overlay-put ov 'markdown-modern-type 'code-highlight)))
-              (setq pos next-change))))))))
+                (push (list (1- pos) (1- next-change) face) ranges))
+              (setq pos next-change)))))
+      ;; Create the highlight overlays in the *source* buffer.
+      (dolist (r (nreverse ranges))
+        (let ((ov (markdown-modern-render--get-overlay
+                   (+ start (nth 0 r)) (+ start (nth 1 r)))))
+          (overlay-put ov 'face (nth 2 r))
+          (overlay-put ov 'markdown-modern-type 'code-highlight)
+          ;; Above the background overlay (priority 10) so token foreground
+          ;; colours win.
+          (overlay-put ov 'priority 20))))))
 
 (defconst markdown-modern-render--language-mode-alist
   '(("elisp" . emacs-lisp-mode)
