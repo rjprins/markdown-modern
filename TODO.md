@@ -52,22 +52,34 @@ the minimum needed.
   (`C-c '`) opens a code block in a dedicated buffer; a similar
   "edit-table-in-a-grid" command could be an alternative to inline cell editing.
 
-## Wire up code-block syntax highlighting (currently dead)
+## Reveal the list bullet when point is adjacent
 
-The machinery exists but is never invoked. `markdown-modern-render--highlight-code`
-(copies fontification from the language's major mode via a temp buffer) and the
-`markdown-modern-code-block-syntax-highlight` defcustom (default t) are both
-present, but `markdown-modern-render--code-block` only applies the flat
-`markdown-modern-code-block` background face and never calls highlight-code, so
-code blocks render monochrome.
+Rendered list items show a bullet glyph (● / ○ / ■). When point is on or right
+next to a bullet, reveal the original source marker (`-`, `*`, `+`, or `1.`)
+the way other markup is revealed at point, so it can be edited.
 
-- Fix: in the code-block renderer, after the per-line background overlays, call
-  `(markdown-modern-render--highlight-code content-start content-end detected-lang)`
-  when `markdown-modern-code-block-syntax-highlight` is non-nil. Give the
-  highlight overlays a higher priority than the background overlay so token
-  foreground colours win (background stays from `markdown-modern-code-block`).
-- Difficulty: low (the function and the language→mode map already exist).
-- Perf: highlight-code spawns the language major mode + font-lock per block per
-  render; under jit-lock that re-runs each time a block scrolls back into view.
-  Cheap for a viewport, but cache by (language . md5 of text) if code-heavy
-  documents feel slow — same pattern as the mermaid SVG cache.
+- Today `markdown-modern--markup-element-at` does not special-case the list
+  marker: point in a list item lands in the item's inline content (or nil), so
+  the bullet glyph stays rendered.
+- Approach: when point is within / adjacent to the leading marker of a
+  `list-item`, return the marker's range; `reveal-markup` then drops the
+  `list-marker` display overlay and the raw `- ` shows. Re-render on leave.
+- Difficulty: medium — mostly detecting "adjacent to the bullet" (the marker is
+  at the start of the item, possibly indented).
+
+## Heading markers (`#`) at the heading's size
+
+When a heading is revealed, its `#` markers currently show in the default
+(small) face, because the heading face is only applied to the content
+(`content-start..end`), not the markers.
+
+- Fix: in `markdown-modern-render--heading`, apply the heading face over the
+  whole line (`start..end`) instead of just the content. The markers stay
+  hidden while rendered (their `display ""` overlay wins); when revealed they
+  then appear at the heading's size.
+- Difficulty: low (one overlay range change). Verify it doesn't disturb the
+  rendered look (markers are hidden, so the extra face is invisible there).
+
+---
+
+Done: code-block syntax highlighting was wired up in 1.0.1 (see CHANGELOG).
