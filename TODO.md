@@ -51,3 +51,23 @@ the minimum needed.
 - Note the related existing affordance: `markdown-modern-edit-code-block`
   (`C-c '`) opens a code block in a dedicated buffer; a similar
   "edit-table-in-a-grid" command could be an alternative to inline cell editing.
+
+## Wire up code-block syntax highlighting (currently dead)
+
+The machinery exists but is never invoked. `markdown-modern-render--highlight-code`
+(copies fontification from the language's major mode via a temp buffer) and the
+`markdown-modern-code-block-syntax-highlight` defcustom (default t) are both
+present, but `markdown-modern-render--code-block` only applies the flat
+`markdown-modern-code-block` background face and never calls highlight-code, so
+code blocks render monochrome.
+
+- Fix: in the code-block renderer, after the per-line background overlays, call
+  `(markdown-modern-render--highlight-code content-start content-end detected-lang)`
+  when `markdown-modern-code-block-syntax-highlight` is non-nil. Give the
+  highlight overlays a higher priority than the background overlay so token
+  foreground colours win (background stays from `markdown-modern-code-block`).
+- Difficulty: low (the function and the language→mode map already exist).
+- Perf: highlight-code spawns the language major mode + font-lock per block per
+  render; under jit-lock that re-runs each time a block scrolls back into view.
+  Cheap for a viewport, but cache by (language . md5 of text) if code-heavy
+  documents feel slow — same pattern as the mermaid SVG cache.
