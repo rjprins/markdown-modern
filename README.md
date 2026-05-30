@@ -2,6 +2,8 @@
 
 Modern visual styling for Markdown buffers in Emacs.
 
+![markdown-modern rendering a Markdown buffer inline](images/screenshot.png)
+
 markdown-modern renders Markdown inline — headings, emphasis, code, tables, images — using text properties and overlays, in the spirit of [org-modern](https://github.com/minad/org-modern). It reveals the raw markup of the element under the cursor for editing, rather than showing raw syntax or a split-pane preview.
 
 markdown-modern is a fork of [mark-graf](https://github.com/hyperZphere/mark-graf) by Marc Ansset.
