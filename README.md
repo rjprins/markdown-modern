@@ -22,6 +22,10 @@ markdown-modern is a fork of [mark-graf](https://github.com/hyperZphere/mark-gra
 - **Pandoc integration** - Export to PDF, DOCX, and more (optional)
 - **markdown-mode compatible** - Familiar keybindings for easy adoption
 
+## Performance
+
+Rendering is driven by `jit-lock`, so only the visible region is rendered — open and scroll cost is **independent of file size**, not proportional to it. On a 25,000-line (~600 KB) Markdown file, rendering a screenful takes about **3 ms** with the tree-sitter parser, and reveal-at-point is sub-millisecond. Run `make bench` to measure on your machine.
+
 ## Requirements
 
 - Emacs 30.1 or later
@@ -141,41 +145,72 @@ M-x markdown-modern-export-docx
 
 ## Customization
 
-All options available under `M-x customize-group RET markdown-modern`:
+All options are under `M-x customize-group RET markdown-modern RET`. The faces
+(`markdown-modern-heading-1` … `-6`, `-bold`, `-italic`, `-inline-code`,
+`-code-block`, `-table`, …) are under `markdown-modern-faces`.
 
 ### Appearance
 
-```elisp
-;; Heading sizes
-(setq markdown-modern-heading-scale '(1.8 1.5 1.3 1.1 1.05 1.0))
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `markdown-modern-heading-scale` | `(1.8 1.5 1.3 1.1 1.05 1.0)` | Height scale factors for heading levels 1–6 |
+| `markdown-modern-heading-use-variable-pitch` | `t` | Headings use a variable-pitch font |
+| `markdown-modern-variable-pitch` | `t` | Enable `variable-pitch-mode` (proportional prose; code/tables stay fixed-pitch) |
+| `markdown-modern-visual-line` | `t` | Enable `visual-line-mode` (soft word-wrap) |
+| `markdown-modern-left-margin` | `4` | Left margin width, in characters |
 
-;; Use variable-pitch for headings
-(setq markdown-modern-heading-use-variable-pitch t)
+### Reading width
 
-;; Image dimensions
-(setq markdown-modern-image-max-width 800)
-(setq markdown-modern-image-max-height 600)
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `markdown-modern-manage-text-width` | `nil` | Let markdown-modern constrain the reading width; when `nil` it leaves `fill-column` and wrapping to your config |
+| `markdown-modern-text-width` | `90` | Reading width in characters (used only when `manage-text-width` is non-nil) |
+| `markdown-modern-table-max-width` | `nil` | Cap rendered table width; `nil` = natural width (scroll over-wide tables with `C-c C-v t`) |
 
-### Media
+### Code blocks
 
-```elisp
-;; Cache directory
-(setq markdown-modern-cache-directory "~/.cache/markdown-modern")
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `markdown-modern-code-block-syntax-highlight` | `t` | Syntax-highlight code blocks via the language's major mode |
+| `markdown-modern-code-block-full-width` | `t` | Extend the code-block background to the window edge |
 
-### Example Configuration
+### Images & diagrams
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `markdown-modern-display-images` | `t` | Display images inline |
+| `markdown-modern-image-max-width` | `600` | Maximum inline-image width, in pixels |
+| `markdown-modern-image-max-height` | `400` | Maximum inline-image height, in pixels |
+| `markdown-modern-cache-directory` | `~/.cache/markdown-modern` | Directory for cached rendered diagrams |
+
+### Math
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `markdown-modern-math-renderer` | `text` | How to render LaTeX math: `text` (Unicode) or `svg` (via tex2svg) |
+| `markdown-modern-math-block-scale` | `1.4` | Scale of display-math text relative to normal |
+| `markdown-modern-tex2svg-executable` | `"tex2svg"` | Path to `tex2svg` (MathJax-node), for SVG math |
+
+### Export
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `markdown-modern-use-pandoc` | `nil` | Use Pandoc for export when available |
+| `markdown-modern-pandoc-executable` | `"pandoc"` | Path to the Pandoc executable |
+| `markdown-modern-export-embed-images` | `nil` | Embed images as base64 in HTML export |
+| `markdown-modern-export-html-template` | _(built-in)_ | HTML template used by the built-in HTML export |
+| `markdown-modern-export-html-css` | _(built-in)_ | CSS used by the built-in HTML export |
+
+### Example configuration
 
 ```elisp
 (use-package markdown-modern
-  :ensure t
+  :vc (:url "https://github.com/rjprins/markdown-modern")
   :mode ("\\.md\\'" "\\.markdown\\'")
   :custom
-  (markdown-modern-heading-scale '(1.8 1.5 1.3 1.1 1.05 1.0))
-  (markdown-modern-heading-use-variable-pitch t)
-  (markdown-modern-image-max-width 800)
-  :hook
-  (markdown-modern-mode . visual-line-mode)
+  ;; Constrain the reading width (off by default):
+  (markdown-modern-manage-text-width t)
+  (markdown-modern-text-width 100)
   :config
   (set-face-attribute 'markdown-modern-heading-1 nil :foreground "#2aa198"))
 ```
@@ -218,16 +253,6 @@ All options available under `M-x customize-group RET markdown-modern`:
 | `C-c C-e p` | Export to PDF (Pandoc) |
 | `C-c C-e d` | Export to DOCX (Pandoc) |
 | `C-c C-c p` | Preview in browser |
-
-## Comparison with Alternatives
-
-| Feature | markdown-modern | markdown-mode | org-mode |
-|---------|-----------|---------------|----------|
-| Inline WYSIWYG | Yes | No (split pane) | Partial |
-| Pure Emacs | Yes | Yes | Yes |
-| Dependencies | None | Optional | None |
-| Standard Markdown | Yes | Yes | No (org syntax) |
-| Customizable | Full Elisp | Full Elisp | Full Elisp |
 
 ## Known Limitations
 
