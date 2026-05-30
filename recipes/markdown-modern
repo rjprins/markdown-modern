@@ -1,1 +1,1 @@
-(markdown-modern :fetcher github :repo "rjprins/mark-graf")
+(markdown-modern :fetcher github :repo "rjprins/markdown-modern")

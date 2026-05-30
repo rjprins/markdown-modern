@@ -7,7 +7,7 @@
 ;; Version: 1.0.0
 ;; Package-Requires: ((emacs "30.1"))
 ;; Keywords: markdown, wp, text
-;; URL: https://github.com/rjprins/mark-graf
+;; URL: https://github.com/rjprins/markdown-modern
 
 ;; This file is not part of GNU Emacs.
 
