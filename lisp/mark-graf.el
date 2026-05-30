@@ -134,7 +134,22 @@ Set to nil to use the full window width."
 When non-nil, `mark-graf-mode' sets `fill-column' to `mark-graf-text-width'
 and turns on `visual-line-mode' (and `visual-fill-column-mode' if available)
 to constrain reading width.  When nil (the default), mark-graf does not touch
-`fill-column' or line wrapping, leaving those to your own configuration."
+`fill-column', leaving width to your own configuration.  Line wrapping is
+controlled separately by `mark-graf-visual-line'."
+  :type 'boolean
+  :group 'mark-graf)
+
+(defcustom mark-graf-visual-line t
+  "Whether `mark-graf-mode' enables `visual-line-mode' for soft word wrapping.
+Set to nil to leave line wrapping to your own configuration."
+  :type 'boolean
+  :group 'mark-graf)
+
+(defcustom mark-graf-variable-pitch t
+  "Whether `mark-graf-mode' enables `variable-pitch-mode'.
+Renders prose in a proportional font for a document-like appearance; code
+spans, code blocks and tables stay monospaced via their faces.  Set to nil
+to keep a fixed-pitch buffer."
   :type 'boolean
   :group 'mark-graf)
 
@@ -215,11 +230,14 @@ When enabled, the background color extends to the right margin."
 
 (defface mark-graf-inline-code
   '((((background light))
+     :inherit fixed-pitch
      :foreground "#c7254e")
     (((background dark))
+     :inherit fixed-pitch
      :foreground "#e06c75"))
   "Face for inline code spans.
-Uses distinct color only, no background to keep clean appearance."
+Uses distinct color only, no background to keep clean appearance.
+Inherits `fixed-pitch' so code stays monospaced under `variable-pitch-mode'."
   :group 'mark-graf-faces)
 
 (defface mark-graf-code-block
@@ -307,12 +325,13 @@ No background is used to avoid issues with visual-line-mode wrapping."
 
 (defface mark-graf-table
   '((((background light))
-     :inherit default
+     :inherit fixed-pitch
      :background "#e0e0f0")
     (((background dark))
-     :inherit default
+     :inherit fixed-pitch
      :background "#2a2a45"))
-  "Face for table data rows."
+  "Face for table data rows.
+Inherits `fixed-pitch' so columns stay aligned under `variable-pitch-mode'."
   :group 'mark-graf-faces)
 
 (defface mark-graf-table-header
@@ -327,18 +346,18 @@ No background is used to avoid issues with visual-line-mode wrapping."
 
 (defface mark-graf-table-border
   '((((background light))
-     :inherit default
+     :inherit fixed-pitch
      :foreground "#888888"
      :background "#d8d8e0")
     (((background dark))
-     :inherit default
+     :inherit fixed-pitch
      :foreground "#666666"
      :background "#202038"))
   "Face for table separator row."
   :group 'mark-graf-faces)
 
 (defface mark-graf-table-cell
-  '((t :inherit mark-graf-default))
+  '((t :inherit fixed-pitch))
   "Face for table cell content."
   :group 'mark-graf-faces)
 
@@ -495,6 +514,12 @@ single source of truth shared between point-motion reveal and jit-lock.")
             (mark-graf--apply-text-width)
             (add-hook 'window-size-change-functions #'mark-graf--on-window-size-change)))
 
+        ;; Optional visual modes (enabled by default; configurable).
+        (when mark-graf-visual-line
+          (visual-line-mode 1))
+        (when mark-graf-variable-pitch
+          (variable-pitch-mode 1))
+
         ;; Initialize rendering
         (mark-graf-render--init)
 
@@ -545,12 +570,14 @@ single source of truth shared between point-motion reveal and jit-lock.")
     (kill-buffer mark-graf--code-edit-buffer))
   (setq mark-graf--code-edit-buffer nil)
 
-  ;; Disable visual modes only if we enabled them (see setup), so we don't
-  ;; clobber a user who manages line wrapping themselves.
-  (when mark-graf-manage-text-width
-    (visual-line-mode -1)
-    (when (fboundp 'visual-fill-column-mode)
-      (visual-fill-column-mode -1)))
+  ;; Disable only the visual modes mark-graf turned on (see setup), so we
+  ;; don't clobber settings the user manages elsewhere.
+  (when (or mark-graf-manage-text-width mark-graf-visual-line)
+    (visual-line-mode -1))
+  (when (and mark-graf-manage-text-width (fboundp 'visual-fill-column-mode))
+    (visual-fill-column-mode -1))
+  (when mark-graf-variable-pitch
+    (variable-pitch-mode -1))
 
   ;; Reset line prefix
   (setq-local line-prefix nil)
