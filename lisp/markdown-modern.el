@@ -4,7 +4,7 @@
 
 ;; Author: Marc Ansset <info@ansset.com>
 ;; Maintainer: Rutger Prins <rutgerprins@gmail.com>
-;; Version: 1.0.0
+;; Version: 1.0.1
 ;; Package-Requires: ((emacs "30.1"))
 ;; Keywords: markdown, wp, text
 ;; URL: https://github.com/rjprins/markdown-modern
