@@ -72,7 +72,7 @@ Set to t before loading markdown-modern to enable tree-sitter
   (when markdown-modern-ts--use-tree-sitter
     (condition-case err
         (unless (treesit-language-available-p 'markdown)
-          (if (yes-or-no-p "Markdown tree-sitter grammar not found. Install it? ")
+          (if (yes-or-no-p "Markdown tree-sitter grammar not found.  Install it? ")
               (markdown-modern-ts--install-grammar)
             (markdown-modern-ts--enable-fallback-mode)))
       (error
@@ -400,15 +400,15 @@ Optional START and END limit the range."
 
 (defconst markdown-modern-ts--emphasis-regex
   "\\(?:^\\|[^\\*_]\\)\\(\\*\\([^\\*\n\r]+\\)\\*\\|_\\([^_\n\r]+\\)_\\)"
-  "Regex for emphasis (italic). Only matches within a single line.")
+  "Regex for emphasis (italic).  Only matches within a single line.")
 
 (defconst markdown-modern-ts--strong-regex
   "\\(?:^\\|[^\\*_]\\)\\(\\*\\*\\([^\\*\n\r]+\\)\\*\\*\\|__\\([^_\n\r]+\\)__\\)"
-  "Regex for strong (bold). Only matches within a single line.")
+  "Regex for strong (bold).  Only matches within a single line.")
 
 (defconst markdown-modern-ts--code-span-regex
   "`\\([^`\n\r]+\\)`"
-  "Regex for inline code. Only matches within a single line.")
+  "Regex for inline code.  Only matches within a single line.")
 
 (defconst markdown-modern-ts--image-regex
   "!\\[\\([^]]*\\)\\](\\([^)]+\\))"

@@ -82,12 +82,13 @@ Returns plist with :bg :fg :surface :border :accent."
     s))
 
 (defun markdown-modern-mermaid--svg-rect (x y w h rx fill stroke &optional stroke-width)
-  "SVG rectangle at X Y with dimensions W H, corner radius RX."
+  "SVG rectangle at X Y with dimensions W H and corner radius RX.
+FILL and STROKE are colours; STROKE-WIDTH defaults to 1.5."
   (format "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" rx=\"%d\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%s\"/>"
           x y w h rx fill stroke (or stroke-width "1.5")))
 
 (defun markdown-modern-mermaid--svg-text (x y text font-size fill &optional anchor weight)
-  "SVG text at X Y with FONT-SIZE and FILL color.
+  "SVG TEXT at X Y with FONT-SIZE and FILL color.
 ANCHOR is text-anchor (start, middle, end).  WEIGHT is font-weight."
   (format "<text x=\"%d\" y=\"%d\" font-family=\"sans-serif\" font-size=\"%d\" fill=\"%s\" text-anchor=\"%s\"%s>%s</text>"
           x y font-size fill
@@ -96,24 +97,28 @@ ANCHOR is text-anchor (start, middle, end).  WEIGHT is font-weight."
           (markdown-modern-mermaid--svg-escape text)))
 
 (defun markdown-modern-mermaid--svg-line (x1 y1 x2 y2 stroke &optional dash stroke-width)
-  "SVG line from X1 Y1 to X2 Y2."
+  "SVG line from X1 Y1 to X2 Y2 in colour STROKE.
+DASH sets stroke-dasharray; STROKE-WIDTH defaults to 1.5."
   (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"%s\"%s/>"
           x1 y1 x2 y2 stroke (or stroke-width "1.5")
           (if dash (format " stroke-dasharray=\"%s\"" dash) "")))
 
 (defun markdown-modern-mermaid--svg-path (d stroke fill &optional stroke-width dash)
-  "SVG path with data D."
+  "SVG path with data D, colour STROKE and FILL.
+DASH sets stroke-dasharray; STROKE-WIDTH defaults to 1.5."
   (format "<path d=\"%s\" stroke=\"%s\" fill=\"%s\" stroke-width=\"%s\"%s/>"
           d stroke fill (or stroke-width "1.5")
           (if dash (format " stroke-dasharray=\"%s\"" dash) "")))
 
 (defun markdown-modern-mermaid--svg-circle (cx cy r fill stroke &optional stroke-width)
-  "SVG circle at CX CY with radius R."
+  "SVG circle at CX CY with radius R.
+FILL and STROKE are colours; STROKE-WIDTH defaults to 1.5."
   (format "<circle cx=\"%d\" cy=\"%d\" r=\"%d\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%s\"/>"
           cx cy r fill stroke (or stroke-width "1.5")))
 
 (defun markdown-modern-mermaid--svg-diamond (cx cy w h fill stroke)
-  "SVG diamond centered at CX CY with width W and height H."
+  "SVG diamond centered at CX CY with width W and height H.
+FILL and STROKE are colours."
   (let ((hw (/ w 2))
         (hh (/ h 2)))
     (format "<polygon points=\"%d,%d %d,%d %d,%d %d,%d\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1.5\"/>"
@@ -270,7 +275,7 @@ EDGES is a list of (list :from :to :label :style)."
     (list :direction direction :nodes nodes :edges (nreverse edges))))
 
 (defun markdown-modern-mermaid--flowchart-topo-sort (nodes edges)
-  "Topological sort of NODES given EDGES. Returns list of node IDs."
+  "Topological sort of NODES given EDGES.  Return list of node IDs."
   (let* ((all-ids nil)
          (in-degree (make-hash-table :test 'equal))
          (adjacency (make-hash-table :test 'equal))
@@ -311,7 +316,7 @@ EDGES is a list of (list :from :to :label :style)."
     (nreverse result)))
 
 (defun markdown-modern-mermaid--flowchart-assign-layers (node-ids edges)
-  "Assign layer numbers to NODE-IDS based on EDGES. Returns alist (id . layer).
+  "Assign layer numbers to NODE-IDS based on EDGES.  Return alist (id . layer).
 Back-edges (cycles) are ignored to prevent infinite layer growth."
   (let ((layers (make-hash-table :test 'equal))
         ;; Build a set of forward edges only (from appears before to in topo order)
@@ -344,7 +349,7 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
       (nreverse result))))
 
 (defun markdown-modern-mermaid--render-flowchart (lines colors)
-  "Render flowchart from LINES with theme COLORS. Returns SVG string."
+  "Render flowchart from LINES with theme COLORS.  Return SVG string."
   (let* ((parsed (markdown-modern-mermaid--parse-flowchart lines))
          (direction (plist-get parsed :direction))
          (nodes (plist-get parsed :nodes))
@@ -651,7 +656,7 @@ BLOCKS is list of plists with :type :label :start :end :sections."
           :blocks (nreverse blocks))))
 
 (defun markdown-modern-mermaid--render-sequence (lines colors)
-  "Render sequence diagram from LINES with COLORS. Returns SVG string."
+  "Render sequence diagram from LINES with COLORS.  Return SVG string."
   (let* ((parsed (markdown-modern-mermaid--parse-sequence lines))
          (participants (plist-get parsed :participants))
          (messages (plist-get parsed :messages))
@@ -857,7 +862,7 @@ TRANSITIONS is list of (:from FROM :to TO :label LABEL)."
     (list :states states :transitions (nreverse transitions))))
 
 (defun markdown-modern-mermaid--render-state (lines colors)
-  "Render state diagram from LINES with COLORS. Returns SVG string."
+  "Render state diagram from LINES with COLORS.  Return SVG string."
   (let* ((parsed (markdown-modern-mermaid--parse-state lines))
          (states (plist-get parsed :states))
          (transitions (plist-get parsed :transitions))
@@ -1066,7 +1071,7 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
     (list :classes classes :relationships (nreverse relationships))))
 
 (defun markdown-modern-mermaid--render-class (lines colors)
-  "Render class diagram from LINES with COLORS. Returns SVG string."
+  "Render class diagram from LINES with COLORS.  Return SVG string."
   (let* ((parsed (markdown-modern-mermaid--parse-class lines))
          (classes (plist-get parsed :classes))
          (relationships (plist-get parsed :relationships))
@@ -1332,7 +1337,7 @@ COLOR is the stroke color.  Returns list of SVG element strings."
     parts))
 
 (defun markdown-modern-mermaid--render-er (lines colors)
-  "Render ER diagram from LINES with COLORS. Returns SVG string."
+  "Render ER diagram from LINES with COLORS.  Return SVG string."
   (let* ((parsed (markdown-modern-mermaid--parse-er lines))
          (entities (plist-get parsed :entities))
          (relationships (plist-get parsed :relationships))

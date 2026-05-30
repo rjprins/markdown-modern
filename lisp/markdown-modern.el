@@ -297,7 +297,7 @@ Includes foreground color to override markdown-mode's inline styling."
      :foreground "#999999"
      :slant italic))
   "Face for blockquote text.
-No background is used to avoid issues with visual-line-mode wrapping."
+No background is used to avoid issues with `visual-line-mode' wrapping."
   :group 'markdown-modern-faces)
 
 (defface markdown-modern-blockquote-marker
@@ -555,7 +555,7 @@ single source of truth shared between point-motion reveal and jit-lock.")
       (set-window-margins win markdown-modern-left-margin right-margin))))
 
 (defun markdown-modern--on-window-size-change (frame)
-  "Update text width when window size changes."
+  "Update text width for the windows of FRAME on a size change."
   (dolist (win (window-list frame))
     (with-current-buffer (window-buffer win)
       (when (derived-mode-p 'markdown-modern-mode)
@@ -622,7 +622,7 @@ overlays, revealing the raw markup of the element under the cursor for editing.
 (defconst markdown-modern--modules
   '(markdown-modern-ts markdown-modern-mermaid markdown-modern-render
     markdown-modern-elements markdown-modern-commands markdown-modern-export markdown-modern)
-  "markdown-modern source modules, in load order.")
+  "List of markdown-modern source modules, in load order.")
 
 ;;;###autoload
 (defun markdown-modern-reload ()
@@ -751,7 +751,7 @@ otherwise a regex paragraph/fence heuristic."
     (markdown-modern--fallback-extend-region start end)))
 
 (defun markdown-modern--fallback-extend-region (start end)
-  "Regex fallback for `markdown-modern--extend-region-to-blocks'.
+  "Regex fallback for `markdown-modern--extend-region-to-blocks' over START..END.
 Expands to the enclosing fenced code block and the surrounding
 blank-line-delimited paragraph window."
   (save-excursion
@@ -825,7 +825,7 @@ POS immediately before or after the markup counts as inside it."
   "Inline markup element types that are revealed individually at point.")
 
 (defun markdown-modern--markup-element-at (pos)
-  "Return (START . END) of the smallest markup element whose scope contains POS.
+  "Return (START . END) of the smallest markup element containing POS.
 Return nil when POS is in plain prose with no markup to reveal.  Inline markup
 \(emphasis, code span, link, ...) takes priority over its containing block;
 block-level markup (heading, code block, table, ...) is revealed whole.

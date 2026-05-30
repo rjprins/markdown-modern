@@ -561,7 +561,7 @@ are kept, so revealed text stays formatted."
     (overlay-put ov 'markdown-modern-type 'image)))
 
 (defun markdown-modern-render--image-placeholder (start end alt-text image-path)
-  "Show placeholder overlay from START to END for image."
+  "Show a placeholder overlay from START to END for ALT-TEXT and IMAGE-PATH."
   (let ((ov (markdown-modern-render--get-overlay start end)))
     (overlay-put ov 'display
                  (propertize (format "[Image: %s]" (or alt-text image-path))
@@ -569,7 +569,9 @@ are kept, so revealed text stays formatted."
     (overlay-put ov 'markdown-modern-type 'image-placeholder)))
 
 (defun markdown-modern-render--fetch-image-async (url cache-file buffer start end alt-text)
-  "Fetch image from URL asynchronously, cache to CACHE-FILE, then display."
+  "Fetch image from URL asynchronously, cache to CACHE-FILE, then display.
+The image replaces the placeholder overlay between START and END in BUFFER;
+ALT-TEXT is used for the tooltip."
   (require 'url)
   (url-retrieve
    url
@@ -796,7 +798,7 @@ Dispatches to mermaid renderer for mermaid code blocks."
 
 (defun markdown-modern-render--blockquote (elem)
   "Render blockquote element ELEM.
-Uses simple styling that works well with visual-line-mode wrapping.
+Uses simple styling that works well with `visual-line-mode' wrapping.
 Also handles list items inside blockquotes."
   (let ((start (markdown-modern-node-start elem))
         (end (markdown-modern-node-end elem))
@@ -877,7 +879,7 @@ Also handles list items inside blockquotes."
 
 (defun markdown-modern-render--list-item (elem)
   "Render list item element ELEM.
-Includes wrap-prefix for proper line continuation."
+Includes `wrap-prefix' for proper line continuation."
   (let ((start (markdown-modern-node-start elem))
         (_end (markdown-modern-node-end elem))
         ;; Get the base indentation from the buffer's line-prefix
@@ -1013,9 +1015,9 @@ If nil, automatically uses window width minus margins."
   "Get the available display width for tables.
 Uses `window-body-width' of the window displaying the current buffer,
 falling back to 80 if the buffer is not yet displayed.
-Subtracts `line-prefix' width because Emacs applies line-prefix to
+Subtracts `line-prefix' width because Emacs applies `line-prefix' to
 each visual line within an overlay's display string, which would
-otherwise cause overflow and garbled wrapping in visual-line-mode."
+otherwise cause overflow and garbled wrapping in `visual-line-mode'."
   (let* ((win (get-buffer-window (current-buffer)))
          (raw-width (if win
                        (max 40 (window-body-width win))
@@ -1108,7 +1110,8 @@ Uses `string-width' for accurate multi-byte character handling."
       (concat (substring str 0 lo) "…"))))
 
 (defun markdown-modern-render--table-format-row (cells widths is-separator)
-  "Format CELLS with WIDTHS. Returns single-line string, truncating if needed."
+  "Format CELLS with WIDTHS.  Return single-line string, truncating if needed.
+IS-SEPARATOR non-nil formats the separator row instead of a data row."
   (let ((num-cols (length widths)))
     (if is-separator
         ;; Separator row - single line
@@ -1277,7 +1280,7 @@ Each source line gets its own overlay, avoiding multi-line display issues."
           (overlay-put ov 'markdown-modern-type 'table-border))))))
 
 (defun markdown-modern-render--table-separator (elem)
-  "Render a table separator row - display as horizontal line."
+  "Render table separator element ELEM as a horizontal line."
   (let ((start (markdown-modern-node-start elem))
         (end (markdown-modern-node-end elem)))
     (save-excursion

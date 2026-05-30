@@ -204,7 +204,7 @@ If OUTPUT-FILE is nil, prompts for destination."
                           nil t)
          nil))
   (unless (markdown-modern-pandoc-available-p)
-    (user-error "Pandoc not found. Install Pandoc or set `markdown-modern-pandoc-executable'"))
+    (user-error "Pandoc not found; install Pandoc or set `markdown-modern-pandoc-executable'"))
   (let* ((base-name (if buffer-file-name
                         (file-name-sans-extension buffer-file-name)
                       "export"))

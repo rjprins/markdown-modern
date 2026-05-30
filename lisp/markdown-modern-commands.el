@@ -135,7 +135,7 @@
 
 ;;;###autoload
 (defun markdown-modern-insert-heading (&optional level)
-  "Insert a heading at LEVEL (prompts if not specified)."
+  "Insert a heading at LEVEL, or prompt for one when not specified."
   (interactive
    (list (read-number "Heading level (1-6): " 2)))
   (let ((lvl (max 1 (min 6 (or level 2)))))
