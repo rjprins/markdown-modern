@@ -30,17 +30,28 @@ markdown-modern is a fork of [mark-graf](https://github.com/hyperZphere/mark-gra
 
 ## Installation
 
-### From MELPA (recommended)
+markdown-modern is not on MELPA; install it directly from this repository.
+
+### With `package-vc-install` (Emacs 29+, recommended)
+
+```
+M-x package-vc-install RET https://github.com/rjprins/markdown-modern RET
+```
+
+Or in your init file:
+
+```elisp
+(package-vc-install "https://github.com/rjprins/markdown-modern")
+```
+
+With `use-package` (Emacs 30+):
 
 ```elisp
 (use-package markdown-modern
-  :ensure t)
+  :vc (:url "https://github.com/rjprins/markdown-modern"))
 ```
 
-### Manual Installation
-
-1. Clone this repository
-2. Add to your `load-path`:
+### Manual
 
 ```elisp
 (add-to-list 'load-path "/path/to/markdown-modern/lisp")
