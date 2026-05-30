@@ -1,3 +1,1 @@
-(markdown-modern :fetcher github
-                 :repo "rjprins/mark-graf"
-                 :files ("lisp/*.el"))
+(markdown-modern :fetcher github :repo "rjprins/mark-graf")
