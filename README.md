@@ -10,17 +10,24 @@ markdown-modern is a fork of [mark-graf](https://github.com/hyperZphere/mark-gra
 
 ## Features
 
-- **Inline WYSIWYG rendering** - Headings, bold, italic, code, links, images rendered in-place
-- **Reveal-at-point editing** - The raw markup of the element under the cursor is shown for in-place editing, then re-rendered when you move away
-- **Fast, viewport-driven rendering** - Powered by `jit-lock`, so only on-screen content is rendered
-- **Full GFM support** - Tables, task lists, fenced code blocks, strikethrough
-- **Syntax highlighting** - Code blocks highlighted using native Emacs modes
-- **Image display** - Inline images with automatic scaling
-- **Mermaid diagrams** - Render diagrams inline using built-in Elisp SVG renderer
-- **LaTeX math** - Styled math expressions
-- **Built-in HTML export** - No external dependencies required
-- **Pandoc integration** - Export to PDF, DOCX, and more (optional)
-- **markdown-mode compatible** - Familiar keybindings for easy adoption
+**markdown-modern's own rendering and editing:**
+
+- **Inline rendering** — headings, bold, italic, inline code, links and images shown in place, via text properties and overlays
+- **Reveal-at-point editing** — the element under the cursor shows its raw markup (styling preserved) for editing, and re-renders when you move away; a single view mode, no source/rendered toggle
+- **Viewport-driven** — built on `jit-lock`, so rendering cost is independent of file size (see [Performance](#performance))
+- **GFM constructs** — tables, task lists, fenced code blocks, strikethrough, blockquotes, lists, horizontal rules
+- **Mermaid diagrams** — rendered inline by a built-in, pure-Elisp SVG renderer (no Node or external CLI)
+- **LaTeX math** — inline and display math via a built-in LaTeX → Unicode converter
+- **HTML export** — built in, with no external dependencies
+
+**Wired up from Emacs built-ins or external tools:**
+
+- **Code-block syntax highlighting** — uses the language's own major mode (`python-mode`, `rust-ts-mode`, …); requires that mode to be installed
+- **Inline image display** — Emacs's built-in image support, with scaling
+- **SVG math** — optional, via the external `tex2svg` (MathJax-node)
+- **PDF / DOCX / other export** — optional, via the external `pandoc`
+
+Keybindings mirror markdown-mode's `C-c C-s …` conventions for familiarity — though markdown-modern is its own major mode (derived from `text-mode`), not built on markdown-mode.
 
 ## Performance
 
