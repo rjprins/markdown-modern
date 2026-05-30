@@ -1,16 +1,16 @@
-;;; mark-graf-regex-test.el --- Regex pattern tests for mark-graf -*- lexical-binding: t; -*-
+;;; markdown-modern-regex-test.el --- Regex pattern tests for markdown-modern -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 mark-graf contributors
+;; Copyright (C) 2026 markdown-modern contributors
 
 ;;; Commentary:
 
-;; Unit tests for mark-graf regex patterns used in fallback parsing.
+;; Unit tests for markdown-modern regex patterns used in fallback parsing.
 ;; These patterns are critical for when tree-sitter is unavailable.
 
 ;;; Code:
 
 (require 'ert)
-(require 'mark-graf-ts)
+(require 'markdown-modern-ts)
 
 ;;; Test Helper Macro
 
@@ -41,52 +41,52 @@ Test that PATTERN matches INPUT and captures EXPECTED groups."
 ;;; Heading Pattern Tests
 
 (mg-regex-test heading-h1
-  mark-graf-ts--heading-regex
+  markdown-modern-ts--heading-regex
   "# Title"
   "#" "Title")
 
 (mg-regex-test heading-h2
-  mark-graf-ts--heading-regex
+  markdown-modern-ts--heading-regex
   "## Subtitle"
   "##" "Subtitle")
 
 (mg-regex-test heading-h3
-  mark-graf-ts--heading-regex
+  markdown-modern-ts--heading-regex
   "### Section Name"
   "###" "Section Name")
 
 (mg-regex-test heading-h6
-  mark-graf-ts--heading-regex
+  markdown-modern-ts--heading-regex
   "###### Deep heading"
   "######" "Deep heading")
 
 (mg-regex-test heading-with-trailing-space
-  mark-graf-ts--heading-regex
+  markdown-modern-ts--heading-regex
   "## Title  "
   "##" "Title  ")
 
 (mg-regex-no-match heading-no-space
-  mark-graf-ts--heading-regex
+  markdown-modern-ts--heading-regex
   "#NoSpace")
 
 (mg-regex-no-match heading-seven-hashes
-  mark-graf-ts--heading-regex
+  markdown-modern-ts--heading-regex
   "####### Invalid")
 
 ;;; Bold Pattern Tests
 
 (mg-regex-test bold-asterisks
-  mark-graf-ts--strong-regex
+  markdown-modern-ts--strong-regex
   "**bold text**"
   "**bold text**" "bold text")
 
 (mg-regex-test bold-underscores
-  mark-graf-ts--strong-regex
+  markdown-modern-ts--strong-regex
   "__bold text__"
   "__bold text__" nil "bold text")
 
 (mg-regex-test bold-single-word
-  mark-graf-ts--strong-regex
+  markdown-modern-ts--strong-regex
   "**word**"
   "**word**" "word")
 
@@ -97,29 +97,29 @@ Test that PATTERN matches INPUT and captures EXPECTED groups."
 ;;; Italic Pattern Tests
 
 (mg-regex-test italic-asterisk
-  mark-graf-ts--emphasis-regex
+  markdown-modern-ts--emphasis-regex
   "*italic text*"
   "*italic text*" "italic text")
 
 (mg-regex-test italic-underscore
-  mark-graf-ts--emphasis-regex
+  markdown-modern-ts--emphasis-regex
   "_italic text_"
   "_italic text_" nil "italic text")
 
 ;;; Code Span Pattern Tests
 
 (mg-regex-test code-span-basic
-  mark-graf-ts--code-span-regex
+  markdown-modern-ts--code-span-regex
   "`code`"
   "code")
 
 (mg-regex-test code-span-with-spaces
-  mark-graf-ts--code-span-regex
+  markdown-modern-ts--code-span-regex
   "`code with spaces`"
   "code with spaces")
 
 (mg-regex-test code-span-special-chars
-  mark-graf-ts--code-span-regex
+  markdown-modern-ts--code-span-regex
   "`<div class=\"foo\">`"
   "<div class=\"foo\">")
 
@@ -127,8 +127,8 @@ Test that PATTERN matches INPUT and captures EXPECTED groups."
   "Return the list of node types produced by fallback-parsing INPUT."
   (with-temp-buffer
     (insert input)
-    (mapcar #'mark-graf-node-type
-            (mark-graf-ts--fallback-parse-region (point-min) (point-max)))))
+    (mapcar #'markdown-modern-node-type
+            (markdown-modern-ts--fallback-parse-region (point-min) (point-max)))))
 
 (ert-deftest regex/fallback-code-span-underscores-are-literal ()
   "Fallback parsing must not treat underscores inside code spans as emphasis."
@@ -175,34 +175,34 @@ backtick of the preceding code span is a valid such prefix."
 ;;; Link Pattern Tests
 
 (mg-regex-test link-basic
-  mark-graf-ts--link-regex
+  markdown-modern-ts--link-regex
   "[text](http://example.com)"
   "text" "http://example.com")
 
 (mg-regex-test link-with-path
-  mark-graf-ts--link-regex
+  markdown-modern-ts--link-regex
   "[docs](/path/to/doc)"
   "docs" "/path/to/doc")
 
 (mg-regex-test link-with-spaces-in-text
-  mark-graf-ts--link-regex
+  markdown-modern-ts--link-regex
   "[link with spaces](http://x)"
   "link with spaces" "http://x")
 
 (mg-regex-test link-complex-url
-  mark-graf-ts--link-regex
+  markdown-modern-ts--link-regex
   "[api](https://api.example.com/v1/users?id=123)"
   "api" "https://api.example.com/v1/users?id=123")
 
 ;;; Code Block Pattern Tests
 
 (mg-regex-test code-block-with-language
-  mark-graf-ts--code-block-regex
+  markdown-modern-ts--code-block-regex
   "```python"
   "python")
 
 (mg-regex-test code-block-javascript
-  mark-graf-ts--code-block-regex
+  markdown-modern-ts--code-block-regex
   "```javascript"
   "javascript")
 
@@ -411,5 +411,5 @@ backtick of the preceding code span is a valid such prefix."
     (should (looking-at "~~\\([^~]+\\)~~"))
     (should (equal (match-string 1) "struck text"))))
 
-(provide 'mark-graf-regex-test)
-;;; mark-graf-regex-test.el ends here
+(provide 'markdown-modern-regex-test)
+;;; markdown-modern-regex-test.el ends here

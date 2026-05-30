@@ -1,18 +1,18 @@
-;;; mark-graf-commands-test.el --- Command tests for mark-graf -*- lexical-binding: t; -*-
+;;; markdown-modern-commands-test.el --- Command tests for markdown-modern -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 mark-graf contributors
+;; Copyright (C) 2026 markdown-modern contributors
 
 ;;; Commentary:
 
-;; Unit tests for mark-graf interactive commands.
+;; Unit tests for markdown-modern interactive commands.
 ;; Tests buffer manipulation, cursor positioning, and user-facing functions.
 
 ;;; Code:
 
 (require 'ert)
-(require 'mark-graf-commands)
-(require 'mark-graf-elements)
-(require 'mark-graf-render)
+(require 'markdown-modern-commands)
+(require 'markdown-modern-elements)
+(require 'markdown-modern-render)
 
 ;;; Test Helper Macro
 
@@ -70,159 +70,159 @@ Use [ and ] to mark region boundaries in INITIAL."
 (mg-cmd-test bold-insert-empty
   "Bold inserts ** pair at point"
   "|" "**|**"
-  (mark-graf-insert-bold))
+  (markdown-modern-insert-bold))
 
 (mg-cmd-test italic-insert-empty
   "Italic inserts * pair at point"
   "|" "*|*"
-  (mark-graf-insert-italic))
+  (markdown-modern-insert-italic))
 
 (mg-cmd-test code-insert-empty
   "Code inserts ` pair at point"
   "|" "`|`"
-  (mark-graf-insert-code))
+  (markdown-modern-insert-code))
 
 (mg-cmd-test strike-insert-empty
   "Strike inserts ~~ pair at point"
   "|" "~~|~~"
-  (mark-graf-insert-strike))
+  (markdown-modern-insert-strike))
 
 (mg-cmd-test kbd-insert-empty
   "Kbd inserts <kbd> pair at point"
   "|" "<kbd>|</kbd>"
-  (mark-graf-insert-kbd))
+  (markdown-modern-insert-kbd))
 
 ;;; Style Insertion Tests - With Region
 
 (mg-cmd-test-region bold-wrap-region
   "Bold wraps selected text"
   "[hello]" "**hello**"
-  (mark-graf-insert-bold))
+  (markdown-modern-insert-bold))
 
 (mg-cmd-test-region italic-wrap-region
   "Italic wraps selected text"
   "[world]" "*world*"
-  (mark-graf-insert-italic))
+  (markdown-modern-insert-italic))
 
 (mg-cmd-test-region code-wrap-region
   "Code wraps selected text"
   "[foo]" "`foo`"
-  (mark-graf-insert-code))
+  (markdown-modern-insert-code))
 
 (mg-cmd-test-region strike-wrap-region
   "Strike wraps selected text"
   "[bar]" "~~bar~~"
-  (mark-graf-insert-strike))
+  (markdown-modern-insert-strike))
 
 ;;; Heading Tests
 
 (mg-cmd-test heading-level-1
   "Insert level 1 heading"
   "|" "# |"
-  (mark-graf-insert-heading-1))
+  (markdown-modern-insert-heading-1))
 
 (mg-cmd-test heading-level-2
   "Insert level 2 heading"
   "|" "## |"
-  (mark-graf-insert-heading-2))
+  (markdown-modern-insert-heading-2))
 
 (mg-cmd-test heading-level-3
   "Insert level 3 heading"
   "|" "### |"
-  (mark-graf-insert-heading-3))
+  (markdown-modern-insert-heading-3))
 
 (mg-cmd-test heading-level-6
   "Insert level 6 heading"
   "|" "###### |"
-  (mark-graf-insert-heading-6))
+  (markdown-modern-insert-heading-6))
 
 (mg-cmd-test heading-at-existing-text
   "Heading at line start prepends markers"
   "|text" "## |text"
-  (mark-graf-insert-heading 2))
+  (markdown-modern-insert-heading 2))
 
 (mg-cmd-test heading-promote
   "Promote heading decreases level"
   "|## Title" "|# Title"
-  (mark-graf-promote-heading))
+  (markdown-modern-promote-heading))
 
 (mg-cmd-test heading-demote
   "Demote heading increases level"
   "|# Title" "|## Title"
-  (mark-graf-demote-heading))
+  (markdown-modern-demote-heading))
 
 (mg-cmd-test heading-promote-at-h1
   "Promote at H1 does nothing"
   "|# Title" "|# Title"
-  (mark-graf-promote-heading))
+  (markdown-modern-promote-heading))
 
 ;;; List Tests
 
 (mg-cmd-test list-item-new
   "New list item at empty buffer"
   "|" "- |"
-  (mark-graf-insert-list-item))
+  (markdown-modern-insert-list-item))
 
 (mg-cmd-test list-item-continue
   "Continue existing list"
   "- item|" "- item\n- |"
-  (mark-graf-insert-list-item))
+  (markdown-modern-insert-list-item))
 
 (mg-cmd-test list-item-ordered-continue
   "Continue ordered list increments number"
   "1. first|" "1. first\n2. |"
-  (mark-graf-insert-list-item))
+  (markdown-modern-insert-list-item))
 
 (mg-cmd-test checkbox-toggle-unchecked
   "Toggle unchecked checkbox to checked"
   "|- [ ] task" "|- [x] task"
-  (mark-graf-toggle-checkbox))
+  (markdown-modern-toggle-checkbox))
 
 (mg-cmd-test checkbox-toggle-checked
   "Toggle checked checkbox to unchecked"
   "|- [x] task" "|- [ ] task"
-  (mark-graf-toggle-checkbox))
+  (markdown-modern-toggle-checkbox))
 
 (mg-cmd-test checkbox-toggle-uppercase
   "Toggle uppercase X checkbox"
   "|- [X] task" "|- [ ] task"
-  (mark-graf-toggle-checkbox))
+  (markdown-modern-toggle-checkbox))
 
 (mg-cmd-test list-promote
   "Promote list item decreases indent"
   "|  - item" "|- item"
-  (mark-graf-promote-item))
+  (markdown-modern-promote-item))
 
 (mg-cmd-test list-demote
   "Demote list item increases indent"
   "|- item" "|  - item"
-  (mark-graf-demote-item))
+  (markdown-modern-demote-item))
 
 ;;; Blockquote Tests
 
 (mg-cmd-test blockquote-new-line
   "Blockquote at empty line"
   "|" "> |"
-  (mark-graf-insert-blockquote))
+  (markdown-modern-insert-blockquote))
 
 (mg-cmd-test blockquote-increase-level
   "Blockquote on existing quote adds level"
   "|> text" "|>> text"
-  (mark-graf-insert-blockquote))
+  (markdown-modern-insert-blockquote))
 
 ;;; Code Block Tests
 
 (ert-deftest cmd/code-block-insert ()
   "Code block inserts fences."
   (with-temp-buffer
-    (mark-graf-insert-code-block "python")
+    (markdown-modern-insert-code-block "python")
     (should (string-match-p "```python" (buffer-string)))
     (should (string-match-p "```$" (buffer-string)))))
 
 (ert-deftest cmd/code-block-empty-language ()
   "Code block without language."
   (with-temp-buffer
-    (mark-graf-insert-code-block "")
+    (markdown-modern-insert-code-block "")
     (should (string-match-p "^```\n" (buffer-string)))))
 
 ;;; Link and Image Tests
@@ -230,19 +230,19 @@ Use [ and ] to mark region boundaries in INITIAL."
 (ert-deftest cmd/link-insert ()
   "Link insertion creates proper markdown."
   (with-temp-buffer
-    (mark-graf-insert-link "http://example.com" "Example")
+    (markdown-modern-insert-link "http://example.com" "Example")
     (should (equal (buffer-string) "[Example](http://example.com)"))))
 
 (ert-deftest cmd/link-insert-empty-url ()
   "Link with empty URL positions cursor."
   (with-temp-buffer
-    (mark-graf-insert-link "" "text")
+    (markdown-modern-insert-link "" "text")
     (should (equal (buffer-string) "[text]()"))))
 
 (ert-deftest cmd/image-insert ()
   "Image insertion creates proper markdown."
   (with-temp-buffer
-    (mark-graf-insert-image "photo.jpg" "My Photo")
+    (markdown-modern-insert-image "photo.jpg" "My Photo")
     (should (equal (buffer-string) "![My Photo](photo.jpg)"))))
 
 ;;; Table Tests
@@ -250,7 +250,7 @@ Use [ and ] to mark region boundaries in INITIAL."
 (ert-deftest cmd/table-insert ()
   "Table creation with specified dimensions."
   (with-temp-buffer
-    (mark-graf-insert-table 2 3)
+    (markdown-modern-insert-table 2 3)
     (let ((content (buffer-string)))
       (should (string-match-p "| Header 1" content))
       (should (string-match-p "| Header 2" content))
@@ -264,7 +264,7 @@ Use [ and ] to mark region boundaries in INITIAL."
   (with-temp-buffer
     (insert "# First\n\ntext\n\n## Second")
     (goto-char (point-min))
-    (mark-graf-next-heading)
+    (markdown-modern-next-heading)
     (should (looking-at "## Second"))))
 
 (ert-deftest cmd/prev-heading ()
@@ -272,9 +272,9 @@ Use [ and ] to mark region boundaries in INITIAL."
   (with-temp-buffer
     (insert "# First\n\ntext\n\n## Second")
     (goto-char (point-max))
-    (mark-graf-prev-heading)
+    (markdown-modern-prev-heading)
     (should (looking-at "## Second"))
-    (mark-graf-prev-heading)
+    (markdown-modern-prev-heading)
     (should (looking-at "# First"))))
 
 (ert-deftest cmd/next-heading-same-level ()
@@ -282,7 +282,7 @@ Use [ and ] to mark region boundaries in INITIAL."
   (with-temp-buffer
     (insert "## A\n\n### Sub\n\n## B")
     (goto-char (point-min))
-    (mark-graf-next-heading-same-level)
+    (markdown-modern-next-heading-same-level)
     (should (looking-at "## B"))))
 
 (ert-deftest cmd/up-heading ()
@@ -291,7 +291,7 @@ Use [ and ] to mark region boundaries in INITIAL."
     (insert "# Parent\n\n## Child\n\n### Grandchild")
     (goto-char (point-max))
     (beginning-of-line)
-    (mark-graf-up-heading)
+    (markdown-modern-up-heading)
     (should (looking-at "## Child"))))
 
 ;;; Utility Function Tests
@@ -299,7 +299,7 @@ Use [ and ] to mark region boundaries in INITIAL."
 (ert-deftest cmd/wrap-region-or-insert-no-region ()
   "Wrap helper inserts pair when no region."
   (with-temp-buffer
-    (mark-graf--wrap-region-or-insert "<<" ">>")
+    (markdown-modern--wrap-region-or-insert "<<" ">>")
     (should (equal (buffer-string) "<<>>"))
     (should (= (point) 3))))  ; Cursor between
 
@@ -310,7 +310,7 @@ Use [ and ] to mark region boundaries in INITIAL."
     (set-mark (point-min))
     (goto-char (point-max))
     (activate-mark)
-    (mark-graf--wrap-region-or-insert "<<" ">>")
+    (markdown-modern--wrap-region-or-insert "<<" ">>")
     (should (equal (buffer-string) "<<text>>"))))
 
 (ert-deftest cmd/at-line-start-p ()
@@ -318,11 +318,11 @@ Use [ and ] to mark region boundaries in INITIAL."
   (with-temp-buffer
     (insert "  text")
     (goto-char 1)
-    (should (mark-graf--at-line-start-p))
+    (should (markdown-modern--at-line-start-p))
     (goto-char 3)
-    (should (mark-graf--at-line-start-p))  ; After whitespace
+    (should (markdown-modern--at-line-start-p))  ; After whitespace
     (goto-char 5)
-    (should-not (mark-graf--at-line-start-p))))  ; After text
+    (should-not (markdown-modern--at-line-start-p))))  ; After text
 
-(provide 'mark-graf-commands-test)
-;;; mark-graf-commands-test.el ends here
+(provide 'markdown-modern-commands-test)
+;;; markdown-modern-commands-test.el ends here

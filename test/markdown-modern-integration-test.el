@@ -1,18 +1,18 @@
-;;; mark-graf-integration-test.el --- Integration tests for mark-graf -*- lexical-binding: t; -*-
+;;; markdown-modern-integration-test.el --- Integration tests for markdown-modern -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 mark-graf contributors
+;; Copyright (C) 2026 markdown-modern contributors
 
 ;;; Commentary:
 
-;; Integration tests for mark-graf.
+;; Integration tests for markdown-modern.
 ;; These tests verify complete workflows and end-to-end functionality.
 
 ;;; Code:
 
 (require 'ert)
-(require 'mark-graf)
-(require 'mark-graf-export)
-(require 'mark-graf-ts)
+(require 'markdown-modern)
+(require 'markdown-modern-export)
+(require 'markdown-modern-ts)
 
 ;;; Full Document Tests
 
@@ -53,7 +53,7 @@ def hello():
 
 ![Alt text](image.png)
 ")
-         (html (mark-graf-export--markdown-to-html markdown)))
+         (html (markdown-modern-export--markdown-to-html markdown)))
     ;; Verify all major elements present
     (should (string-match-p "<h1" html))
     (should (string-match-p "<h2" html))
@@ -75,7 +75,7 @@ def hello():
 
 (ert-deftest integration/nested-formatting ()
   "Nested inline formatting exports correctly."
-  (let ((html (mark-graf-export--markdown-to-html
+  (let ((html (markdown-modern-export--markdown-to-html
                "***bold and italic*** and **bold with `code`**")))
     ;; At minimum, should have strong and em
     (should (string-match-p "<strong>" html))
@@ -92,7 +92,7 @@ def hello():
   - Nested 3a
     - Deep nested
 ")
-         (html (mark-graf-export--markdown-to-html markdown)))
+         (html (markdown-modern-export--markdown-to-html markdown)))
     (should (string-match-p "<ul>" html))
     (should (string-match-p "<li>" html))
     ;; Count list items
@@ -105,7 +105,7 @@ def hello():
 - [x] Another done
 - [ ] Another pending
 ")
-         (html (mark-graf-export--markdown-to-html markdown)))
+         (html (markdown-modern-export--markdown-to-html markdown)))
     (should (string-match-p "checkbox" html))
     ;; Should have some checked
     (should (string-match-p "checked" html))
@@ -116,13 +116,13 @@ def hello():
 
 (ert-deftest integration/export-creates-file ()
   "HTML export creates a valid file."
-  (let ((output-file (make-temp-file "mark-graf-test-" nil ".html"))
+  (let ((output-file (make-temp-file "markdown-modern-test-" nil ".html"))
         (test-content "# Test\n\nParagraph."))
     (unwind-protect
         (progn
           (with-temp-buffer
             (insert test-content)
-            (mark-graf-export-html output-file))
+            (markdown-modern-export-html output-file))
           ;; File should exist
           (should (file-exists-p output-file))
           ;; File should have content
@@ -138,12 +138,12 @@ def hello():
 
 (ert-deftest integration/export-uses-template ()
   "HTML export uses template with CSS."
-  (let ((output-file (make-temp-file "mark-graf-test-" nil ".html")))
+  (let ((output-file (make-temp-file "markdown-modern-test-" nil ".html")))
     (unwind-protect
         (progn
           (with-temp-buffer
             (insert "# Title")
-            (mark-graf-export-html output-file))
+            (markdown-modern-export-html output-file))
           (with-temp-buffer
             (insert-file-contents output-file)
             (should (string-match-p "<style>" (buffer-string)))
@@ -165,9 +165,9 @@ def hello():
         (insert-file-contents sample-path)
         (let ((content (buffer-string)))
           ;; Should not error
-          (should (stringp (mark-graf-export--markdown-to-html content)))
+          (should (stringp (markdown-modern-export--markdown-to-html content)))
           ;; Result should have substantial content
-          (should (> (length (mark-graf-export--markdown-to-html content)) 1000)))))))
+          (should (> (length (markdown-modern-export--markdown-to-html content)) 1000)))))))
 
 ;;; Mode Lifecycle Tests
 
@@ -175,74 +175,74 @@ def hello():
   "Mode local variables are properly initialized."
   (with-temp-buffer
     ;; Manually set up mode variables (don't fully activate mode - no tree-sitter)
-    (setq-local mark-graf--rendering-enabled t)
-    (setq-local mark-graf--revealed-region nil)
+    (setq-local markdown-modern--rendering-enabled t)
+    (setq-local markdown-modern--revealed-region nil)
     ;; Verify
-    (should mark-graf--rendering-enabled)
-    (should-not mark-graf--revealed-region)))
+    (should markdown-modern--rendering-enabled)
+    (should-not markdown-modern--revealed-region)))
 
 (ert-deftest integration/customization-variables-exist ()
   "All customization variables are defined with defaults."
-  (should (boundp 'mark-graf-heading-scale))
-  (should (boundp 'mark-graf-display-images))
-  (should (boundp 'mark-graf-image-max-width))
+  (should (boundp 'markdown-modern-heading-scale))
+  (should (boundp 'markdown-modern-display-images))
+  (should (boundp 'markdown-modern-image-max-width))
   ;; Check default values
-  (should (eq mark-graf-display-images t)))
+  (should (eq markdown-modern-display-images t)))
 
 (ert-deftest integration/faces-defined ()
   "All faces are properly defined."
-  (dolist (face '(mark-graf-heading-1
-                  mark-graf-heading-2
-                  mark-graf-heading-3
-                  mark-graf-heading-4
-                  mark-graf-heading-5
-                  mark-graf-heading-6
-                  mark-graf-bold
-                  mark-graf-italic
-                  mark-graf-strikethrough
-                  mark-graf-inline-code
-                  mark-graf-code-block
-                  mark-graf-link
-                  mark-graf-blockquote
-                  mark-graf-list-bullet
-                  mark-graf-table-header
-                  mark-graf-hr))
+  (dolist (face '(markdown-modern-heading-1
+                  markdown-modern-heading-2
+                  markdown-modern-heading-3
+                  markdown-modern-heading-4
+                  markdown-modern-heading-5
+                  markdown-modern-heading-6
+                  markdown-modern-bold
+                  markdown-modern-italic
+                  markdown-modern-strikethrough
+                  markdown-modern-inline-code
+                  markdown-modern-code-block
+                  markdown-modern-link
+                  markdown-modern-blockquote
+                  markdown-modern-list-bullet
+                  markdown-modern-table-header
+                  markdown-modern-hr))
     (should (facep face))))
 
 ;;; Error Handling Tests
 
 (ert-deftest integration/empty-document-exports ()
   "Empty document exports without error."
-  (should (stringp (mark-graf-export--markdown-to-html ""))))
+  (should (stringp (markdown-modern-export--markdown-to-html ""))))
 
 (ert-deftest integration/whitespace-only-exports ()
   "Whitespace-only document exports without error."
-  (should (stringp (mark-graf-export--markdown-to-html "   \n\n   \n"))))
+  (should (stringp (markdown-modern-export--markdown-to-html "   \n\n   \n"))))
 
 (ert-deftest integration/malformed-markdown-exports ()
   "Malformed markdown exports without crashing."
   ;; Unclosed formatting
-  (should (stringp (mark-graf-export--markdown-to-html "**unclosed bold")))
-  (should (stringp (mark-graf-export--markdown-to-html "*unclosed italic")))
+  (should (stringp (markdown-modern-export--markdown-to-html "**unclosed bold")))
+  (should (stringp (markdown-modern-export--markdown-to-html "*unclosed italic")))
   ;; Broken links
-  (should (stringp (mark-graf-export--markdown-to-html "[broken link")))
-  (should (stringp (mark-graf-export--markdown-to-html "[text](unclosed")))
+  (should (stringp (markdown-modern-export--markdown-to-html "[broken link")))
+  (should (stringp (markdown-modern-export--markdown-to-html "[text](unclosed")))
   ;; Unclosed code block
-  (should (stringp (mark-graf-export--markdown-to-html "```\ncode without close"))))
+  (should (stringp (markdown-modern-export--markdown-to-html "```\ncode without close"))))
 
 ;;; Pandoc Integration Test
 
 (ert-deftest integration/pandoc-availability-check ()
   "Pandoc availability function works."
   ;; Should return a boolean-ish value without error
-  (should (or (mark-graf-pandoc-available-p)
-              (not (mark-graf-pandoc-available-p)))))
+  (should (or (markdown-modern-pandoc-available-p)
+              (not (markdown-modern-pandoc-available-p)))))
 
 ;;; Node Structure Tests
 
 (ert-deftest integration/node-struct-creation ()
-  "mark-graf-node struct works correctly."
-  (let ((node (make-mark-graf-node
+  "markdown-modern-node struct works correctly."
+  (let ((node (make-markdown-modern-node
                :type 'heading
                :start 1
                :end 20
@@ -250,13 +250,13 @@ def hello():
                :language nil
                :children nil
                :properties '(:foo bar))))
-    (should (eq (mark-graf-node-type node) 'heading))
-    (should (= (mark-graf-node-start node) 1))
-    (should (= (mark-graf-node-end node) 20))
-    (should (= (mark-graf-node-level node) 2))
-    (should-not (mark-graf-node-language node))
-    (should-not (mark-graf-node-children node))
-    (should (equal (mark-graf-node-properties node) '(:foo bar)))))
+    (should (eq (markdown-modern-node-type node) 'heading))
+    (should (= (markdown-modern-node-start node) 1))
+    (should (= (markdown-modern-node-end node) 20))
+    (should (= (markdown-modern-node-level node) 2))
+    (should-not (markdown-modern-node-language node))
+    (should-not (markdown-modern-node-children node))
+    (should (equal (markdown-modern-node-properties node) '(:foo bar)))))
 
 ;;; Tree-sitter Inline Collector Tests
 ;;; These require the markdown and markdown-inline grammars to be installed.
@@ -270,10 +270,10 @@ the inline grammar still parses them as such inside the code_span."
                     (treesit-language-available-p 'markdown-inline)))
   (with-temp-buffer
     (insert "`foo_bar_baz` and `**not bold**` and `[t](u)`")
-    (let ((mark-graf-ts--use-tree-sitter t))
-      (mark-graf-ts--init)
-      (let ((types (mapcar #'mark-graf-node-type
-                           (mark-graf-ts--inline-elements-in
+    (let ((markdown-modern-ts--use-tree-sitter t))
+      (markdown-modern-ts--init)
+      (let ((types (mapcar #'markdown-modern-node-type
+                           (markdown-modern-ts--inline-elements-in
                             (point-min) (point-max)))))
         (should (member 'code-span types))
         (should-not (member 'emphasis types))
@@ -292,10 +292,10 @@ the inline grammar still parses them as such inside the code_span."
                        (insert "```python\ncode()\n```\n\n"))
                      (buffer-string))))
     (let ((start-time (current-time)))
-      (mark-graf-export--markdown-to-html large-doc)
+      (markdown-modern-export--markdown-to-html large-doc)
       (let ((elapsed (float-time (time-since start-time))))
         ;; Should complete in under 5 seconds
         (should (< elapsed 5.0))))))
 
-(provide 'mark-graf-integration-test)
-;;; mark-graf-integration-test.el ends here
+(provide 'markdown-modern-integration-test)
+;;; markdown-modern-integration-test.el ends here

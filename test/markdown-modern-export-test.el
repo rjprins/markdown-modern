@@ -1,22 +1,22 @@
-;;; mark-graf-export-test.el --- Export tests for mark-graf -*- lexical-binding: t; -*-
+;;; markdown-modern-export-test.el --- Export tests for markdown-modern -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 mark-graf contributors
+;; Copyright (C) 2026 markdown-modern contributors
 
 ;;; Commentary:
 
-;; Unit tests for mark-graf HTML export functionality.
+;; Unit tests for markdown-modern HTML export functionality.
 ;; These tests verify pure transformation functions with no side effects.
 
 ;;; Code:
 
 (require 'ert)
-(require 'mark-graf-export)
+(require 'markdown-modern-export)
 
 ;;; Helper Functions
 
 (defun mg-export (markdown)
   "Convert MARKDOWN to HTML for testing."
-  (mark-graf-export--markdown-to-html markdown))
+  (markdown-modern-export--markdown-to-html markdown))
 
 (defun mg-html-contains (markdown &rest patterns)
   "Test that MARKDOWN export contains all PATTERNS."
@@ -60,7 +60,7 @@
 
 (ert-deftest export/heading-id-special-chars ()
   "Heading IDs handle special characters."
-  (let ((id (mark-graf-export--heading-id "Test: Special (Chars)!")))
+  (let ((id (markdown-modern-export--heading-id "Test: Special (Chars)!")))
     (should (string-match-p "^[a-z0-9-]+$" id))
     (should-not (string-match-p "[^a-z0-9-]" id))))
 
@@ -255,24 +255,24 @@
 
 (ert-deftest export/escape-ampersand ()
   "Ampersand escaped correctly."
-  (should (equal (mark-graf-export--escape-html "A & B") "A &amp; B")))
+  (should (equal (markdown-modern-export--escape-html "A & B") "A &amp; B")))
 
 (ert-deftest export/escape-less-than ()
   "Less-than escaped correctly."
-  (should (equal (mark-graf-export--escape-html "a < b") "a &lt; b")))
+  (should (equal (markdown-modern-export--escape-html "a < b") "a &lt; b")))
 
 (ert-deftest export/escape-greater-than ()
   "Greater-than escaped correctly."
-  (should (equal (mark-graf-export--escape-html "a > b") "a &gt; b")))
+  (should (equal (markdown-modern-export--escape-html "a > b") "a &gt; b")))
 
 (ert-deftest export/escape-quotes ()
   "Quotes escaped correctly."
-  (should (equal (mark-graf-export--escape-html "say \"hi\"") "say &quot;hi&quot;")))
+  (should (equal (markdown-modern-export--escape-html "say \"hi\"") "say &quot;hi&quot;")))
 
 (ert-deftest export/escape-combined ()
   "Multiple special chars escaped."
-  (should (equal (mark-graf-export--escape-html "<a & b>")
+  (should (equal (markdown-modern-export--escape-html "<a & b>")
                  "&lt;a &amp; b&gt;")))
 
-(provide 'mark-graf-export-test)
-;;; mark-graf-export-test.el ends here
+(provide 'markdown-modern-export-test)
+;;; markdown-modern-export-test.el ends here

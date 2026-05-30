@@ -1,8 +1,8 @@
-;;; mark-graf-mermaid.el --- Pure Elisp Mermaid SVG renderer -*- lexical-binding: t; -*-
+;;; markdown-modern-mermaid.el --- Pure Elisp Mermaid SVG renderer -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 mark-graf contributors
+;; Copyright (C) 2026 markdown-modern contributors
 
-;; This file is part of mark-graf.
+;; This file is part of markdown-modern.
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@
 ;;; Theme Integration
 ;;; ============================================================
 
-(defun mark-graf-mermaid--color-blend (c1 c2 alpha)
+(defun markdown-modern-mermaid--color-blend (c1 c2 alpha)
   "Blend color C1 with C2 by ALPHA (0.0 = all C1, 1.0 = all C2).
 C1 and C2 are hex strings like \"#rrggbb\"."
   (let ((r1 (string-to-number (substring c1 1 3) 16))
@@ -47,7 +47,7 @@ C1 and C2 are hex strings like \"#rrggbb\"."
             (round (+ (* g1 (- 1 alpha)) (* g2 alpha)))
             (round (+ (* b1 (- 1 alpha)) (* b2 alpha))))))
 
-(defun mark-graf-mermaid--face-color (face attr)
+(defun markdown-modern-mermaid--face-color (face attr)
   "Get color ATTR from FACE, returning hex string.
 Falls back to default face if unspecified."
   (let* ((color (face-attribute face attr nil t))
@@ -58,21 +58,21 @@ Falls back to default face if unspecified."
                (mapcar (lambda (x) (/ x 256)) vals))
       (if (eq attr :background) "#1e1e2e" "#cdd6f4"))))
 
-(defun mark-graf-mermaid--theme-colors ()
+(defun markdown-modern-mermaid--theme-colors ()
   "Extract theme colors from current Emacs faces.
 Returns plist with :bg :fg :surface :border :accent."
-  (let* ((bg (mark-graf-mermaid--face-color 'default :background))
-         (fg (mark-graf-mermaid--face-color 'default :foreground))
-         (surface (mark-graf-mermaid--color-blend bg fg 0.08))
-         (border (mark-graf-mermaid--color-blend bg fg 0.3))
-         (accent (mark-graf-mermaid--face-color 'font-lock-keyword-face :foreground)))
+  (let* ((bg (markdown-modern-mermaid--face-color 'default :background))
+         (fg (markdown-modern-mermaid--face-color 'default :foreground))
+         (surface (markdown-modern-mermaid--color-blend bg fg 0.08))
+         (border (markdown-modern-mermaid--color-blend bg fg 0.3))
+         (accent (markdown-modern-mermaid--face-color 'font-lock-keyword-face :foreground)))
     (list :bg bg :fg fg :surface surface :border border :accent accent)))
 
 ;;; ============================================================
 ;;; SVG Primitives
 ;;; ============================================================
 
-(defun mark-graf-mermaid--svg-escape (text)
+(defun markdown-modern-mermaid--svg-escape (text)
   "Escape TEXT for safe inclusion in SVG XML."
   (let ((s (if (stringp text) text (format "%s" text))))
     (setq s (replace-regexp-in-string "&" "&amp;" s))
@@ -81,38 +81,38 @@ Returns plist with :bg :fg :surface :border :accent."
     (setq s (replace-regexp-in-string "\"" "&quot;" s))
     s))
 
-(defun mark-graf-mermaid--svg-rect (x y w h rx fill stroke &optional stroke-width)
+(defun markdown-modern-mermaid--svg-rect (x y w h rx fill stroke &optional stroke-width)
   "SVG rectangle at X Y with dimensions W H, corner radius RX."
   (format "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" rx=\"%d\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%s\"/>"
           x y w h rx fill stroke (or stroke-width "1.5")))
 
-(defun mark-graf-mermaid--svg-text (x y text font-size fill &optional anchor weight)
+(defun markdown-modern-mermaid--svg-text (x y text font-size fill &optional anchor weight)
   "SVG text at X Y with FONT-SIZE and FILL color.
 ANCHOR is text-anchor (start, middle, end).  WEIGHT is font-weight."
   (format "<text x=\"%d\" y=\"%d\" font-family=\"sans-serif\" font-size=\"%d\" fill=\"%s\" text-anchor=\"%s\"%s>%s</text>"
           x y font-size fill
           (or anchor "middle")
           (if weight (format " font-weight=\"%s\"" weight) "")
-          (mark-graf-mermaid--svg-escape text)))
+          (markdown-modern-mermaid--svg-escape text)))
 
-(defun mark-graf-mermaid--svg-line (x1 y1 x2 y2 stroke &optional dash stroke-width)
+(defun markdown-modern-mermaid--svg-line (x1 y1 x2 y2 stroke &optional dash stroke-width)
   "SVG line from X1 Y1 to X2 Y2."
   (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"%s\"%s/>"
           x1 y1 x2 y2 stroke (or stroke-width "1.5")
           (if dash (format " stroke-dasharray=\"%s\"" dash) "")))
 
-(defun mark-graf-mermaid--svg-path (d stroke fill &optional stroke-width dash)
+(defun markdown-modern-mermaid--svg-path (d stroke fill &optional stroke-width dash)
   "SVG path with data D."
   (format "<path d=\"%s\" stroke=\"%s\" fill=\"%s\" stroke-width=\"%s\"%s/>"
           d stroke fill (or stroke-width "1.5")
           (if dash (format " stroke-dasharray=\"%s\"" dash) "")))
 
-(defun mark-graf-mermaid--svg-circle (cx cy r fill stroke &optional stroke-width)
+(defun markdown-modern-mermaid--svg-circle (cx cy r fill stroke &optional stroke-width)
   "SVG circle at CX CY with radius R."
   (format "<circle cx=\"%d\" cy=\"%d\" r=\"%d\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%s\"/>"
           cx cy r fill stroke (or stroke-width "1.5")))
 
-(defun mark-graf-mermaid--svg-diamond (cx cy w h fill stroke)
+(defun markdown-modern-mermaid--svg-diamond (cx cy w h fill stroke)
   "SVG diamond centered at CX CY with width W and height H."
   (let ((hw (/ w 2))
         (hh (/ h 2)))
@@ -123,7 +123,7 @@ ANCHOR is text-anchor (start, middle, end).  WEIGHT is font-weight."
             (- cx hw) cy
             fill stroke)))
 
-(defun mark-graf-mermaid--svg-arrow-marker (id color &optional marker-type)
+(defun markdown-modern-mermaid--svg-arrow-marker (id color &optional marker-type)
   "SVG <marker> definition for arrowhead with ID and COLOR.
 MARKER-TYPE can be `arrow' (default), `open', `diamond', `circle'."
   (pcase (or marker-type 'arrow)
@@ -140,14 +140,14 @@ MARKER-TYPE can be `arrow' (default), `open', `diamond', `circle'."
      (format "<marker id=\"%s\" viewBox=\"0 0 10 10\" refX=\"5\" refY=\"5\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto-start-reverse\"><circle cx=\"5\" cy=\"5\" r=\"4\" fill=\"%s\"/></marker>"
              id color))))
 
-(defun mark-graf-mermaid--svg-wrap (width height defs body)
+(defun markdown-modern-mermaid--svg-wrap (width height defs body)
   "Wrap BODY in SVG root element with WIDTH, HEIGHT, DEFS."
   (format "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">\n%s%s\n</svg>"
           width height width height
           (if defs (format "<defs>%s</defs>\n" defs) "")
           body))
 
-(defun mark-graf-mermaid--text-width (text font-size)
+(defun markdown-modern-mermaid--text-width (text font-size)
   "Estimate pixel width of TEXT at FONT-SIZE.
 Uses average character width of 0.6 * font-size for sans-serif."
   (round (* (length text) font-size 0.6)))
@@ -156,7 +156,7 @@ Uses average character width of 0.6 * font-size for sans-serif."
 ;;; Main Entry Point
 ;;; ============================================================
 
-(defun mark-graf-mermaid-render (diagram-code)
+(defun markdown-modern-mermaid-render (diagram-code)
   "Render mermaid DIAGRAM-CODE to an SVG string.
 Returns SVG XML string or nil if diagram type is unsupported."
   (let* ((lines (split-string diagram-code "\n" t "[ \t\r]+"))
@@ -170,23 +170,23 @@ Returns SVG XML string or nil if diagram type is unsupported."
                 (t nil))))
     (when type
       (condition-case err
-          (let ((colors (mark-graf-mermaid--theme-colors)))
+          (let ((colors (markdown-modern-mermaid--theme-colors)))
             (cond
-             ((eq type 'flowchart) (mark-graf-mermaid--render-flowchart lines colors))
-             ((eq type 'sequence)  (mark-graf-mermaid--render-sequence lines colors))
-             ((eq type 'state)     (mark-graf-mermaid--render-state lines colors))
-             ((eq type 'class)     (mark-graf-mermaid--render-class lines colors))
-             ((eq type 'er)        (mark-graf-mermaid--render-er lines colors))
-             (t (message "mark-graf-mermaid: unknown type %S" type) nil)))
+             ((eq type 'flowchart) (markdown-modern-mermaid--render-flowchart lines colors))
+             ((eq type 'sequence)  (markdown-modern-mermaid--render-sequence lines colors))
+             ((eq type 'state)     (markdown-modern-mermaid--render-state lines colors))
+             ((eq type 'class)     (markdown-modern-mermaid--render-class lines colors))
+             ((eq type 'er)        (markdown-modern-mermaid--render-er lines colors))
+             (t (message "markdown-modern-mermaid: unknown type %S" type) nil)))
         (error
-         (message "mark-graf-mermaid: %s render error: %s" type (error-message-string err))
+         (message "markdown-modern-mermaid: %s render error: %s" type (error-message-string err))
          nil)))))
 
 ;;; ============================================================
 ;;; Flowchart Renderer
 ;;; ============================================================
 
-(defun mark-graf-mermaid--parse-flowchart (lines)
+(defun markdown-modern-mermaid--parse-flowchart (lines)
   "Parse flowchart LINES into (:direction DIR :nodes NODES :edges EDGES).
 NODES is a hash-table id->(list :id :label :shape).
 EDGES is a list of (list :from :to :label :style)."
@@ -269,7 +269,7 @@ EDGES is a list of (list :from :to :label :style)."
               (puthash id (list :id id :label (or label id) :shape (or shape 'rect)) nodes)))))))
     (list :direction direction :nodes nodes :edges (nreverse edges))))
 
-(defun mark-graf-mermaid--flowchart-topo-sort (nodes edges)
+(defun markdown-modern-mermaid--flowchart-topo-sort (nodes edges)
   "Topological sort of NODES given EDGES. Returns list of node IDs."
   (let* ((all-ids nil)
          (in-degree (make-hash-table :test 'equal))
@@ -310,7 +310,7 @@ EDGES is a list of (list :from :to :label :style)."
       (unless (member id result) (push id result)))
     (nreverse result)))
 
-(defun mark-graf-mermaid--flowchart-assign-layers (node-ids edges)
+(defun markdown-modern-mermaid--flowchart-assign-layers (node-ids edges)
   "Assign layer numbers to NODE-IDS based on EDGES. Returns alist (id . layer).
 Back-edges (cycles) are ignored to prevent infinite layer growth."
   (let ((layers (make-hash-table :test 'equal))
@@ -343,9 +343,9 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
         (push (cons id (gethash id layers 0)) result))
       (nreverse result))))
 
-(defun mark-graf-mermaid--render-flowchart (lines colors)
+(defun markdown-modern-mermaid--render-flowchart (lines colors)
   "Render flowchart from LINES with theme COLORS. Returns SVG string."
-  (let* ((parsed (mark-graf-mermaid--parse-flowchart lines))
+  (let* ((parsed (markdown-modern-mermaid--parse-flowchart lines))
          (direction (plist-get parsed :direction))
          (nodes (plist-get parsed :nodes))
          (edges (plist-get parsed :edges))
@@ -362,7 +362,7 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
          (layer-gap (if horizontal 120 80))
          (sibling-gap 40)
          ;; Compute
-         (sorted-ids (mark-graf-mermaid--flowchart-topo-sort nodes edges))
+         (sorted-ids (markdown-modern-mermaid--flowchart-topo-sort nodes edges))
          (effective-edges (if reverse-dir
                               (mapcar (lambda (e)
                                         (list :from (plist-get e :to)
@@ -371,7 +371,7 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
                                               :style (plist-get e :style)))
                                       edges)
                             edges))
-         (layer-alist (mark-graf-mermaid--flowchart-assign-layers sorted-ids effective-edges))
+         (layer-alist (markdown-modern-mermaid--flowchart-assign-layers sorted-ids effective-edges))
          (max-layer (if layer-alist (apply #'max (mapcar #'cdr layer-alist)) 0))
          (layer-groups (make-hash-table :test 'equal))
          ;; Node positions: id -> (:x :y :w :h)
@@ -389,7 +389,7 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
     (let ((node-widths (make-hash-table :test 'equal)))
       (maphash (lambda (id info)
                  (let* ((label (plist-get info :label))
-                        (tw (mark-graf-mermaid--text-width label font-size))
+                        (tw (markdown-modern-mermaid--text-width label font-size))
                         (shape (plist-get info :shape))
                         (w (pcase shape
                              ('diamond (+ tw (* node-pad-x 4)))
@@ -460,9 +460,9 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
       (when has-back-edge
         (setq total-w (+ total-w 60))))
     ;; Arrow marker
-    (push (mark-graf-mermaid--svg-arrow-marker "arrowhead" fg) defs-parts)
+    (push (markdown-modern-mermaid--svg-arrow-marker "arrowhead" fg) defs-parts)
     ;; Background
-    (push (mark-graf-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
+    (push (markdown-modern-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
     ;; Draw edges first (behind nodes)
     (dolist (edge effective-edges)
       (let* ((from-id (plist-get edge :from))
@@ -496,7 +496,7 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
                   (when label
                     (let ((lx (+ route-x 6))
                           (ly (/ (+ sy ey) 2)))
-                      (push (mark-graf-mermaid--svg-text lx ly label (1- font-size) fg "start") svg-parts))))
+                      (push (markdown-modern-mermaid--svg-text lx ly label (1- font-size) fg "start") svg-parts))))
               ;; Forward edge: normal routing
               (let* ((fx (+ (plist-get from-pos :x) (/ (plist-get from-pos :w) 2)))
                      (fy (+ (plist-get from-pos :y) (/ (plist-get from-pos :h) 2)))
@@ -536,13 +536,13 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
                 (when label
                   (let ((lx (/ (+ sx ex) 2))
                         (ly (- (/ (+ sy ey) 2) 4)))
-                    (push (mark-graf-mermaid--svg-rect (- lx (/ (+ (mark-graf-mermaid--text-width label font-size) 8) 2))
+                    (push (markdown-modern-mermaid--svg-rect (- lx (/ (+ (markdown-modern-mermaid--text-width label font-size) 8) 2))
                                                         (- ly (1+ font-size))
-                                                        (+ (mark-graf-mermaid--text-width label font-size) 8)
+                                                        (+ (markdown-modern-mermaid--text-width label font-size) 8)
                                                         (+ font-size 6)
                                                         3 bg "none")
                           svg-parts)
-                    (push (mark-graf-mermaid--svg-text lx ly label (1- font-size) fg) svg-parts)))))))))
+                    (push (markdown-modern-mermaid--svg-text lx ly label (1- font-size) fg) svg-parts)))))))))
     ;; Draw nodes
     (maphash
      (lambda (id pos)
@@ -558,18 +558,18 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
               (text-y (+ cy (/ font-size 3))))
          (pcase shape
            ('diamond
-            (push (mark-graf-mermaid--svg-diamond cx cy w h surface border) svg-parts))
+            (push (markdown-modern-mermaid--svg-diamond cx cy w h surface border) svg-parts))
            ('round
-            (push (mark-graf-mermaid--svg-rect x y w h (/ h 2) surface border) svg-parts))
+            (push (markdown-modern-mermaid--svg-rect x y w h (/ h 2) surface border) svg-parts))
            ('circle
             (let ((r (/ (max w h) 2)))
-              (push (mark-graf-mermaid--svg-circle cx cy r surface border) svg-parts)))
+              (push (markdown-modern-mermaid--svg-circle cx cy r surface border) svg-parts)))
            (_
-            (push (mark-graf-mermaid--svg-rect x y w h 6 surface border) svg-parts)))
-         (push (mark-graf-mermaid--svg-text cx text-y label font-size fg) svg-parts)))
+            (push (markdown-modern-mermaid--svg-rect x y w h 6 surface border) svg-parts)))
+         (push (markdown-modern-mermaid--svg-text cx text-y label font-size fg) svg-parts)))
      node-pos)
     ;; Assemble SVG
-    (mark-graf-mermaid--svg-wrap
+    (markdown-modern-mermaid--svg-wrap
      total-w total-h
      (mapconcat #'identity (nreverse defs-parts) "\n")
      (mapconcat #'identity (nreverse svg-parts) "\n"))))
@@ -578,7 +578,7 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
 ;;; Sequence Diagram Renderer
 ;;; ============================================================
 
-(defun mark-graf-mermaid--parse-sequence (lines)
+(defun markdown-modern-mermaid--parse-sequence (lines)
   "Parse sequence diagram LINES.
 Returns plist with :participants :messages :blocks.
 PARTICIPANTS is list of names in order.
@@ -650,9 +650,9 @@ BLOCKS is list of plists with :type :label :start :end :sections."
           :messages (nreverse messages)
           :blocks (nreverse blocks))))
 
-(defun mark-graf-mermaid--render-sequence (lines colors)
+(defun markdown-modern-mermaid--render-sequence (lines colors)
   "Render sequence diagram from LINES with COLORS. Returns SVG string."
-  (let* ((parsed (mark-graf-mermaid--parse-sequence lines))
+  (let* ((parsed (markdown-modern-mermaid--parse-sequence lines))
          (participants (plist-get parsed :participants))
          (messages (plist-get parsed :messages))
          (blocks (plist-get parsed :blocks))
@@ -679,7 +679,7 @@ BLOCKS is list of plists with :type :label :start :end :sections."
     ;; Assign x positions (left-aligned)
     (let* ((margin 20)
            (first-bw (if participants
-                         (max 80 (+ (mark-graf-mermaid--text-width (car participants) font-size)
+                         (max 80 (+ (markdown-modern-mermaid--text-width (car participants) font-size)
                                     (* box-pad 2)))
                        80))
            (x (+ margin (/ first-bw 2))))
@@ -690,15 +690,15 @@ BLOCKS is list of plists with :type :label :start :end :sections."
       (let* ((last-p (car (last participants)))
              (last-px (gethash last-p px-map))
              (last-bw (if last-p
-                          (max 80 (+ (mark-graf-mermaid--text-width last-p font-size)
+                          (max 80 (+ (markdown-modern-mermaid--text-width last-p font-size)
                                      (* box-pad 2)))
                         80)))
         (setq total-w (+ last-px (/ last-bw 2) margin))))
     ;; Markers
-    (push (mark-graf-mermaid--svg-arrow-marker "seq-arrow" fg) defs-parts)
-    (push (mark-graf-mermaid--svg-arrow-marker "seq-open" fg 'open) defs-parts)
+    (push (markdown-modern-mermaid--svg-arrow-marker "seq-arrow" fg) defs-parts)
+    (push (markdown-modern-mermaid--svg-arrow-marker "seq-open" fg 'open) defs-parts)
     ;; Background
-    (push (mark-graf-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
+    (push (markdown-modern-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
     ;; Draw blocks (alt/loop rectangles) behind everything
     (dolist (block blocks)
       (let* ((start-idx (plist-get block :start))
@@ -709,39 +709,39 @@ BLOCKS is list of plists with :type :label :start :end :sections."
              (by2 (+ top-margin box-h 10 (* end-idx msg-gap) 20))
              (bx1 10)
              (bx2 (- total-w 10)))
-        (push (mark-graf-mermaid--svg-rect bx1 by1 (- bx2 bx1) (- by2 by1) 4
+        (push (markdown-modern-mermaid--svg-rect bx1 by1 (- bx2 bx1) (- by2 by1) 4
                                             "none" border "1" ) svg-parts)
         ;; Type label
         (let* ((type-label (upcase (symbol-name block-type)))
-               (tw (+ (mark-graf-mermaid--text-width type-label (1- font-size)) 12)))
-          (push (mark-graf-mermaid--svg-rect bx1 by1 tw 20 4 surface border) svg-parts)
-          (push (mark-graf-mermaid--svg-text (+ bx1 (/ tw 2)) (+ by1 14)
+               (tw (+ (markdown-modern-mermaid--text-width type-label (1- font-size)) 12)))
+          (push (markdown-modern-mermaid--svg-rect bx1 by1 tw 20 4 surface border) svg-parts)
+          (push (markdown-modern-mermaid--svg-text (+ bx1 (/ tw 2)) (+ by1 14)
                                               type-label (1- font-size) accent nil "bold")
                 svg-parts))
         ;; Condition label
         (when (and label (not (string-empty-p label)))
-          (push (mark-graf-mermaid--svg-text (+ bx1 80) (+ by1 14)
+          (push (markdown-modern-mermaid--svg-text (+ bx1 80) (+ by1 14)
                                               (concat "[" label "]") (1- font-size) fg "start")
                 svg-parts))
         ;; Section dividers (else)
         (dolist (section (plist-get block :sections))
           (let* ((si (plist-get section :index))
                  (sy (+ top-margin box-h 10 (* si msg-gap) -5)))
-            (push (mark-graf-mermaid--svg-line bx1 sy bx2 sy border "5,5") svg-parts)
+            (push (markdown-modern-mermaid--svg-line bx1 sy bx2 sy border "5,5") svg-parts)
             (let ((sl (plist-get section :label)))
               (when (and sl (not (string-empty-p sl)))
-                (push (mark-graf-mermaid--svg-text (+ bx1 30) (- sy 4)
+                (push (markdown-modern-mermaid--svg-text (+ bx1 30) (- sy 4)
                                                     (concat "[" sl "]") (1- font-size) fg "start")
                       svg-parts)))))))
     ;; Draw participant boxes (top)
     (dolist (p participants)
       (let* ((px (gethash p px-map))
-             (tw (mark-graf-mermaid--text-width p font-size))
+             (tw (markdown-modern-mermaid--text-width p font-size))
              (bw (max 80 (+ tw (* box-pad 2))))
              (bx (- px (/ bw 2)))
              (by top-margin))
-        (push (mark-graf-mermaid--svg-rect bx by bw box-h 6 surface border) svg-parts)
-        (push (mark-graf-mermaid--svg-text px (+ by (/ box-h 2) (/ font-size 3))
+        (push (markdown-modern-mermaid--svg-rect bx by bw box-h 6 surface border) svg-parts)
+        (push (markdown-modern-mermaid--svg-text px (+ by (/ box-h 2) (/ font-size 3))
                                             p font-size fg)
               svg-parts)))
     ;; Draw lifelines
@@ -749,7 +749,7 @@ BLOCKS is list of plists with :type :label :start :end :sections."
           (life-y2 (- total-h box-h 20)))
       (dolist (p participants)
         (let ((px (gethash p px-map)))
-          (push (mark-graf-mermaid--svg-line px life-y1 px life-y2 border "4,4") svg-parts))))
+          (push (markdown-modern-mermaid--svg-line px life-y1 px life-y2 border "4,4") svg-parts))))
     ;; Draw messages
     (dolist (msg messages)
       (let* ((from (plist-get msg :from))
@@ -763,26 +763,26 @@ BLOCKS is list of plists with :type :label :start :end :sections."
         (cond
          ;; Note
          ((eq type 'note)
-          (let* ((nw (+ (mark-graf-mermaid--text-width text font-size) 20))
+          (let* ((nw (+ (markdown-modern-mermaid--text-width text font-size) 20))
                  (nh 28)
                  (nx (- fx (/ nw 2)))
                  (ny (- my (/ nh 2))))
-            (push (mark-graf-mermaid--svg-rect nx ny nw nh 4
-                                                (mark-graf-mermaid--color-blend bg accent 0.1)
+            (push (markdown-modern-mermaid--svg-rect nx ny nw nh 4
+                                                (markdown-modern-mermaid--color-blend bg accent 0.1)
                                                 accent)
                   svg-parts)
-            (push (mark-graf-mermaid--svg-text fx (+ my (/ font-size 3)) text (1- font-size) fg)
+            (push (markdown-modern-mermaid--svg-text fx (+ my (/ font-size 3)) text (1- font-size) fg)
                   svg-parts)))
          ;; Self-message
          ((string= from to)
           (let ((sx fx)
                 (loop-w 30))
-            (push (mark-graf-mermaid--svg-path
+            (push (markdown-modern-mermaid--svg-path
                    (format "M %d %d L %d %d L %d %d L %d %d"
                            sx my (+ sx loop-w) my (+ sx loop-w) (+ my 20) sx (+ my 20))
                    fg "none" "1.5")
                   svg-parts)
-            (push (mark-graf-mermaid--svg-text (+ sx loop-w 8) (+ my 10)
+            (push (markdown-modern-mermaid--svg-text (+ sx loop-w 8) (+ my 10)
                                                 text (1- font-size) fg "start")
                   svg-parts)))
          ;; Normal message
@@ -800,20 +800,20 @@ BLOCKS is list of plists with :type :label :start :end :sections."
             (when (and text (not (string-empty-p text)))
               (let ((lx (/ (+ x1 x2) 2))
                     (ly (- my 6)))
-                (push (mark-graf-mermaid--svg-text lx ly text (1- font-size) fg) svg-parts))))))))
+                (push (markdown-modern-mermaid--svg-text lx ly text (1- font-size) fg) svg-parts))))))))
     ;; Draw participant boxes (bottom)
     (dolist (p participants)
       (let* ((px (gethash p px-map))
-             (tw (mark-graf-mermaid--text-width p font-size))
+             (tw (markdown-modern-mermaid--text-width p font-size))
              (bw (max 80 (+ tw (* box-pad 2))))
              (bx (- px (/ bw 2)))
              (by (- total-h box-h 20)))
-        (push (mark-graf-mermaid--svg-rect bx by bw box-h 6 surface border) svg-parts)
-        (push (mark-graf-mermaid--svg-text px (+ by (/ box-h 2) (/ font-size 3))
+        (push (markdown-modern-mermaid--svg-rect bx by bw box-h 6 surface border) svg-parts)
+        (push (markdown-modern-mermaid--svg-text px (+ by (/ box-h 2) (/ font-size 3))
                                             p font-size fg)
               svg-parts)))
     ;; Assemble
-    (mark-graf-mermaid--svg-wrap
+    (markdown-modern-mermaid--svg-wrap
      total-w total-h
      (mapconcat #'identity (nreverse defs-parts) "\n")
      (mapconcat #'identity (nreverse svg-parts) "\n"))))
@@ -822,7 +822,7 @@ BLOCKS is list of plists with :type :label :start :end :sections."
 ;;; State Diagram Renderer
 ;;; ============================================================
 
-(defun mark-graf-mermaid--parse-state (lines)
+(defun markdown-modern-mermaid--parse-state (lines)
   "Parse state diagram LINES.
 Returns (:states STATES :transitions TRANSITIONS).
 STATES is hash-table id->(list :id :label :type).
@@ -856,9 +856,9 @@ TRANSITIONS is list of (:from FROM :to TO :label LABEL)."
                   transitions))))))
     (list :states states :transitions (nreverse transitions))))
 
-(defun mark-graf-mermaid--render-state (lines colors)
+(defun markdown-modern-mermaid--render-state (lines colors)
   "Render state diagram from LINES with COLORS. Returns SVG string."
-  (let* ((parsed (mark-graf-mermaid--parse-state lines))
+  (let* ((parsed (markdown-modern-mermaid--parse-state lines))
          (states (plist-get parsed :states))
          (transitions (plist-get parsed :transitions))
          (bg (plist-get colors :bg))
@@ -871,11 +871,11 @@ TRANSITIONS is list of (:from FROM :to TO :label LABEL)."
          (layer-gap 80)
          (sibling-gap 40)
          ;; Topo-sort states using transitions as edges
-         (sorted-ids (mark-graf-mermaid--flowchart-topo-sort states
+         (sorted-ids (markdown-modern-mermaid--flowchart-topo-sort states
                        (mapcar (lambda (t_)
                                  (list :from (plist-get t_ :from) :to (plist-get t_ :to)))
                                transitions)))
-         (layer-alist (mark-graf-mermaid--flowchart-assign-layers sorted-ids
+         (layer-alist (markdown-modern-mermaid--flowchart-assign-layers sorted-ids
                         (mapcar (lambda (t_)
                                   (list :from (plist-get t_ :from) :to (plist-get t_ :to)))
                                 transitions)))
@@ -898,7 +898,7 @@ TRANSITIONS is list of (:from FROM :to TO :label LABEL)."
                         (label (plist-get info :label)))
                    (puthash id
                             (if (memq type '(start end)) 24
-                              (max 70 (+ (mark-graf-mermaid--text-width label font-size)
+                              (max 70 (+ (markdown-modern-mermaid--text-width label font-size)
                                          (* node-pad-x 2))))
                             node-widths)))
                states)
@@ -928,9 +928,9 @@ TRANSITIONS is list of (:from FROM :to TO :label LABEL)."
             (setq y (+ y node-h layer-gap))))
         (setq total-h (+ y 20))))
     ;; Defs
-    (push (mark-graf-mermaid--svg-arrow-marker "state-arrow" fg) defs-parts)
+    (push (markdown-modern-mermaid--svg-arrow-marker "state-arrow" fg) defs-parts)
     ;; Background
-    (push (mark-graf-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
+    (push (markdown-modern-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
     ;; Draw transitions
     (dolist (tr transitions)
       (let* ((from-id (plist-get tr :from))
@@ -954,13 +954,13 @@ TRANSITIONS is list of (:from FROM :to TO :label LABEL)."
             (when label
               (let ((lx (/ (+ fx tx) 2))
                     (ly (- (/ (+ fy ty) 2) 4)))
-                (push (mark-graf-mermaid--svg-rect (- lx (/ (+ (mark-graf-mermaid--text-width label font-size) 8) 2))
+                (push (markdown-modern-mermaid--svg-rect (- lx (/ (+ (markdown-modern-mermaid--text-width label font-size) 8) 2))
                                                     (- ly (1+ font-size))
-                                                    (+ (mark-graf-mermaid--text-width label font-size) 8)
+                                                    (+ (markdown-modern-mermaid--text-width label font-size) 8)
                                                     (+ font-size 6)
                                                     3 bg "none")
                       svg-parts)
-                (push (mark-graf-mermaid--svg-text lx ly label (1- font-size) fg) svg-parts)))))))
+                (push (markdown-modern-mermaid--svg-text lx ly label (1- font-size) fg) svg-parts)))))))
     ;; Draw states
     (maphash
      (lambda (id pos)
@@ -975,17 +975,17 @@ TRANSITIONS is list of (:from FROM :to TO :label LABEL)."
               (cy (+ y (/ h 2))))
          (pcase type
            ('start
-            (push (mark-graf-mermaid--svg-circle cx cy 10 fg fg) svg-parts))
+            (push (markdown-modern-mermaid--svg-circle cx cy 10 fg fg) svg-parts))
            ('end
-            (push (mark-graf-mermaid--svg-circle cx cy 12 "none" fg) svg-parts)
-            (push (mark-graf-mermaid--svg-circle cx cy 8 fg fg) svg-parts))
+            (push (markdown-modern-mermaid--svg-circle cx cy 12 "none" fg) svg-parts)
+            (push (markdown-modern-mermaid--svg-circle cx cy 8 fg fg) svg-parts))
            (_
-            (push (mark-graf-mermaid--svg-rect x y w h 8 surface border) svg-parts)
-            (push (mark-graf-mermaid--svg-text cx (+ cy (/ font-size 3)) label font-size fg)
+            (push (markdown-modern-mermaid--svg-rect x y w h 8 surface border) svg-parts)
+            (push (markdown-modern-mermaid--svg-text cx (+ cy (/ font-size 3)) label font-size fg)
                   svg-parts)))))
      node-pos)
     ;; Assemble
-    (mark-graf-mermaid--svg-wrap
+    (markdown-modern-mermaid--svg-wrap
      total-w total-h
      (mapconcat #'identity (nreverse defs-parts) "\n")
      (mapconcat #'identity (nreverse svg-parts) "\n"))))
@@ -994,7 +994,7 @@ TRANSITIONS is list of (:from FROM :to TO :label LABEL)."
 ;;; Class Diagram Renderer
 ;;; ============================================================
 
-(defun mark-graf-mermaid--parse-class (lines)
+(defun markdown-modern-mermaid--parse-class (lines)
   "Parse class diagram LINES.
 Returns (:classes CLASSES :relationships RELS).
 CLASSES is hash-table name->(list :name :attrs :methods).
@@ -1065,9 +1065,9 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
                            (append (plist-get cls :attrs) (list member-str))))))))))
     (list :classes classes :relationships (nreverse relationships))))
 
-(defun mark-graf-mermaid--render-class (lines colors)
+(defun markdown-modern-mermaid--render-class (lines colors)
   "Render class diagram from LINES with COLORS. Returns SVG string."
-  (let* ((parsed (mark-graf-mermaid--parse-class lines))
+  (let* ((parsed (markdown-modern-mermaid--parse-class lines))
          (classes (plist-get parsed :classes))
          (relationships (plist-get parsed :relationships))
          (bg (plist-get colors :bg))
@@ -1096,16 +1096,16 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
         (let* ((cls (gethash name classes))
                (attrs (plist-get cls :attrs))
                (methods (plist-get cls :methods))
-               (name-w (mark-graf-mermaid--text-width name font-size))
+               (name-w (markdown-modern-mermaid--text-width name font-size))
                (max-w name-w)
                (section-lines 1)) ; name section
           ;; Measure attrs
           (dolist (a attrs)
-            (setq max-w (max max-w (mark-graf-mermaid--text-width a font-size)))
+            (setq max-w (max max-w (markdown-modern-mermaid--text-width a font-size)))
             (setq section-lines (1+ section-lines)))
           ;; Measure methods
           (dolist (m methods)
-            (setq max-w (max max-w (mark-graf-mermaid--text-width m font-size)))
+            (setq max-w (max max-w (markdown-modern-mermaid--text-width m font-size)))
             (setq section-lines (1+ section-lines)))
           ;; Add separators
           (when attrs (setq section-lines (1+ section-lines)))
@@ -1131,14 +1131,14 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
               (setq col 0 x 20 y (+ y row-h grid-gap-y) row-h 0))))
         (setq total-h (+ y row-h 20))))
     ;; Markers
-    (push (mark-graf-mermaid--svg-arrow-marker "class-arrow" fg) defs-parts)
-    (push (mark-graf-mermaid--svg-arrow-marker "class-diamond" fg 'diamond) defs-parts)
-    (push (mark-graf-mermaid--svg-arrow-marker "class-circle" fg 'circle) defs-parts)
+    (push (markdown-modern-mermaid--svg-arrow-marker "class-arrow" fg) defs-parts)
+    (push (markdown-modern-mermaid--svg-arrow-marker "class-diamond" fg 'diamond) defs-parts)
+    (push (markdown-modern-mermaid--svg-arrow-marker "class-circle" fg 'circle) defs-parts)
     (push (format "<marker id=\"class-inherit\" viewBox=\"0 0 10 10\" refX=\"10\" refY=\"5\" markerWidth=\"10\" markerHeight=\"10\" orient=\"auto-start-reverse\"><path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1\"/></marker>"
                   bg fg)
           defs-parts)
     ;; Background
-    (push (mark-graf-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
+    (push (markdown-modern-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
     ;; Draw relationships
     (dolist (rel relationships)
       (let* ((from-name (plist-get rel :from))
@@ -1171,7 +1171,7 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
                           (if dash (format " stroke-dasharray=\"%s\"" dash) ""))
                   svg-parts)
             (when label
-              (push (mark-graf-mermaid--svg-text (/ (+ fx tx) 2) (- (/ (+ fy ty) 2) 6)
+              (push (markdown-modern-mermaid--svg-text (/ (+ fx tx) 2) (- (/ (+ fy ty) 2) 6)
                                                   label (1- font-size) fg)
                     svg-parts))))))
     ;; Draw class boxes
@@ -1186,30 +1186,30 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
              (methods (plist-get cls :methods))
              (cy y))
         ;; Box background
-        (push (mark-graf-mermaid--svg-rect x y w h 4 surface border) svg-parts)
+        (push (markdown-modern-mermaid--svg-rect x y w h 4 surface border) svg-parts)
         ;; Name section
         (setq cy (+ cy pad-y line-h))
-        (push (mark-graf-mermaid--svg-text (+ x (/ w 2)) cy name font-size accent nil "bold") svg-parts)
+        (push (markdown-modern-mermaid--svg-text (+ x (/ w 2)) cy name font-size accent nil "bold") svg-parts)
         ;; Separator after name
         (when (or attrs methods)
           (setq cy (+ cy (/ pad-y 2)))
-          (push (mark-graf-mermaid--svg-line x cy (+ x w) cy border) svg-parts)
+          (push (markdown-modern-mermaid--svg-line x cy (+ x w) cy border) svg-parts)
           (setq cy (+ cy (/ pad-y 2))))
         ;; Attrs
         (dolist (a attrs)
           (setq cy (+ cy line-h))
-          (push (mark-graf-mermaid--svg-text (+ x pad-x) cy a font-size fg "start") svg-parts))
+          (push (markdown-modern-mermaid--svg-text (+ x pad-x) cy a font-size fg "start") svg-parts))
         ;; Separator between attrs and methods
         (when (and attrs methods)
           (setq cy (+ cy (/ pad-y 2)))
-          (push (mark-graf-mermaid--svg-line x cy (+ x w) cy border) svg-parts)
+          (push (markdown-modern-mermaid--svg-line x cy (+ x w) cy border) svg-parts)
           (setq cy (+ cy (/ pad-y 2))))
         ;; Methods
         (dolist (m methods)
           (setq cy (+ cy line-h))
-          (push (mark-graf-mermaid--svg-text (+ x pad-x) cy m font-size fg "start") svg-parts))))
+          (push (markdown-modern-mermaid--svg-text (+ x pad-x) cy m font-size fg "start") svg-parts))))
     ;; Assemble
-    (mark-graf-mermaid--svg-wrap
+    (markdown-modern-mermaid--svg-wrap
      total-w total-h
      (mapconcat #'identity (nreverse defs-parts) "\n")
      (mapconcat #'identity (nreverse svg-parts) "\n"))))
@@ -1218,7 +1218,7 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
 ;;; ER Diagram Renderer
 ;;; ============================================================
 
-(defun mark-graf-mermaid--parse-er (lines)
+(defun markdown-modern-mermaid--parse-er (lines)
   "Parse ER diagram LINES.
 Returns (:entities ENTITIES :relationships RELS).
 ENTITIES is hash-table name->(list :name :attrs).
@@ -1267,7 +1267,7 @@ RELS is list of (:from FROM :to TO :card-from CARD :card-to CARD :label LABEL)."
                   relationships))))))
     (list :entities entities :relationships (nreverse relationships))))
 
-(defun mark-graf-mermaid--er-draw-notation (ex ey dx dy card color)
+(defun markdown-modern-mermaid--er-draw-notation (ex ey dx dy card color)
   "Draw crow's foot ER notation at entity edge (EX, EY).
 DX, DY is the direction away from the entity along the relationship.
 CARD is the cardinality string (e.g. \"||\" \"|o\" \"}|\" \"o{\").
@@ -1331,9 +1331,9 @@ COLOR is the stroke color.  Returns list of SVG element strings."
                       tip-x tip-y (- base-x (* px tk)) (- base-y (* py tk)) color) parts))))
     parts))
 
-(defun mark-graf-mermaid--render-er (lines colors)
+(defun markdown-modern-mermaid--render-er (lines colors)
   "Render ER diagram from LINES with COLORS. Returns SVG string."
-  (let* ((parsed (mark-graf-mermaid--parse-er lines))
+  (let* ((parsed (markdown-modern-mermaid--parse-er lines))
          (entities (plist-get parsed :entities))
          (relationships (plist-get parsed :relationships))
          (bg (plist-get colors :bg))
@@ -1361,12 +1361,12 @@ COLOR is the stroke color.  Returns list of SVG element strings."
       (dolist (name entity-names)
         (let* ((ent (gethash name entities))
                (attrs (plist-get ent :attrs))
-               (name-w (mark-graf-mermaid--text-width name font-size))
+               (name-w (markdown-modern-mermaid--text-width name font-size))
                (max-w name-w)
                (num-lines (1+ (length attrs)))) ; name + attrs
           (dolist (a attrs)
             (let ((attr-text (concat (plist-get a :type) " " (plist-get a :name))))
-              (setq max-w (max max-w (mark-graf-mermaid--text-width attr-text font-size)))))
+              (setq max-w (max max-w (markdown-modern-mermaid--text-width attr-text font-size)))))
           ;; Add separator line
           (when attrs (setq num-lines (1+ num-lines)))
           (puthash name (list :w (+ max-w (* pad-x 2) 14)
@@ -1390,7 +1390,7 @@ COLOR is the stroke color.  Returns list of SVG element strings."
               (setq col 0 x 20 y (+ y row-h grid-gap-y) row-h 0))))
         (setq total-h (+ y row-h 20))))
     ;; Background
-    (push (mark-graf-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
+    (push (markdown-modern-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
     ;; Draw relationships
     (dolist (rel relationships)
       (let* ((from-name (plist-get rel :from))
@@ -1428,23 +1428,23 @@ COLOR is the stroke color.  Returns list of SVG element strings."
                    (lux (if (> llen 0) (/ (float ldx) llen) 1.0))
                    (luy (if (> llen 0) (/ (float ldy) llen) 0.0))
                    (inset 22))
-              (push (mark-graf-mermaid--svg-line
+              (push (markdown-modern-mermaid--svg-line
                      (round (+ fx (* lux inset))) (round (+ fy (* luy inset)))
                      (round (- tx (* lux inset))) (round (- ty (* luy inset)))
                      fg) svg-parts)
               ;; Crow's foot notation at from-entity
-              (dolist (s (mark-graf-mermaid--er-draw-notation
+              (dolist (s (markdown-modern-mermaid--er-draw-notation
                           fx fy ldx ldy card-from fg))
                 (push s svg-parts))
               ;; Crow's foot notation at to-entity
-              (dolist (s (mark-graf-mermaid--er-draw-notation
+              (dolist (s (markdown-modern-mermaid--er-draw-notation
                           tx ty (- ldx) (- ldy) card-to fg))
                 (push s svg-parts)))
             ;; Relationship label
             (when (and label (not (string-empty-p label)))
               (let ((lx (/ (+ fx tx) 2))
                     (ly (- (/ (+ fy ty) 2) 8)))
-                (push (mark-graf-mermaid--svg-text lx ly label (1- font-size) fg) svg-parts)))))))
+                (push (markdown-modern-mermaid--svg-text lx ly label (1- font-size) fg) svg-parts)))))))
     ;; Draw entity boxes
     (dolist (name entity-names)
       (let* ((ent (gethash name entities))
@@ -1455,10 +1455,10 @@ COLOR is the stroke color.  Returns list of SVG element strings."
              (h (plist-get pos :h))
              (attrs (plist-get ent :attrs)))
         ;; Box background
-        (push (mark-graf-mermaid--svg-rect x y w h 4 surface border) svg-parts)
+        (push (markdown-modern-mermaid--svg-rect x y w h 4 surface border) svg-parts)
         (if (not attrs)
             ;; Simple entity: center name vertically in box
-            (push (mark-graf-mermaid--svg-text
+            (push (markdown-modern-mermaid--svg-text
                    (+ x (/ w 2)) (+ y (/ h 2) (/ font-size 3))
                    name font-size fg) svg-parts)
           ;; Entity with attributes: name in header, attrs below separator
@@ -1466,26 +1466,26 @@ COLOR is the stroke color.  Returns list of SVG element strings."
                  (sep-y (+ y header-h))
                  (cy (+ sep-y (/ pad-y 2))))
             ;; Name centered in header region
-            (push (mark-graf-mermaid--svg-text
+            (push (markdown-modern-mermaid--svg-text
                    (+ x (/ w 2)) (+ y (/ header-h 2) (/ font-size 3))
                    name font-size fg) svg-parts)
             ;; Separator line
-            (push (mark-graf-mermaid--svg-line x sep-y (+ x w) sep-y border) svg-parts)
+            (push (markdown-modern-mermaid--svg-line x sep-y (+ x w) sep-y border) svg-parts)
             ;; Attributes
             (dolist (a attrs)
               (setq cy (+ cy line-h))
               (let ((attr-text (concat (plist-get a :type) " " (plist-get a :name)))
                     (constraint (plist-get a :constraint)))
-                (push (mark-graf-mermaid--svg-text (+ x pad-x) cy attr-text font-size fg "start") svg-parts)
+                (push (markdown-modern-mermaid--svg-text (+ x pad-x) cy attr-text font-size fg "start") svg-parts)
                 (when (and constraint (not (string-empty-p constraint)))
-                  (push (mark-graf-mermaid--svg-text (- (+ x w) pad-x) cy constraint
+                  (push (markdown-modern-mermaid--svg-text (- (+ x w) pad-x) cy constraint
                                                       (- font-size 2) border "end")
                         svg-parts))))))))
     ;; Assemble
-    (mark-graf-mermaid--svg-wrap
+    (markdown-modern-mermaid--svg-wrap
      total-w total-h
      (if defs-parts (mapconcat #'identity (nreverse defs-parts) "\n") "")
      (mapconcat #'identity (nreverse svg-parts) "\n"))))
 
-(provide 'mark-graf-mermaid)
-;;; mark-graf-mermaid.el ends here
+(provide 'markdown-modern-mermaid)
+;;; markdown-modern-mermaid.el ends here

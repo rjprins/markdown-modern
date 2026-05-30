@@ -1,6 +1,6 @@
-# mark-graf Sample Document
+# markdown-modern Sample Document
 
-This is a sample markdown document to test **mark-graf** rendering capabilities.
+This is a sample markdown document to test **markdown-modern** rendering capabilities.
 
 ## Inline Formatting
 
@@ -96,7 +96,7 @@ Nested blockquotes:
 
 | Name | Type | Description |
 |------|------|-------------|
-| mark-graf | Package | WYSIWYG markdown for Emacs |
+| markdown-modern | Package | WYSIWYG markdown for Emacs |
 | tree-sitter | Library | Incremental parsing |
 | overlay | Object | Buffer decoration |
 
@@ -137,11 +137,11 @@ graph TD
 sequenceDiagram
     participant User
     participant Emacs
-    participant mark-graf
+    participant markdown-modern
 
     User->>Emacs: Open .md file
-    Emacs->>mark-graf: Activate mode
-    mark-graf->>Emacs: Render content
+    Emacs->>markdown-modern: Activate mode
+    markdown-modern->>Emacs: Render content
     Emacs->>User: Display result
 ```
 

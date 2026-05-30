@@ -1,8 +1,8 @@
-;;; mark-graf-elements.el --- Element handlers for mark-graf -*- lexical-binding: t; -*-
+;;; markdown-modern-elements.el --- Element handlers for markdown-modern -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 mark-graf contributors
+;; Copyright (C) 2026 markdown-modern contributors
 
-;; This file is part of mark-graf.
+;; This file is part of markdown-modern.
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -19,83 +19,83 @@
 
 ;;; Commentary:
 
-;; Element handlers for mark-graf.
+;; Element handlers for markdown-modern.
 ;; Provides insertion, manipulation, and detection for markdown elements.
 
 ;;; Code:
 
 (require 'cl-lib)
 
-;; Functions defined in other mark-graf files
-(declare-function mark-graf-ts--containing-block "mark-graf-ts")
-(declare-function mark-graf-ts--element-at "mark-graf-ts")
-(declare-function mark-graf-node-type "mark-graf-ts")
-(declare-function mark-graf-node-level "mark-graf-ts")
-(declare-function mark-graf-node-start "mark-graf-ts")
-(declare-function mark-graf-node-end "mark-graf-ts")
+;; Functions defined in other markdown-modern files
+(declare-function markdown-modern-ts--containing-block "markdown-modern-ts")
+(declare-function markdown-modern-ts--element-at "markdown-modern-ts")
+(declare-function markdown-modern-node-type "markdown-modern-ts")
+(declare-function markdown-modern-node-level "markdown-modern-ts")
+(declare-function markdown-modern-node-start "markdown-modern-ts")
+(declare-function markdown-modern-node-end "markdown-modern-ts")
 
 ;;; Element Detection
 
-(defun mark-graf-element-at-point ()
+(defun markdown-modern-element-at-point ()
   "Return the type of markdown element at point."
-  (when-let ((elem (mark-graf-ts--element-at (point))))
-    (mark-graf-node-type elem)))
+  (when-let ((elem (markdown-modern-ts--element-at (point))))
+    (markdown-modern-node-type elem)))
 
-(defun mark-graf-in-heading-p ()
+(defun markdown-modern-in-heading-p ()
   "Return non-nil if point is in a heading."
-  (eq (mark-graf-element-at-point) 'heading))
+  (eq (markdown-modern-element-at-point) 'heading))
 
-(defun mark-graf-in-code-block-p ()
+(defun markdown-modern-in-code-block-p ()
   "Return non-nil if point is in a code block."
-  (memq (mark-graf-element-at-point) '(code-block code-block-indented)))
+  (memq (markdown-modern-element-at-point) '(code-block code-block-indented)))
 
-(defun mark-graf-in-list-p ()
+(defun markdown-modern-in-list-p ()
   "Return non-nil if point is in a list or list item."
-  (memq (mark-graf-element-at-point) '(list list-item)))
+  (memq (markdown-modern-element-at-point) '(list list-item)))
 
-(defun mark-graf-in-table-p ()
+(defun markdown-modern-in-table-p ()
   "Return non-nil if point is in a table."
-  (memq (mark-graf-element-at-point) '(table table-header table-row table-cell)))
+  (memq (markdown-modern-element-at-point) '(table table-header table-row table-cell)))
 
-(defun mark-graf-in-blockquote-p ()
+(defun markdown-modern-in-blockquote-p ()
   "Return non-nil if point is in a blockquote."
-  (eq (mark-graf-element-at-point) 'blockquote))
+  (eq (markdown-modern-element-at-point) 'blockquote))
 
-(defun mark-graf-in-link-p ()
+(defun markdown-modern-in-link-p ()
   "Return non-nil if point is in a link."
-  (memq (mark-graf-element-at-point) '(link link-ref link-ref-collapsed)))
+  (memq (markdown-modern-element-at-point) '(link link-ref link-ref-collapsed)))
 
 ;;; Heading Utilities
 
-(defun mark-graf-heading-level-at-point ()
+(defun markdown-modern-heading-level-at-point ()
   "Return the heading level at point, or nil if not in a heading."
   (or
    ;; Try tree-sitter first
-   (when-let ((elem (ignore-errors (mark-graf-ts--element-at (point)))))
-     (when (eq (mark-graf-node-type elem) 'heading)
-       (mark-graf-node-level elem)))
+   (when-let ((elem (ignore-errors (markdown-modern-ts--element-at (point)))))
+     (when (eq (markdown-modern-node-type elem) 'heading)
+       (markdown-modern-node-level elem)))
    ;; Fallback to regex
    (save-excursion
      (beginning-of-line)
      (when (looking-at "^\\(#\\{1,6\\}\\) ")
        (length (match-string 1))))))
 
-(defun mark-graf-current-heading ()
+(defun markdown-modern-current-heading ()
   "Return the nearest heading above point."
   (save-excursion
     (when (re-search-backward "^#+[ \t]+" nil t)
-      (mark-graf-ts--element-at (point)))))
+      (markdown-modern-ts--element-at (point)))))
 
-(defun mark-graf-heading-bounds ()
+(defun markdown-modern-heading-bounds ()
   "Return (START . END) bounds of current heading, or nil."
-  (when-let ((elem (mark-graf-ts--element-at (point))))
-    (when (eq (mark-graf-node-type elem) 'heading)
-      (cons (mark-graf-node-start elem)
-            (mark-graf-node-end elem)))))
+  (when-let ((elem (markdown-modern-ts--element-at (point))))
+    (when (eq (markdown-modern-node-type elem) 'heading)
+      (cons (markdown-modern-node-start elem)
+            (markdown-modern-node-end elem)))))
 
 ;;; List Utilities
 
-(defun mark-graf-list-item-bounds ()
+(defun markdown-modern-list-item-bounds ()
   "Return (START . END) bounds of current list item, or nil."
   (save-excursion
     (beginning-of-line)
@@ -112,14 +112,14 @@
           (forward-line 1))
         (cons start (point))))))
 
-(defun mark-graf-list-level-at-point ()
+(defun markdown-modern-list-level-at-point ()
   "Return the nesting level of list item at point (0-based)."
   (save-excursion
     (beginning-of-line)
     (when (looking-at "^\\([ \t]*\\)[-*+0-9]")
       (/ (length (match-string 1)) 2))))
 
-(defun mark-graf-list-marker-at-point ()
+(defun markdown-modern-list-marker-at-point ()
   "Return the list marker type at point (:unordered, :ordered, :task)."
   (save-excursion
     (beginning-of-line)
@@ -131,9 +131,9 @@
 
 ;;; Table Utilities
 
-(defun mark-graf-table-bounds ()
+(defun markdown-modern-table-bounds ()
   "Return (START . END) bounds of current table, or nil."
-  (when (mark-graf-in-table-p)
+  (when (markdown-modern-in-table-p)
     (save-excursion
       (let (start end)
         ;; Find start
@@ -150,9 +150,9 @@
         (setq end (point))
         (cons start end)))))
 
-(defun mark-graf-table-cell-bounds ()
+(defun markdown-modern-table-cell-bounds ()
   "Return (START . END) bounds of current table cell, or nil."
-  (when (mark-graf-in-table-p)
+  (when (markdown-modern-in-table-p)
     (save-excursion
       (let ((pos (point)))
         (beginning-of-line)
@@ -169,9 +169,9 @@
               (setq cell-end (line-end-position)))
             (cons cell-start cell-end)))))))
 
-(defun mark-graf-table-column-at-point ()
+(defun markdown-modern-table-column-at-point ()
   "Return 0-based column index of current table cell."
-  (when (mark-graf-in-table-p)
+  (when (markdown-modern-in-table-p)
     (save-excursion
       (let ((pos (point))
             (col 0))
@@ -184,9 +184,9 @@
 
 ;;; Code Block Utilities
 
-(defun mark-graf-code-block-bounds ()
+(defun markdown-modern-code-block-bounds ()
   "Return (START . END) bounds of current code block, or nil."
-  (when (mark-graf-in-code-block-p)
+  (when (markdown-modern-in-code-block-p)
     (save-excursion
       (let ((start nil) (end nil))
         ;; Find opening fence
@@ -198,16 +198,16 @@
             (setq end (line-end-position))
             (cons start end)))))))
 
-(defun mark-graf-code-block-language ()
+(defun markdown-modern-code-block-language ()
   "Return the language of the current code block, or nil."
-  (when (mark-graf-in-code-block-p)
+  (when (markdown-modern-in-code-block-p)
     (save-excursion
       (when (re-search-backward "^```\\([a-zA-Z0-9_+-]*\\)\\|^~~~\\([a-zA-Z0-9_+-]*\\)" nil t)
         (or (match-string 1) (match-string 2))))))
 
 ;;; Blockquote Utilities
 
-(defun mark-graf-blockquote-level-at-point ()
+(defun markdown-modern-blockquote-level-at-point ()
   "Return the nesting level of blockquote at point (1-based)."
   (save-excursion
     (beginning-of-line)
@@ -217,7 +217,7 @@
 
 ;;; Element Insertion Helpers
 
-(defun mark-graf--wrap-region-or-insert (open close)
+(defun markdown-modern--wrap-region-or-insert (open close)
   "Wrap region with OPEN and CLOSE, or insert both at point."
   (if (use-region-p)
       (let ((start (region-beginning))
@@ -230,7 +230,7 @@
     (insert open close)
     (backward-char (length close))))
 
-(defun mark-graf--toggle-markup (open close)
+(defun markdown-modern--toggle-markup (open close)
   "Toggle markup OPEN/CLOSE around current word or region."
   (if (use-region-p)
       (let* ((start (region-beginning))
@@ -269,7 +269,7 @@
         (insert open close)
         (backward-char (length close))))))
 
-(defun mark-graf--ensure-blank-line-before ()
+(defun markdown-modern--ensure-blank-line-before ()
   "Ensure there's a blank line before point."
   (unless (or (bobp)
               (save-excursion
@@ -277,7 +277,7 @@
                 (looking-at "^[ \t]*$")))
     (insert "\n")))
 
-(defun mark-graf--ensure-blank-line-after ()
+(defun markdown-modern--ensure-blank-line-after ()
   "Ensure there's a blank line after point."
   (unless (or (eobp)
               (save-excursion
@@ -285,7 +285,7 @@
                 (looking-at "^[ \t]*$")))
     (save-excursion (insert "\n"))))
 
-(defun mark-graf--at-line-start-p ()
+(defun markdown-modern--at-line-start-p ()
   "Return non-nil if point is at the start of a line (ignoring whitespace)."
   (save-excursion
     (skip-chars-backward " \t")
@@ -293,23 +293,23 @@
 
 ;;; Text Object Functions (for integration with evil-mode etc.)
 
-(defun mark-graf-bounds-of-element-at-point ()
+(defun markdown-modern-bounds-of-element-at-point ()
   "Return bounds of markdown element at point as (START . END)."
-  (when-let ((elem (mark-graf-ts--element-at (point))))
-    (cons (mark-graf-node-start elem)
-          (mark-graf-node-end elem))))
+  (when-let ((elem (markdown-modern-ts--element-at (point))))
+    (cons (markdown-modern-node-start elem)
+          (markdown-modern-node-end elem))))
 
-(defun mark-graf-bounds-of-block-at-point ()
+(defun markdown-modern-bounds-of-block-at-point ()
   "Return bounds of markdown block at point as (START . END)."
-  (when-let ((block (mark-graf-ts--containing-block (point))))
-    (cons (mark-graf-node-start block)
-          (mark-graf-node-end block))))
+  (when-let ((block (markdown-modern-ts--containing-block (point))))
+    (cons (markdown-modern-node-start block)
+          (markdown-modern-node-end block))))
 
 ;; Register as thing-at-point types
-(put 'mark-graf-element 'bounds-of-thing-at-point
-     #'mark-graf-bounds-of-element-at-point)
-(put 'mark-graf-block 'bounds-of-thing-at-point
-     #'mark-graf-bounds-of-block-at-point)
+(put 'markdown-modern-element 'bounds-of-thing-at-point
+     #'markdown-modern-bounds-of-element-at-point)
+(put 'markdown-modern-block 'bounds-of-thing-at-point
+     #'markdown-modern-bounds-of-block-at-point)
 
-(provide 'mark-graf-elements)
-;;; mark-graf-elements.el ends here
+(provide 'markdown-modern-elements)
+;;; markdown-modern-elements.el ends here

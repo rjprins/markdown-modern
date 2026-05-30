@@ -1,8 +1,8 @@
-;;; mark-graf-commands.el --- Commands for mark-graf -*- lexical-binding: t; -*-
+;;; markdown-modern-commands.el --- Commands for markdown-modern -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 mark-graf contributors
+;; Copyright (C) 2026 markdown-modern contributors
 
-;; This file is part of mark-graf.
+;; This file is part of markdown-modern.
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -19,47 +19,47 @@
 
 ;;; Commentary:
 
-;; Interactive commands for mark-graf-mode.
+;; Interactive commands for markdown-modern-mode.
 ;; Includes insertion, navigation, and manipulation commands.
 
 ;;; Code:
 
 (require 'cl-lib)
 
-;; Functions defined in other mark-graf files
-(declare-function mark-graf-in-heading-p "mark-graf-elements")
-(declare-function mark-graf-in-table-p "mark-graf-elements")
-(declare-function mark-graf-in-list-p "mark-graf-elements")
-(declare-function mark-graf-table-bounds "mark-graf-elements")
-(declare-function mark-graf-table-column-at-point "mark-graf-elements")
-(declare-function mark-graf-list-item-bounds "mark-graf-elements")
-(declare-function mark-graf-list-marker-at-point "mark-graf-elements")
-(declare-function mark-graf-heading-level-at-point "mark-graf-elements")
-(declare-function mark-graf--at-line-start-p "mark-graf-elements")
-(declare-function mark-graf--ensure-blank-line-before "mark-graf-elements")
-(declare-function mark-graf--toggle-markup "mark-graf-elements")
-(declare-function mark-graf--wrap-region-or-insert "mark-graf-elements")
+;; Functions defined in other markdown-modern files
+(declare-function markdown-modern-in-heading-p "markdown-modern-elements")
+(declare-function markdown-modern-in-table-p "markdown-modern-elements")
+(declare-function markdown-modern-in-list-p "markdown-modern-elements")
+(declare-function markdown-modern-table-bounds "markdown-modern-elements")
+(declare-function markdown-modern-table-column-at-point "markdown-modern-elements")
+(declare-function markdown-modern-list-item-bounds "markdown-modern-elements")
+(declare-function markdown-modern-list-marker-at-point "markdown-modern-elements")
+(declare-function markdown-modern-heading-level-at-point "markdown-modern-elements")
+(declare-function markdown-modern--at-line-start-p "markdown-modern-elements")
+(declare-function markdown-modern--ensure-blank-line-before "markdown-modern-elements")
+(declare-function markdown-modern--toggle-markup "markdown-modern-elements")
+(declare-function markdown-modern--wrap-region-or-insert "markdown-modern-elements")
 
-;; Variables defined in mark-graf.el
-(defvar mark-graf-display-images)
-(defvar mark-graf--rendering-enabled)
-(defvar mark-graf--full-render-done-p)
-(defvar mark-graf--code-edit-buffer)
+;; Variables defined in markdown-modern.el
+(defvar markdown-modern-display-images)
+(defvar markdown-modern--rendering-enabled)
+(defvar markdown-modern--full-render-done-p)
+(defvar markdown-modern--code-edit-buffer)
 
-;; Functions defined in mark-graf.el
-(declare-function mark-graf--fenced-code-block-content-at "mark-graf")
+;; Functions defined in markdown-modern.el
+(declare-function markdown-modern--fenced-code-block-content-at "markdown-modern")
 
-;; Functions defined in mark-graf-render.el
-(declare-function mark-graf-render--render-region "mark-graf-render")
-(declare-function mark-graf-render--clear-all "mark-graf-render")
-(declare-function mark-graf-render--unrender-region "mark-graf-render")
-(declare-function mark-graf-render--language-to-mode "mark-graf-render")
-(declare-function mark-graf-render--follow-link "mark-graf-render")
+;; Functions defined in markdown-modern-render.el
+(declare-function markdown-modern-render--render-region "markdown-modern-render")
+(declare-function markdown-modern-render--clear-all "markdown-modern-render")
+(declare-function markdown-modern-render--unrender-region "markdown-modern-render")
+(declare-function markdown-modern-render--language-to-mode "markdown-modern-render")
+(declare-function markdown-modern-render--follow-link "markdown-modern-render")
 
-;; Functions defined in mark-graf-ts.el
-(declare-function mark-graf-ts--element-at "mark-graf-ts")
-(declare-function mark-graf-node-start "mark-graf-ts")
-(declare-function mark-graf-node-end "mark-graf-ts")
+;; Functions defined in markdown-modern-ts.el
+(declare-function markdown-modern-ts--element-at "markdown-modern-ts")
+(declare-function markdown-modern-node-start "markdown-modern-ts")
+(declare-function markdown-modern-node-end "markdown-modern-ts")
 
 ;; Functions from outline.el (may not be loaded)
 (declare-function outline-toggle-children "outline")
@@ -70,37 +70,37 @@
 ;;; Style Insertion Commands
 
 ;;;###autoload
-(defun mark-graf-insert-bold ()
+(defun markdown-modern-insert-bold ()
   "Insert bold markers or toggle bold on region/word."
   (interactive)
-  (mark-graf--toggle-markup "**" "**"))
+  (markdown-modern--toggle-markup "**" "**"))
 
 ;;;###autoload
-(defun mark-graf-insert-italic ()
+(defun markdown-modern-insert-italic ()
   "Insert italic markers or toggle italic on region/word."
   (interactive)
-  (mark-graf--toggle-markup "*" "*"))
+  (markdown-modern--toggle-markup "*" "*"))
 
 ;;;###autoload
-(defun mark-graf-insert-code ()
+(defun markdown-modern-insert-code ()
   "Insert inline code markers or toggle on region/word."
   (interactive)
-  (mark-graf--toggle-markup "`" "`"))
+  (markdown-modern--toggle-markup "`" "`"))
 
 ;;;###autoload
-(defun mark-graf-insert-strike ()
+(defun markdown-modern-insert-strike ()
   "Insert strikethrough markers or toggle on region/word."
   (interactive)
-  (mark-graf--toggle-markup "~~" "~~"))
+  (markdown-modern--toggle-markup "~~" "~~"))
 
 ;;;###autoload
-(defun mark-graf-insert-kbd ()
+(defun markdown-modern-insert-kbd ()
   "Insert <kbd> tags or wrap region."
   (interactive)
-  (mark-graf--wrap-region-or-insert "<kbd>" "</kbd>"))
+  (markdown-modern--wrap-region-or-insert "<kbd>" "</kbd>"))
 
 ;;;###autoload
-(defun mark-graf-insert-blockquote ()
+(defun markdown-modern-insert-blockquote ()
   "Insert blockquote markers on current line or region."
   (interactive)
   (if (use-region-p)
@@ -122,11 +122,11 @@
       (insert "> "))))
 
 ;;;###autoload
-(defun mark-graf-insert-code-block (&optional language)
+(defun markdown-modern-insert-code-block (&optional language)
   "Insert a fenced code block with optional LANGUAGE."
   (interactive
    (list (read-string "Language (optional): ")))
-  (mark-graf--ensure-blank-line-before)
+  (markdown-modern--ensure-blank-line-before)
   (let ((lang (or language "")))
     (insert (format "```%s\n\n```" lang))
     (forward-line -1)))
@@ -134,12 +134,12 @@
 ;;; Heading Commands
 
 ;;;###autoload
-(defun mark-graf-insert-heading (&optional level)
+(defun markdown-modern-insert-heading (&optional level)
   "Insert a heading at LEVEL (prompts if not specified)."
   (interactive
    (list (read-number "Heading level (1-6): " 2)))
   (let ((lvl (max 1 (min 6 (or level 2)))))
-    (if (mark-graf--at-line-start-p)
+    (if (markdown-modern--at-line-start-p)
         (progn
           (beginning-of-line)
           ;; Remove existing heading markers if any
@@ -151,43 +151,43 @@
       (insert "\n\n" (make-string lvl ?#) " "))))
 
 ;;;###autoload
-(defun mark-graf-insert-heading-1 ()
+(defun markdown-modern-insert-heading-1 ()
   "Insert a level 1 heading."
   (interactive)
-  (mark-graf-insert-heading 1))
+  (markdown-modern-insert-heading 1))
 
 ;;;###autoload
-(defun mark-graf-insert-heading-2 ()
+(defun markdown-modern-insert-heading-2 ()
   "Insert a level 2 heading."
   (interactive)
-  (mark-graf-insert-heading 2))
+  (markdown-modern-insert-heading 2))
 
 ;;;###autoload
-(defun mark-graf-insert-heading-3 ()
+(defun markdown-modern-insert-heading-3 ()
   "Insert a level 3 heading."
   (interactive)
-  (mark-graf-insert-heading 3))
+  (markdown-modern-insert-heading 3))
 
 ;;;###autoload
-(defun mark-graf-insert-heading-4 ()
+(defun markdown-modern-insert-heading-4 ()
   "Insert a level 4 heading."
   (interactive)
-  (mark-graf-insert-heading 4))
+  (markdown-modern-insert-heading 4))
 
 ;;;###autoload
-(defun mark-graf-insert-heading-5 ()
+(defun markdown-modern-insert-heading-5 ()
   "Insert a level 5 heading."
   (interactive)
-  (mark-graf-insert-heading 5))
+  (markdown-modern-insert-heading 5))
 
 ;;;###autoload
-(defun mark-graf-insert-heading-6 ()
+(defun markdown-modern-insert-heading-6 ()
   "Insert a level 6 heading."
   (interactive)
-  (mark-graf-insert-heading 6))
+  (markdown-modern-insert-heading 6))
 
 ;;;###autoload
-(defun mark-graf-promote-heading ()
+(defun markdown-modern-promote-heading ()
   "Promote current heading (decrease level, e.g., ## -> #)."
   (interactive)
   (save-excursion
@@ -196,7 +196,7 @@
       (delete-char 1))))
 
 ;;;###autoload
-(defun mark-graf-demote-heading ()
+(defun markdown-modern-demote-heading ()
   "Demote current heading (increase level, e.g., # -> ##)."
   (interactive)
   (save-excursion
@@ -208,7 +208,7 @@
 ;;; Link and Image Commands
 
 ;;;###autoload
-(defun mark-graf-insert-link (&optional url text)
+(defun markdown-modern-insert-link (&optional url text)
   "Insert a markdown link with URL and TEXT."
   (interactive
    (let* ((default-text (if (use-region-p)
@@ -225,7 +225,7 @@
     (backward-char 1)))
 
 ;;;###autoload
-(defun mark-graf-insert-image (&optional path alt)
+(defun markdown-modern-insert-image (&optional path alt)
   "Insert a markdown image with PATH and ALT text."
   (interactive
    (let* ((default-path (read-file-name "Image file: " nil nil nil nil
@@ -244,17 +244,17 @@
     (insert (format "![%s](%s)" (or alt "") relative-path))))
 
 ;;;###autoload
-(defun mark-graf-toggle-images ()
+(defun markdown-modern-toggle-images ()
   "Toggle display of inline images in buffer."
   (interactive)
-  (setq mark-graf-display-images (not mark-graf-display-images))
-  (mark-graf-render--render-region (point-min) (point-max))
-  (message "Image display %s" (if mark-graf-display-images "enabled" "disabled")))
+  (setq markdown-modern-display-images (not markdown-modern-display-images))
+  (markdown-modern-render--render-region (point-min) (point-max))
+  (message "Image display %s" (if markdown-modern-display-images "enabled" "disabled")))
 
 ;;; Navigation Commands
 
 ;;;###autoload
-(defun mark-graf-next-heading ()
+(defun markdown-modern-next-heading ()
   "Move to next heading."
   (interactive)
   (let ((pos (point)))
@@ -265,7 +265,7 @@
       (message "No more headings"))))
 
 ;;;###autoload
-(defun mark-graf-prev-heading ()
+(defun markdown-modern-prev-heading ()
   "Move to previous heading."
   (interactive)
   (let ((pos (point)))
@@ -277,10 +277,10 @@
       (message "No previous heading"))))
 
 ;;;###autoload
-(defun mark-graf-next-heading-same-level ()
+(defun markdown-modern-next-heading-same-level ()
   "Move to next heading at the same level."
   (interactive)
-  (let ((level (mark-graf-heading-level-at-point)))
+  (let ((level (markdown-modern-heading-level-at-point)))
     (if level
         (let ((pattern (format "^%s " (make-string level ?#)))
               (pos (point)))
@@ -289,13 +289,13 @@
               (beginning-of-line)
             (goto-char pos)
             (message "No more headings at level %d" level)))
-      (mark-graf-next-heading))))
+      (markdown-modern-next-heading))))
 
 ;;;###autoload
-(defun mark-graf-prev-heading-same-level ()
+(defun markdown-modern-prev-heading-same-level ()
   "Move to previous heading at the same level."
   (interactive)
-  (let ((level (mark-graf-heading-level-at-point)))
+  (let ((level (markdown-modern-heading-level-at-point)))
     (if level
         (let ((pattern (format "^%s " (make-string level ?#)))
               (pos (point)))
@@ -304,16 +304,16 @@
               (beginning-of-line)
             (goto-char pos)
             (message "No previous heading at level %d" level)))
-      (mark-graf-prev-heading))))
+      (markdown-modern-prev-heading))))
 
 ;;;###autoload
-(defun mark-graf-up-heading ()
+(defun markdown-modern-up-heading ()
   "Move to parent heading (one level up)."
   (interactive)
-  (let ((level (or (mark-graf-heading-level-at-point)
+  (let ((level (or (markdown-modern-heading-level-at-point)
                    (save-excursion
-                     (mark-graf-prev-heading)
-                     (mark-graf-heading-level-at-point))
+                     (markdown-modern-prev-heading)
+                     (markdown-modern-heading-level-at-point))
                    1)))
     (if (> level 1)
         (let ((pattern (format "^%s " (make-string (1- level) ?#)))
@@ -328,11 +328,11 @@
 ;;; List Commands
 
 ;;;###autoload
-(defun mark-graf-insert-list-item ()
+(defun markdown-modern-insert-list-item ()
   "Insert a new list item.
 Continues the current list type or creates a new unordered list."
   (interactive)
-  (let ((marker-type (mark-graf-list-marker-at-point))
+  (let ((marker-type (markdown-modern-list-marker-at-point))
         (at-empty-line (save-excursion
                          (beginning-of-line)
                          (looking-at "^[ \t]*$"))))
@@ -378,7 +378,7 @@ Continues the current list type or creates a new unordered list."
         (insert "- ")))))))
 
 ;;;###autoload
-(defun mark-graf-toggle-checkbox ()
+(defun markdown-modern-toggle-checkbox ()
   "Toggle task list checkbox at point."
   (interactive)
   (save-excursion
@@ -392,10 +392,10 @@ Continues the current list type or creates a new unordered list."
       (message "No checkbox on current line")))))
 
 ;;;###autoload
-(defun mark-graf-move-item-up ()
+(defun markdown-modern-move-item-up ()
   "Move current list item up."
   (interactive)
-  (when-let ((bounds (mark-graf-list-item-bounds)))
+  (when-let ((bounds (markdown-modern-list-item-bounds)))
     (let ((start (car bounds))
           (end (cdr bounds)))
       (when (> start (point-min))
@@ -406,10 +406,10 @@ Continues the current list type or creates a new unordered list."
           (insert text))))))
 
 ;;;###autoload
-(defun mark-graf-move-item-down ()
+(defun markdown-modern-move-item-down ()
   "Move current list item down."
   (interactive)
-  (when-let ((bounds (mark-graf-list-item-bounds)))
+  (when-let ((bounds (markdown-modern-list-item-bounds)))
     (let ((start (car bounds))
           (end (cdr bounds)))
       (when (< end (point-max))
@@ -420,7 +420,7 @@ Continues the current list type or creates a new unordered list."
           (insert "\n" (string-trim-right text)))))))
 
 ;;;###autoload
-(defun mark-graf-promote-item ()
+(defun markdown-modern-promote-item ()
   "Decrease indentation of current list item."
   (interactive)
   (save-excursion
@@ -429,7 +429,7 @@ Continues the current list type or creates a new unordered list."
       (delete-char 2))))
 
 ;;;###autoload
-(defun mark-graf-demote-item ()
+(defun markdown-modern-demote-item ()
   "Increase indentation of current list item."
   (interactive)
   (save-excursion
@@ -439,12 +439,12 @@ Continues the current list type or creates a new unordered list."
 ;;; Table Commands
 
 ;;;###autoload
-(defun mark-graf-insert-table (&optional rows cols)
+(defun markdown-modern-insert-table (&optional rows cols)
   "Insert a markdown table with ROWS rows and COLS columns."
   (interactive
    (list (read-number "Rows: " 3)
          (read-number "Columns: " 3)))
-  (mark-graf--ensure-blank-line-before)
+  (markdown-modern--ensure-blank-line-before)
   (let ((col-width 10))
     ;; Header row
     (insert "|")
@@ -469,11 +469,11 @@ Continues the current list type or creates a new unordered list."
   (forward-char 1))
 
 ;;;###autoload
-(defun mark-graf-table-sort (&optional _column)
+(defun markdown-modern-table-sort (&optional _column)
   "Sort table by _COLUMN (0-indexed)."
   (interactive
-   (list (mark-graf-table-column-at-point)))
-  (when-let ((bounds (mark-graf-table-bounds)))
+   (list (markdown-modern-table-column-at-point)))
+  (when-let ((bounds (markdown-modern-table-bounds)))
     (let ((start (car bounds))
           (end (cdr bounds)))
       (save-excursion
@@ -487,42 +487,42 @@ Continues the current list type or creates a new unordered list."
 ;;; Tab Commands (Context-Sensitive)
 
 ;;;###autoload
-(defun mark-graf-tab ()
+(defun markdown-modern-tab ()
   "Context-sensitive TAB command.
 In tables: move to next cell.
 In lists: increase indentation.
 Elsewhere: normal tab behavior or cycle visibility."
   (interactive)
   (cond
-   ((mark-graf-in-table-p)
-    (mark-graf-table-next-cell))
-   ((mark-graf-in-list-p)
-    (mark-graf-demote-item))
-   ((mark-graf-in-heading-p)
-    (mark-graf-cycle-visibility))
+   ((markdown-modern-in-table-p)
+    (markdown-modern-table-next-cell))
+   ((markdown-modern-in-list-p)
+    (markdown-modern-demote-item))
+   ((markdown-modern-in-heading-p)
+    (markdown-modern-cycle-visibility))
    (t
     (indent-for-tab-command))))
 
 ;;;###autoload
-(defun mark-graf-backtab ()
+(defun markdown-modern-backtab ()
   "Context-sensitive Shift-TAB command.
 In tables: move to previous cell.
 In lists: decrease indentation.
 Elsewhere: cycle global visibility."
   (interactive)
   (cond
-   ((mark-graf-in-table-p)
-    (mark-graf-table-prev-cell))
-   ((mark-graf-in-list-p)
-    (mark-graf-promote-item))
+   ((markdown-modern-in-table-p)
+    (markdown-modern-table-prev-cell))
+   ((markdown-modern-in-list-p)
+    (markdown-modern-promote-item))
    (t
-    (mark-graf-cycle-global-visibility))))
+    (markdown-modern-cycle-global-visibility))))
 
 ;;;###autoload
-(defun mark-graf-table-next-cell ()
+(defun markdown-modern-table-next-cell ()
   "Move to the next table cell."
   (interactive)
-  (when (mark-graf-in-table-p)
+  (when (markdown-modern-in-table-p)
     (if (search-forward "|" (line-end-position) t)
         (if (looking-at "[ \t]*$\\|[ \t]*|")
             ;; End of row, go to next row
@@ -539,10 +539,10 @@ Elsewhere: cycle global visibility."
       (search-forward "|" (line-end-position) t))))
 
 ;;;###autoload
-(defun mark-graf-table-prev-cell ()
+(defun markdown-modern-table-prev-cell ()
   "Move to the previous table cell."
   (interactive)
-  (when (mark-graf-in-table-p)
+  (when (markdown-modern-in-table-p)
     (skip-chars-backward " \t")
     (if (search-backward "|" (line-beginning-position) t)
         (progn
@@ -562,56 +562,56 @@ Elsewhere: cycle global visibility."
 ;;; Visibility Commands
 
 ;;;###autoload
-(defun mark-graf-cycle-visibility ()
+(defun markdown-modern-cycle-visibility ()
   "Cycle visibility of current heading subtree."
   (interactive)
   ;; Simplified - just toggle children visibility
   (outline-toggle-children))
 
 ;;;###autoload
-(defun mark-graf-cycle-global-visibility ()
+(defun markdown-modern-cycle-global-visibility ()
   "Cycle global visibility of all headings."
   (interactive)
   ;; Simplified global cycling
   (cond
-   ((and (boundp 'mark-graf--visibility-state)
-         (eq mark-graf--visibility-state 'all))
+   ((and (boundp 'markdown-modern--visibility-state)
+         (eq markdown-modern--visibility-state 'all))
     (outline-hide-body)
-    (setq-local mark-graf--visibility-state 'headings))
-   ((and (boundp 'mark-graf--visibility-state)
-         (eq mark-graf--visibility-state 'headings))
+    (setq-local markdown-modern--visibility-state 'headings))
+   ((and (boundp 'markdown-modern--visibility-state)
+         (eq markdown-modern--visibility-state 'headings))
     (outline-hide-sublevels 1)
-    (setq-local mark-graf--visibility-state 'top))
+    (setq-local markdown-modern--visibility-state 'top))
    (t
     (outline-show-all)
-    (setq-local mark-graf--visibility-state 'all))))
+    (setq-local markdown-modern--visibility-state 'all))))
 
 ;;; Element Reveal Command
 
 ;;;###autoload
-(defun mark-graf-toggle-element-at-point ()
+(defun markdown-modern-toggle-element-at-point ()
   "Toggle rendering of element at point."
   (interactive)
-  (if-let ((elem (mark-graf-ts--element-at (point))))
-      (let* ((start (mark-graf-node-start elem))
-             (end (mark-graf-node-end elem))
+  (if-let ((elem (markdown-modern-ts--element-at (point))))
+      (let* ((start (markdown-modern-node-start elem))
+             (end (markdown-modern-node-end elem))
              (has-overlay (cl-some
                           (lambda (ov)
-                            (overlay-get ov 'mark-graf))
+                            (overlay-get ov 'markdown-modern))
                           (overlays-in start end))))
         (if has-overlay
-            (mark-graf-render--unrender-region start end)
-          (mark-graf-render--render-region start end)))
+            (markdown-modern-render--unrender-region start end)
+          (markdown-modern-render--render-region start end)))
     (message "No markdown element at point")))
 
 ;;;###autoload
-(defun mark-graf-follow-link-at-point ()
+(defun markdown-modern-follow-link-at-point ()
   "Follow the link at point.
 Works both on rendered lines (via overlay properties) and on
 revealed lines (by parsing raw markdown syntax at point)."
   (interactive)
   ;; First try overlay property (rendered line)
-  (let ((url (get-char-property (point) 'mark-graf-url)))
+  (let ((url (get-char-property (point) 'markdown-modern-url)))
     (unless url
       ;; Fallback: parse raw markdown on the current line
       (save-excursion
@@ -642,46 +642,46 @@ revealed lines (by parsing raw markdown syntax at point)."
                          (<= pos (match-end 0)))
                 (setq url (match-string-no-properties 0))))))))
     (if url
-        (mark-graf-render--follow-link url)
+        (markdown-modern-render--follow-link url)
       (message "No link at point"))))
 
 ;;; Code Block Edit Mode
 
-(defvar-local mark-graf-code-edit--source-buffer nil
+(defvar-local markdown-modern-code-edit--source-buffer nil
   "Source buffer for code edit indirect buffer.")
 
-(defvar-local mark-graf-code-edit--block-bounds nil
+(defvar-local markdown-modern-code-edit--block-bounds nil
   "Cons (START . END) of the full code block in the source buffer.")
 
-(defvar-local mark-graf-code-edit--content-bounds nil
+(defvar-local markdown-modern-code-edit--content-bounds nil
   "Cons (START . END) of the content region in the source buffer.")
 
-(defvar-local mark-graf-code-edit--original-content nil
+(defvar-local markdown-modern-code-edit--original-content nil
   "Original content of the code block, for abort/revert.")
 
-(defvar mark-graf-code-edit-mode-map
+(defvar markdown-modern-code-edit-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c '") #'mark-graf-code-edit-finish)
-    (define-key map (kbd "C-c C-k") #'mark-graf-code-edit-abort)
+    (define-key map (kbd "C-c '") #'markdown-modern-code-edit-finish)
+    (define-key map (kbd "C-c C-k") #'markdown-modern-code-edit-abort)
     map)
-  "Keymap for `mark-graf-code-edit-mode'.")
+  "Keymap for `markdown-modern-code-edit-mode'.")
 
-(define-minor-mode mark-graf-code-edit-mode
+(define-minor-mode markdown-modern-code-edit-mode
   "Minor mode for editing a code block in an indirect buffer."
   :lighter " MG-Edit"
-  :keymap mark-graf-code-edit-mode-map)
+  :keymap markdown-modern-code-edit-mode-map)
 
 ;;;###autoload
-(defun mark-graf-edit-code-block ()
+(defun markdown-modern-edit-code-block ()
   "Edit code block at point in an indirect buffer with the correct major mode.
 Like org-mode's `org-edit-special': opens a narrowed indirect buffer
 with the language's major mode."
   (interactive)
-  (when (and (boundp 'mark-graf--code-edit-buffer)
-             mark-graf--code-edit-buffer
-             (buffer-live-p mark-graf--code-edit-buffer))
+  (when (and (boundp 'markdown-modern--code-edit-buffer)
+             markdown-modern--code-edit-buffer
+             (buffer-live-p markdown-modern--code-edit-buffer))
     (user-error "Already editing a code block; finish or abort first"))
-  (let ((info (mark-graf--fenced-code-block-content-at (point))))
+  (let ((info (markdown-modern--fenced-code-block-content-at (point))))
     (unless info
       (user-error "Not inside a fenced code block"))
     (let* ((source-buf (current-buffer))
@@ -695,11 +695,11 @@ with the language's major mode."
                              (or language "code")))
            (edit-buf (make-indirect-buffer source-buf buf-name t)))
       ;; Unrender the block so raw text is visible
-      (when (and (boundp 'mark-graf--rendering-enabled)
-                 mark-graf--rendering-enabled)
-        (mark-graf-render--unrender-region block-start block-end))
+      (when (and (boundp 'markdown-modern--rendering-enabled)
+                 markdown-modern--rendering-enabled)
+        (markdown-modern-render--unrender-region block-start block-end))
       ;; Set up state in source buffer
-      (setq mark-graf--code-edit-buffer edit-buf)
+      (setq markdown-modern--code-edit-buffer edit-buf)
       ;; Set up the indirect buffer
       (with-current-buffer edit-buf
         (narrow-to-region content-start content-end)
@@ -707,60 +707,60 @@ with the language's major mode."
         ;; Must run without delay-mode-hooks so font-lock, indentation,
         ;; completion, and other mode features fully activate.
         (when language
-          (let ((mode (mark-graf-render--language-to-mode language)))
+          (let ((mode (markdown-modern-render--language-to-mode language)))
             (when mode
               (funcall mode))))
         ;; Set buffer-local state
-        (setq mark-graf-code-edit--source-buffer source-buf)
-        (setq mark-graf-code-edit--block-bounds (cons block-start block-end))
-        (setq mark-graf-code-edit--content-bounds (cons content-start content-end))
-        (setq mark-graf-code-edit--original-content original)
+        (setq markdown-modern-code-edit--source-buffer source-buf)
+        (setq markdown-modern-code-edit--block-bounds (cons block-start block-end))
+        (setq markdown-modern-code-edit--content-bounds (cons content-start content-end))
+        (setq markdown-modern-code-edit--original-content original)
         ;; Enable the minor mode
-        (mark-graf-code-edit-mode 1)
+        (markdown-modern-code-edit-mode 1)
         ;; Header line with hints
         (setq header-line-format
               (substitute-command-keys
-               "Editing code block.  \\[mark-graf-code-edit-finish] to finish, \\[mark-graf-code-edit-abort] to abort"))
+               "Editing code block.  \\[markdown-modern-code-edit-finish] to finish, \\[markdown-modern-code-edit-abort] to abort"))
         ;; Clean up on external buffer kill
-        (add-hook 'kill-buffer-hook #'mark-graf-code-edit--on-kill nil t))
+        (add-hook 'kill-buffer-hook #'markdown-modern-code-edit--on-kill nil t))
       ;; Show the edit buffer
       (pop-to-buffer edit-buf))))
 
 ;;;###autoload
-(defun mark-graf-code-edit-finish ()
+(defun markdown-modern-code-edit-finish ()
   "Finish editing code block and return to source buffer.
 Re-renders the code block region."
   (interactive)
-  (unless mark-graf-code-edit--source-buffer
+  (unless markdown-modern-code-edit--source-buffer
     (user-error "Not in a code edit buffer"))
-  (let ((source-buf mark-graf-code-edit--source-buffer)
-        (block-bounds mark-graf-code-edit--block-bounds)
+  (let ((source-buf markdown-modern-code-edit--source-buffer)
+        (block-bounds markdown-modern-code-edit--block-bounds)
         (edit-buf (current-buffer)))
     ;; Widen before switching
     (widen)
     ;; Switch to source and clean up
     (when (buffer-live-p source-buf)
       (switch-to-buffer source-buf)
-      (setq mark-graf--code-edit-buffer nil)
+      (setq markdown-modern--code-edit-buffer nil)
       ;; Re-render the block region
-      (when (and (boundp 'mark-graf--rendering-enabled)
-                 mark-graf--rendering-enabled)
-        (mark-graf-render--render-region (car block-bounds) (cdr block-bounds))))
+      (when (and (boundp 'markdown-modern--rendering-enabled)
+                 markdown-modern--rendering-enabled)
+        (markdown-modern-render--render-region (car block-bounds) (cdr block-bounds))))
     ;; Kill the edit buffer (remove hook first to avoid double-cleanup)
     (with-current-buffer edit-buf
-      (remove-hook 'kill-buffer-hook #'mark-graf-code-edit--on-kill t))
+      (remove-hook 'kill-buffer-hook #'markdown-modern-code-edit--on-kill t))
     (kill-buffer edit-buf)))
 
 ;;;###autoload
-(defun mark-graf-code-edit-abort ()
+(defun markdown-modern-code-edit-abort ()
   "Abort editing code block, restoring original content."
   (interactive)
-  (unless mark-graf-code-edit--source-buffer
+  (unless markdown-modern-code-edit--source-buffer
     (user-error "Not in a code edit buffer"))
-  (let ((source-buf mark-graf-code-edit--source-buffer)
-        (content-bounds mark-graf-code-edit--content-bounds)
-        (block-bounds mark-graf-code-edit--block-bounds)
-        (original mark-graf-code-edit--original-content)
+  (let ((source-buf markdown-modern-code-edit--source-buffer)
+        (content-bounds markdown-modern-code-edit--content-bounds)
+        (block-bounds markdown-modern-code-edit--block-bounds)
+        (original markdown-modern-code-edit--original-content)
         (edit-buf (current-buffer)))
     ;; Widen so we can restore
     (widen)
@@ -775,29 +775,29 @@ Re-renders the code block region."
     ;; Switch to source and clean up
     (when (buffer-live-p source-buf)
       (switch-to-buffer source-buf)
-      (setq mark-graf--code-edit-buffer nil)
+      (setq markdown-modern--code-edit-buffer nil)
       ;; Re-render the block region
-      (when (and (boundp 'mark-graf--rendering-enabled)
-                 mark-graf--rendering-enabled)
-        (mark-graf-render--render-region (car block-bounds) (cdr block-bounds))))
+      (when (and (boundp 'markdown-modern--rendering-enabled)
+                 markdown-modern--rendering-enabled)
+        (markdown-modern-render--render-region (car block-bounds) (cdr block-bounds))))
     ;; Kill the edit buffer
     (with-current-buffer edit-buf
-      (remove-hook 'kill-buffer-hook #'mark-graf-code-edit--on-kill t))
+      (remove-hook 'kill-buffer-hook #'markdown-modern-code-edit--on-kill t))
     (kill-buffer edit-buf)))
 
-(defun mark-graf-code-edit--on-kill ()
+(defun markdown-modern-code-edit--on-kill ()
   "Handle external kill of code edit buffer (e.g., \\`C-x k\\`).
 Cleans up source buffer state and re-renders the code block."
-  (when (and mark-graf-code-edit--source-buffer
-             (buffer-live-p mark-graf-code-edit--source-buffer))
-    (let ((source-buf mark-graf-code-edit--source-buffer)
-          (block-bounds mark-graf-code-edit--block-bounds))
+  (when (and markdown-modern-code-edit--source-buffer
+             (buffer-live-p markdown-modern-code-edit--source-buffer))
+    (let ((source-buf markdown-modern-code-edit--source-buffer)
+          (block-bounds markdown-modern-code-edit--block-bounds))
       (with-current-buffer source-buf
-        (setq mark-graf--code-edit-buffer nil)
-        (when (and (boundp 'mark-graf--rendering-enabled)
-                   mark-graf--rendering-enabled)
-          (mark-graf-render--render-region
+        (setq markdown-modern--code-edit-buffer nil)
+        (when (and (boundp 'markdown-modern--rendering-enabled)
+                   markdown-modern--rendering-enabled)
+          (markdown-modern-render--render-region
            (car block-bounds) (cdr block-bounds)))))))
 
-(provide 'mark-graf-commands)
-;;; mark-graf-commands.el ends here
+(provide 'markdown-modern-commands)
+;;; markdown-modern-commands.el ends here

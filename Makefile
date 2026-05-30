@@ -1,4 +1,4 @@
-# mark-graf Makefile
+# markdown-modern Makefile
 
 EMACS ?= emacs
 BATCH = $(EMACS) -Q -batch -L lisp -L test
@@ -28,68 +28,68 @@ lisp/%.elc: lisp/%.el
 
 # Run all tests
 test:
-	@echo "Running all mark-graf tests..."
+	@echo "Running all markdown-modern tests..."
 	@$(BATCH) \
-		-l mark-graf \
-		-l mark-graf-export-test \
-		-l mark-graf-commands-test \
-		-l mark-graf-regex-test \
-		-l mark-graf-integration-test \
-		-l mark-graf-jit-test \
+		-l markdown-modern \
+		-l markdown-modern-export-test \
+		-l markdown-modern-commands-test \
+		-l markdown-modern-regex-test \
+		-l markdown-modern-integration-test \
+		-l markdown-modern-jit-test \
 		-f ert-run-tests-batch-and-exit
 
 # Run only export tests
 test-export:
 	@echo "Running export tests..."
 	@$(BATCH) \
-		-l mark-graf \
-		-l mark-graf-export-test \
+		-l markdown-modern \
+		-l markdown-modern-export-test \
 		--eval "(ert-run-tests-batch-and-exit \"^export/\")"
 
 # Run only command tests
 test-cmd:
 	@echo "Running command tests..."
 	@$(BATCH) \
-		-l mark-graf \
-		-l mark-graf-commands-test \
+		-l markdown-modern \
+		-l markdown-modern-commands-test \
 		--eval "(ert-run-tests-batch-and-exit \"^cmd/\")"
 
 # Run only regex tests
 test-regex:
 	@echo "Running regex tests..."
 	@$(BATCH) \
-		-l mark-graf \
-		-l mark-graf-regex-test \
+		-l markdown-modern \
+		-l markdown-modern-regex-test \
 		--eval "(ert-run-tests-batch-and-exit \"^regex/\")"
 
 # Run only integration tests
 test-integration:
 	@echo "Running integration tests..."
 	@$(BATCH) \
-		-l mark-graf \
-		-l mark-graf-integration-test \
+		-l markdown-modern \
+		-l markdown-modern-integration-test \
 		--eval "(ert-run-tests-batch-and-exit \"^integration/\")"
 
 # Run tests with verbose output
 test-verbose:
 	@echo "Running all tests (verbose)..."
 	@$(BATCH) \
-		-l mark-graf \
-		-l mark-graf-export-test \
-		-l mark-graf-commands-test \
-		-l mark-graf-regex-test \
-		-l mark-graf-integration-test \
+		-l markdown-modern \
+		-l markdown-modern-export-test \
+		-l markdown-modern-commands-test \
+		-l markdown-modern-regex-test \
+		-l markdown-modern-integration-test \
 		--eval "(ert-run-tests-batch \"^\\\\(export\\\\|cmd\\\\|regex\\\\|integration\\\\)/\")"
 
 # Count tests
 test-count:
 	@echo "Counting tests..."
 	@$(BATCH) \
-		-l mark-graf \
-		-l mark-graf-export-test \
-		-l mark-graf-commands-test \
-		-l mark-graf-regex-test \
-		-l mark-graf-integration-test \
+		-l markdown-modern \
+		-l markdown-modern-export-test \
+		-l markdown-modern-commands-test \
+		-l markdown-modern-regex-test \
+		-l markdown-modern-integration-test \
 		--eval "(let ((count 0)) \
 			(mapatoms (lambda (s) (when (and (ert-test-boundp s) \
 				(string-match-p \"^\\\\(export\\\\|cmd\\\\|regex\\\\|integration\\\\)/\" (symbol-name s))) \
@@ -133,11 +133,11 @@ lint:
 package:
 	@echo "Building package..."
 	@mkdir -p dist
-	@tar -cvf dist/mark-graf.tar \
-		--transform 's,^lisp/,mark-graf-1.0.0/,' \
-		--transform 's,^README,mark-graf-1.0.0/README,' \
+	@tar -cvf dist/markdown-modern.tar \
+		--transform 's,^lisp/,markdown-modern-1.0.0/,' \
+		--transform 's,^README,markdown-modern-1.0.0/README,' \
 		lisp/*.el README.md
-	@echo "Package created: dist/mark-graf.tar"
+	@echo "Package created: dist/markdown-modern.tar"
 
 #─────────────────────────────────────────────────────────────────────────────
 # Cleanup
@@ -162,7 +162,7 @@ ci: clean compile test
 #─────────────────────────────────────────────────────────────────────────────
 
 help:
-	@echo "mark-graf Makefile"
+	@echo "markdown-modern Makefile"
 	@echo ""
 	@echo "Build targets:"
 	@echo "  all              - Compile all files (default)"

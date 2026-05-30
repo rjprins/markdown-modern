@@ -1,8 +1,10 @@
-# mark-graf
+# markdown-modern
 
-Modern WYSIWYG-style markdown editing for Emacs 30+.
+Modern visual styling for Markdown buffers in Emacs.
 
-mark-graf brings a seamless live preview experience to Emacs, combining inline WYSIWYG rendering with the text-property-based approach of [org-modern](https://github.com/minad/org-modern). Unlike traditional markdown modes that display raw syntax or require split-pane previews, mark-graf renders markdown content inline while maintaining full editability.
+markdown-modern renders Markdown inline — headings, emphasis, code, tables, images — using text properties and overlays, in the spirit of [org-modern](https://github.com/minad/org-modern). It reveals the raw markup of the element under the cursor for editing, rather than showing raw syntax or a split-pane preview.
+
+markdown-modern is a fork of [mark-graf](https://github.com/hyperZphere/mark-graf) by Marc Ansset.
 
 ## Features
 
@@ -31,7 +33,7 @@ mark-graf brings a seamless live preview experience to Emacs, combining inline W
 ### From MELPA (recommended)
 
 ```elisp
-(use-package mark-graf
+(use-package markdown-modern
   :ensure t)
 ```
 
@@ -41,35 +43,35 @@ mark-graf brings a seamless live preview experience to Emacs, combining inline W
 2. Add to your `load-path`:
 
 ```elisp
-(add-to-list 'load-path "/path/to/mark-graf/lisp")
-(require 'mark-graf)
+(add-to-list 'load-path "/path/to/markdown-modern/lisp")
+(require 'markdown-modern)
 ```
 
 ## Usage
 
-Enable mark-graf for markdown files by adding to your init file:
+Enable markdown-modern for markdown files by adding to your init file:
 
 ```elisp
-(add-to-list 'auto-mode-alist '("\\.md\\'" . mark-graf-mode))
+(add-to-list 'auto-mode-alist '("\\.md\\'" . markdown-modern-mode))
 ```
 
-Or activate manually with `M-x mark-graf-mode` in any markdown buffer.
+Or activate manually with `M-x markdown-modern-mode` in any markdown buffer.
 
 ### Quick Start
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `C-c C-s b` | `mark-graf-insert-bold` | Insert/toggle **bold** |
-| `C-c C-s i` | `mark-graf-insert-italic` | Insert/toggle *italic* |
-| `C-c C-s c` | `mark-graf-insert-code` | Insert/toggle `code` |
-| `C-c C-t 2` | `mark-graf-insert-heading-2` | Insert ## heading |
-| `C-c C-l` | `mark-graf-insert-link` | Insert link |
-| `C-c C-i` | `mark-graf-insert-image` | Insert image |
-| `C-c C-e h` | `mark-graf-export-html` | Export to HTML |
+| `C-c C-s b` | `markdown-modern-insert-bold` | Insert/toggle **bold** |
+| `C-c C-s i` | `markdown-modern-insert-italic` | Insert/toggle *italic* |
+| `C-c C-s c` | `markdown-modern-insert-code` | Insert/toggle `code` |
+| `C-c C-t 2` | `markdown-modern-insert-heading-2` | Insert ## heading |
+| `C-c C-l` | `markdown-modern-insert-link` | Insert link |
+| `C-c C-i` | `markdown-modern-insert-image` | Insert image |
+| `C-c C-e h` | `markdown-modern-export-html` | Export to HTML |
 
 ### Editing Model
 
-mark-graf has a single view mode. Markdown is always rendered inline; when the
+markdown-modern has a single view mode. Markdown is always rendered inline; when the
 cursor enters the scope of a markup element, that element's raw markup is
 revealed so you can edit it in place, and re-rendered once the cursor leaves:
 
@@ -82,87 +84,87 @@ Plain prose is never disturbed, so moving the cursor through ordinary text does
 no work. There is no source/rendered toggle to manage.
 
 You can also reveal the element at point on demand with
-`mark-graf-toggle-element-at-point` (`C-c C-v e`).
+`markdown-modern-toggle-element-at-point` (`C-c C-v e`).
 
 ### Navigation
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `C-c C-n` | `mark-graf-next-heading` | Next heading |
-| `C-c C-p` | `mark-graf-prev-heading` | Previous heading |
-| `C-c C-u` | `mark-graf-up-heading` | Parent heading |
+| `C-c C-n` | `markdown-modern-next-heading` | Next heading |
+| `C-c C-p` | `markdown-modern-prev-heading` | Previous heading |
+| `C-c C-u` | `markdown-modern-up-heading` | Parent heading |
 | `TAB` | Context-sensitive | Cycle visibility / table nav |
 
 ### Lists
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `M-RET` | `mark-graf-insert-list-item` | New list item |
+| `M-RET` | `markdown-modern-insert-list-item` | New list item |
 | `C-c <up/down>` | Move item | Reorder list items |
 | `C-c <left/right>` | Promote/demote | Change indentation |
-| `C-c C-x C-b` | `mark-graf-toggle-checkbox` | Toggle task checkbox |
+| `C-c C-x C-b` | `markdown-modern-toggle-checkbox` | Toggle task checkbox |
 
 ### Tables
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `C-c \|` | `mark-graf-insert-table` | Insert new table |
-| `TAB` | `mark-graf-table-next-cell` | Next cell |
-| `S-TAB` | `mark-graf-table-prev-cell` | Previous cell |
+| `C-c \|` | `markdown-modern-insert-table` | Insert new table |
+| `TAB` | `markdown-modern-table-next-cell` | Next cell |
+| `S-TAB` | `markdown-modern-table-prev-cell` | Previous cell |
 
 ### Export
 
 ```elisp
 ;; Built-in HTML export (no dependencies)
-M-x mark-graf-export-html
+M-x markdown-modern-export-html
 
 ;; Preview in browser
-M-x mark-graf-preview-html
+M-x markdown-modern-preview-html
 
 ;; Export via Pandoc (requires pandoc)
-M-x mark-graf-export-pdf
-M-x mark-graf-export-docx
+M-x markdown-modern-export-pdf
+M-x markdown-modern-export-docx
 ```
 
 ## Customization
 
-All options available under `M-x customize-group RET mark-graf`:
+All options available under `M-x customize-group RET markdown-modern`:
 
 ### Appearance
 
 ```elisp
 ;; Heading sizes
-(setq mark-graf-heading-scale '(1.8 1.5 1.3 1.1 1.05 1.0))
+(setq markdown-modern-heading-scale '(1.8 1.5 1.3 1.1 1.05 1.0))
 
 ;; Use variable-pitch for headings
-(setq mark-graf-heading-use-variable-pitch t)
+(setq markdown-modern-heading-use-variable-pitch t)
 
 ;; Image dimensions
-(setq mark-graf-image-max-width 800)
-(setq mark-graf-image-max-height 600)
+(setq markdown-modern-image-max-width 800)
+(setq markdown-modern-image-max-height 600)
 ```
 
 ### Media
 
 ```elisp
 ;; Cache directory
-(setq mark-graf-cache-directory "~/.cache/mark-graf")
+(setq markdown-modern-cache-directory "~/.cache/markdown-modern")
 ```
 
 ### Example Configuration
 
 ```elisp
-(use-package mark-graf
+(use-package markdown-modern
   :ensure t
   :mode ("\\.md\\'" "\\.markdown\\'")
   :custom
-  (mark-graf-heading-scale '(1.8 1.5 1.3 1.1 1.05 1.0))
-  (mark-graf-heading-use-variable-pitch t)
-  (mark-graf-image-max-width 800)
+  (markdown-modern-heading-scale '(1.8 1.5 1.3 1.1 1.05 1.0))
+  (markdown-modern-heading-use-variable-pitch t)
+  (markdown-modern-image-max-width 800)
   :hook
-  (mark-graf-mode . visual-line-mode)
+  (markdown-modern-mode . visual-line-mode)
   :config
-  (set-face-attribute 'mark-graf-heading-1 nil :foreground "#2aa198"))
+  (set-face-attribute 'markdown-modern-heading-1 nil :foreground "#2aa198"))
 ```
 
 ## Keybinding Reference
@@ -206,7 +208,7 @@ All options available under `M-x customize-group RET mark-graf`:
 
 ## Comparison with Alternatives
 
-| Feature | mark-graf | markdown-mode | org-mode |
+| Feature | markdown-modern | markdown-mode | org-mode |
 |---------|-----------|---------------|----------|
 | Inline WYSIWYG | Yes | No (split pane) | Partial |
 | Pure Emacs | Yes | Yes | Yes |
@@ -225,6 +227,8 @@ All options available under `M-x customize-group RET mark-graf`:
 GPL-3.0-or-later
 
 ## Credits
+
+markdown-modern is a fork of [mark-graf](https://github.com/hyperZphere/mark-graf) by Marc Ansset; thanks for the original work.
 
 Inspired by:
 - [org-modern](https://github.com/minad/org-modern) - Modern org-mode styling

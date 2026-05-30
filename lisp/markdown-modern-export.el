@@ -1,8 +1,8 @@
-;;; mark-graf-export.el --- Export functionality for mark-graf -*- lexical-binding: t; -*-
+;;; markdown-modern-export.el --- Export functionality for markdown-modern -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 mark-graf contributors
+;; Copyright (C) 2026 markdown-modern contributors
 
-;; This file is part of mark-graf.
+;; This file is part of markdown-modern.
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 
 ;;; Commentary:
 
-;; Export functionality for mark-graf.
+;; Export functionality for markdown-modern.
 ;; Provides built-in HTML export and optional Pandoc integration.
 
 ;;; Code:
@@ -28,7 +28,7 @@
 
 ;;; Customization
 
-(defcustom mark-graf-export-html-template
+(defcustom markdown-modern-export-html-template
   "<!DOCTYPE html>
 <html lang=\"en\">
 <head>
@@ -47,9 +47,9 @@
 </html>"
   "HTML template for export.  %s placeholders: title, CSS, content."
   :type 'string
-  :group 'mark-graf-export)
+  :group 'markdown-modern-export)
 
-(defcustom mark-graf-export-html-css
+(defcustom markdown-modern-export-html-css
   "
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
@@ -170,31 +170,31 @@
 "
   "Default CSS for HTML export."
   :type 'string
-  :group 'mark-graf-export)
+  :group 'markdown-modern-export)
 
-(defcustom mark-graf-export-embed-images nil
+(defcustom markdown-modern-export-embed-images nil
   "Whether to embed images as base64 in HTML export."
   :type 'boolean
-  :group 'mark-graf-export)
+  :group 'markdown-modern-export)
 
-(defcustom mark-graf-pandoc-executable "pandoc"
+(defcustom markdown-modern-pandoc-executable "pandoc"
   "Path to Pandoc executable."
   :type 'string
-  :group 'mark-graf-export)
+  :group 'markdown-modern-export)
 
-(defcustom mark-graf-use-pandoc nil
+(defcustom markdown-modern-use-pandoc nil
   "Whether to use Pandoc for export operations when available."
   :type 'boolean
-  :group 'mark-graf-export)
+  :group 'markdown-modern-export)
 
 ;;; Pandoc Integration
 
-(defun mark-graf-pandoc-available-p ()
+(defun markdown-modern-pandoc-available-p ()
   "Check if Pandoc is available."
-  (executable-find mark-graf-pandoc-executable))
+  (executable-find markdown-modern-pandoc-executable))
 
 ;;;###autoload
-(defun mark-graf-export-via-pandoc (format &optional output-file)
+(defun markdown-modern-export-via-pandoc (format &optional output-file)
   "Export current buffer to FORMAT using Pandoc.
 FORMAT should be a pandoc output format (e.g., \"html\", \"pdf\", \"docx\").
 If OUTPUT-FILE is nil, prompts for destination."
@@ -203,8 +203,8 @@ If OUTPUT-FILE is nil, prompts for destination."
                           '("html" "pdf" "docx" "odt" "epub" "latex" "rst" "org")
                           nil t)
          nil))
-  (unless (mark-graf-pandoc-available-p)
-    (user-error "Pandoc not found. Install Pandoc or set `mark-graf-pandoc-executable'"))
+  (unless (markdown-modern-pandoc-available-p)
+    (user-error "Pandoc not found. Install Pandoc or set `markdown-modern-pandoc-executable'"))
   (let* ((base-name (if buffer-file-name
                         (file-name-sans-extension buffer-file-name)
                       "export"))
@@ -224,7 +224,7 @@ If OUTPUT-FILE is nil, prompts for destination."
                                     (file-name-nondirectory default-output))))
          (input-file (if buffer-file-name
                          buffer-file-name
-                       (let ((temp (make-temp-file "mark-graf-" nil ".md")))
+                       (let ((temp (make-temp-file "markdown-modern-" nil ".md")))
                          (write-region (point-min) (point-max) temp)
                          temp))))
     ;; Run Pandoc
@@ -232,33 +232,33 @@ If OUTPUT-FILE is nil, prompts for destination."
                        "-t" format
                        "-o" output
                        input-file))
-           (exit-code (apply #'call-process mark-graf-pandoc-executable
-                             nil "*mark-graf-pandoc*" nil args)))
+           (exit-code (apply #'call-process markdown-modern-pandoc-executable
+                             nil "*markdown-modern-pandoc*" nil args)))
       (if (zerop exit-code)
           (progn
             (message "Exported to %s" output)
             output)
-        (pop-to-buffer "*mark-graf-pandoc*")
+        (pop-to-buffer "*markdown-modern-pandoc*")
         (user-error "Pandoc export failed")))))
 
 ;;;###autoload
-(defun mark-graf-export-pdf (&optional output-file)
+(defun markdown-modern-export-pdf (&optional output-file)
   "Export current buffer to PDF using Pandoc.
 If OUTPUT-FILE is nil, prompts for destination."
   (interactive)
-  (mark-graf-export-via-pandoc "pdf" output-file))
+  (markdown-modern-export-via-pandoc "pdf" output-file))
 
 ;;;###autoload
-(defun mark-graf-export-docx (&optional output-file)
+(defun markdown-modern-export-docx (&optional output-file)
   "Export current buffer to DOCX using Pandoc.
 If OUTPUT-FILE is nil, prompts for destination."
   (interactive)
-  (mark-graf-export-via-pandoc "docx" output-file))
+  (markdown-modern-export-via-pandoc "docx" output-file))
 
 ;;; Built-in HTML Export
 
 ;;;###autoload
-(defun mark-graf-export-html (&optional output-file)
+(defun markdown-modern-export-html (&optional output-file)
   "Export current buffer to HTML.
 If OUTPUT-FILE is nil, prompts for destination.
 Uses built-in converter (no external dependencies)."
@@ -270,13 +270,13 @@ Uses built-in converter (no external dependencies)."
          (output (or output-file
                      (read-file-name "Export to: " nil nil nil
                                     (file-name-nondirectory default-output))))
-         (title (or (mark-graf-export--get-title)
+         (title (or (markdown-modern-export--get-title)
                     (file-name-base output)))
-         (content (mark-graf-export--markdown-to-html
+         (content (markdown-modern-export--markdown-to-html
                    (buffer-substring-no-properties (point-min) (point-max))))
-         (html (format mark-graf-export-html-template
+         (html (format markdown-modern-export-html-template
                        title
-                       mark-graf-export-html-css
+                       markdown-modern-export-html-css
                        content)))
     (with-temp-file output
       (insert html))
@@ -284,14 +284,14 @@ Uses built-in converter (no external dependencies)."
     output))
 
 ;;;###autoload
-(defun mark-graf-preview-html ()
+(defun markdown-modern-preview-html ()
   "Export to a temporary HTML file and open in browser."
   (interactive)
-  (let ((output (make-temp-file "mark-graf-preview-" nil ".html")))
-    (mark-graf-export-html output)
+  (let ((output (make-temp-file "markdown-modern-preview-" nil ".html")))
+    (markdown-modern-export-html output)
     (browse-url (concat "file://" output))))
 
-(defun mark-graf-export--get-title ()
+(defun markdown-modern-export--get-title ()
   "Extract title from buffer (first H1 heading)."
   (save-excursion
     (goto-char (point-min))
@@ -300,54 +300,54 @@ Uses built-in converter (no external dependencies)."
 
 ;;; Markdown to HTML Conversion
 
-(defun mark-graf-export--markdown-to-html (markdown)
+(defun markdown-modern-export--markdown-to-html (markdown)
   "Convert MARKDOWN string to HTML."
   (with-temp-buffer
     (insert markdown)
     (goto-char (point-min))
     ;; Process in order: blocks first, then inline
-    (mark-graf-export--process-blocks)
-    (mark-graf-export--process-inline)
+    (markdown-modern-export--process-blocks)
+    (markdown-modern-export--process-inline)
     (buffer-string)))
 
-(defun mark-graf-export--process-blocks ()
+(defun markdown-modern-export--process-blocks ()
   "Process block-level elements in buffer."
   ;; Process code blocks first (to protect their contents)
-  (mark-graf-export--process-fenced-code-blocks)
+  (markdown-modern-export--process-fenced-code-blocks)
   ;; Then other blocks
-  (mark-graf-export--process-headings)
-  (mark-graf-export--process-blockquotes)
-  (mark-graf-export--process-lists)
-  (mark-graf-export--process-tables)
-  (mark-graf-export--process-hrs)
-  (mark-graf-export--process-paragraphs))
+  (markdown-modern-export--process-headings)
+  (markdown-modern-export--process-blockquotes)
+  (markdown-modern-export--process-lists)
+  (markdown-modern-export--process-tables)
+  (markdown-modern-export--process-hrs)
+  (markdown-modern-export--process-paragraphs))
 
-(defun mark-graf-export--process-inline ()
+(defun markdown-modern-export--process-inline ()
   "Process inline elements in buffer."
   ;; Process images BEFORE links (images use ![...] which contains link syntax)
-  (mark-graf-export--process-images)
-  (mark-graf-export--process-links)
-  (mark-graf-export--process-bold)
-  (mark-graf-export--process-italic)
-  (mark-graf-export--process-strikethrough)
-  (mark-graf-export--process-inline-code))
+  (markdown-modern-export--process-images)
+  (markdown-modern-export--process-links)
+  (markdown-modern-export--process-bold)
+  (markdown-modern-export--process-italic)
+  (markdown-modern-export--process-strikethrough)
+  (markdown-modern-export--process-inline-code))
 
-(defun mark-graf-export--process-headings ()
+(defun markdown-modern-export--process-headings ()
   "Convert markdown headings to HTML."
   (goto-char (point-min))
   (while (re-search-forward "^\\(#\\{1,6\\}\\) +\\(.+\\)$" nil t)
     (let* ((level (length (match-string 1)))
            (text (match-string 2))
-           (id (mark-graf-export--heading-id text)))
+           (id (markdown-modern-export--heading-id text)))
       (replace-match (format "<h%d id=\"%s\">%s</h%d>" level id text level)))))
 
-(defun mark-graf-export--heading-id (text)
+(defun markdown-modern-export--heading-id (text)
   "Generate an ID from heading TEXT."
   (downcase (replace-regexp-in-string
              "[^a-zA-Z0-9]+" "-"
              (string-trim text))))
 
-(defun mark-graf-export--process-fenced-code-blocks ()
+(defun markdown-modern-export--process-fenced-code-blocks ()
   "Convert fenced code blocks to HTML."
   (goto-char (point-min))
   ;; Process fenced code blocks by finding pairs of ```
@@ -367,9 +367,9 @@ Uses built-in converter (no external dependencies)."
           (insert (format "<pre><code%s>%s</code></pre>"
                           (if (string-empty-p lang) ""
                             (format " class=\"language-%s\"" lang))
-                          (mark-graf-export--escape-html code))))))))
+                          (markdown-modern-export--escape-html code))))))))
 
-(defun mark-graf-export--process-blockquotes ()
+(defun markdown-modern-export--process-blockquotes ()
   "Convert blockquotes to HTML."
   (goto-char (point-min))
   (while (re-search-forward "^\\(>+ ?\\(.+\\)\n?\\)+" nil t)
@@ -386,7 +386,7 @@ Uses built-in converter (no external dependencies)."
           (insert (format "<blockquote>\n%s</blockquote>\n"
                          (string-trim content))))))))
 
-(defun mark-graf-export--process-lists ()
+(defun markdown-modern-export--process-lists ()
   "Convert lists to HTML."
   ;; Unordered lists - match lines starting with list markers
   (goto-char (point-min))
@@ -425,7 +425,7 @@ Uses built-in converter (no external dependencies)."
       (insert (format "<ol>\n%s\n</ol>\n"
                       (string-join (nreverse items) "\n"))))))
 
-(defun mark-graf-export--process-tables ()
+(defun markdown-modern-export--process-tables ()
   "Convert markdown tables to HTML."
   (goto-char (point-min))
   (while (re-search-forward "^|.+|" nil t)
@@ -445,9 +445,9 @@ Uses built-in converter (no external dependencies)."
             (push (cons is-header cells) rows)))
         (forward-line 1))
       (delete-region start (point))
-      (insert (mark-graf-export--build-table (nreverse rows))))))
+      (insert (markdown-modern-export--build-table (nreverse rows))))))
 
-(defun mark-graf-export--build-table (rows)
+(defun markdown-modern-export--build-table (rows)
   "Build HTML table from ROWS list of (is-header . cells)."
   (let ((html "<table>\n")
         (in-tbody nil))
@@ -471,13 +471,13 @@ Uses built-in converter (no external dependencies)."
       (setq html (concat html "</tbody>\n")))
     (concat html "</table>\n")))
 
-(defun mark-graf-export--process-hrs ()
+(defun markdown-modern-export--process-hrs ()
   "Convert horizontal rules to HTML."
   (goto-char (point-min))
   (while (re-search-forward "^\\(---+\\|\\*\\*\\*+\\|___+\\)$" nil t)
     (replace-match "<hr>")))
 
-(defun mark-graf-export--process-paragraphs ()
+(defun markdown-modern-export--process-paragraphs ()
   "Wrap remaining text in <p> tags."
   (goto-char (point-min))
   (while (not (eobp))
@@ -501,7 +501,7 @@ Uses built-in converter (no external dependencies)."
 
 ;;; Inline Processing
 
-(defun mark-graf-export--process-links ()
+(defun markdown-modern-export--process-links ()
   "Convert markdown links to HTML."
   (goto-char (point-min))
   (while (re-search-forward "\\[\\([^]]+\\)\\](\\([^)]+\\))" nil t)
@@ -509,20 +509,20 @@ Uses built-in converter (no external dependencies)."
           (url (match-string 2)))
       (replace-match (format "<a href=\"%s\">%s</a>" url text) t t))))
 
-(defun mark-graf-export--process-images ()
+(defun markdown-modern-export--process-images ()
   "Convert markdown images to HTML."
   (goto-char (point-min))
   (while (re-search-forward "!\\[\\([^]]*\\)\\](\\([^)]+\\))" nil t)
     (let ((alt (match-string 1))
           (src (match-string 2)))
-      (if (and mark-graf-export-embed-images
+      (if (and markdown-modern-export-embed-images
                (file-exists-p src))
           ;; Embed as base64
-          (let ((data (mark-graf-export--image-to-base64 src)))
+          (let ((data (markdown-modern-export--image-to-base64 src)))
             (replace-match (format "<img src=\"%s\" alt=\"%s\">" data alt) t t))
         (replace-match (format "<img src=\"%s\" alt=\"%s\">" src alt) t t)))))
 
-(defun mark-graf-export--image-to-base64 (path)
+(defun markdown-modern-export--image-to-base64 (path)
   "Convert image at PATH to base64 data URI."
   (let* ((ext (file-name-extension path))
          (mime (pcase (downcase ext)
@@ -537,14 +537,14 @@ Uses built-in converter (no external dependencies)."
                  (base64-encode-string (buffer-string) t))))
     (format "data:%s;base64,%s" mime data)))
 
-(defun mark-graf-export--process-bold ()
+(defun markdown-modern-export--process-bold ()
   "Convert bold markup to HTML."
   (goto-char (point-min))
   (while (re-search-forward "\\*\\*\\([^*]+\\)\\*\\*\\|__\\([^_]+\\)__" nil t)
     (let ((text (or (match-string 1) (match-string 2))))
       (replace-match (format "<strong>%s</strong>" text) t t))))
 
-(defun mark-graf-export--process-italic ()
+(defun markdown-modern-export--process-italic ()
   "Convert italic markup to HTML."
   (goto-char (point-min))
   (while (re-search-forward "\\*\\([^*]+\\)\\*\\|_\\([^_]+\\)_" nil t)
@@ -554,21 +554,21 @@ Uses built-in converter (no external dependencies)."
                   (string-suffix-p "</strong" text))
         (replace-match (format "<em>%s</em>" text) t t)))))
 
-(defun mark-graf-export--process-strikethrough ()
+(defun markdown-modern-export--process-strikethrough ()
   "Convert strikethrough markup to HTML."
   (goto-char (point-min))
   (while (re-search-forward "~~\\([^~]+\\)~~" nil t)
     (replace-match (format "<del>%s</del>" (match-string 1)) t t)))
 
-(defun mark-graf-export--process-inline-code ()
+(defun markdown-modern-export--process-inline-code ()
   "Convert inline code to HTML."
   (goto-char (point-min))
   (while (re-search-forward "`\\([^`]+\\)`" nil t)
     (replace-match (format "<code>%s</code>"
-                          (mark-graf-export--escape-html (match-string 1)))
+                          (markdown-modern-export--escape-html (match-string 1)))
                   t t)))
 
-(defun mark-graf-export--escape-html (text)
+(defun markdown-modern-export--escape-html (text)
   "Escape HTML special characters in TEXT."
   (let ((result text))
     (setq result (replace-regexp-in-string "&" "&amp;" result))
@@ -577,5 +577,5 @@ Uses built-in converter (no external dependencies)."
     (setq result (replace-regexp-in-string "\"" "&quot;" result))
     result))
 
-(provide 'mark-graf-export)
-;;; mark-graf-export.el ends here
+(provide 'markdown-modern-export)
+;;; markdown-modern-export.el ends here

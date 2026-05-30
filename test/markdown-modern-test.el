@@ -1,20 +1,20 @@
-;;; mark-graf-test.el --- Test runner for mark-graf -*- lexical-binding: t; -*-
+;;; markdown-modern-test.el --- Test runner for markdown-modern -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 mark-graf contributors
+;; Copyright (C) 2026 markdown-modern contributors
 
 ;;; Commentary:
 
-;; Main test runner for mark-graf.
+;; Main test runner for markdown-modern.
 ;; Loads all test modules and provides test execution functions.
 ;;
 ;; Test organization:
-;;   - mark-graf-export-test.el    : Export/HTML conversion tests (~45 tests)
-;;   - mark-graf-commands-test.el  : Interactive command tests (~35 tests)
-;;   - mark-graf-regex-test.el     : Regex pattern tests (~40 tests)
-;;   - mark-graf-integration-test.el : End-to-end tests (~15 tests)
+;;   - markdown-modern-export-test.el    : Export/HTML conversion tests (~45 tests)
+;;   - markdown-modern-commands-test.el  : Interactive command tests (~35 tests)
+;;   - markdown-modern-regex-test.el     : Regex pattern tests (~40 tests)
+;;   - markdown-modern-integration-test.el : End-to-end tests (~15 tests)
 ;;
 ;; Run tests:
-;;   M-x mark-graf-run-all-tests
+;;   M-x markdown-modern-run-all-tests
 ;;   M-x ert RET t RET
 ;;   make test
 
@@ -27,53 +27,53 @@
   (add-to-list 'load-path test-dir)
   (add-to-list 'load-path (expand-file-name "../lisp" test-dir)))
 
-;; Load mark-graf
-(require 'mark-graf)
+;; Load markdown-modern
+(require 'markdown-modern)
 
 ;; Load test modules
-(require 'mark-graf-export-test)
-(require 'mark-graf-commands-test)
-(require 'mark-graf-regex-test)
-(require 'mark-graf-integration-test)
+(require 'markdown-modern-export-test)
+(require 'markdown-modern-commands-test)
+(require 'markdown-modern-regex-test)
+(require 'markdown-modern-integration-test)
 
 ;;; Test Runner Functions
 
-(defun mark-graf-run-all-tests ()
-  "Run all mark-graf tests interactively."
+(defun markdown-modern-run-all-tests ()
+  "Run all markdown-modern tests interactively."
   (interactive)
   (ert-run-tests-interactively
    "^\\(export\\|cmd\\|regex\\|integration\\)/"))
 
-(defun mark-graf-run-export-tests ()
+(defun markdown-modern-run-export-tests ()
   "Run only export tests."
   (interactive)
   (ert-run-tests-interactively "^export/"))
 
-(defun mark-graf-run-command-tests ()
+(defun markdown-modern-run-command-tests ()
   "Run only command tests."
   (interactive)
   (ert-run-tests-interactively "^cmd/"))
 
-(defun mark-graf-run-regex-tests ()
+(defun markdown-modern-run-regex-tests ()
   "Run only regex tests."
   (interactive)
   (ert-run-tests-interactively "^regex/"))
 
-(defun mark-graf-run-integration-tests ()
+(defun markdown-modern-run-integration-tests ()
   "Run only integration tests."
   (interactive)
   (ert-run-tests-interactively "^integration/"))
 
 ;;; Batch Test Runner (for CI/Makefile)
 
-(defun mark-graf-run-tests-batch-and-exit ()
+(defun markdown-modern-run-tests-batch-and-exit ()
   "Run all tests in batch mode and exit with appropriate code."
   (let ((test-selector "^\\(export\\|cmd\\|regex\\|integration\\)/"))
     (ert-run-tests-batch-and-exit test-selector)))
 
 ;;; Test Statistics
 
-(defun mark-graf-test-stats ()
+(defun markdown-modern-test-stats ()
   "Display test statistics."
   (interactive)
   (let ((export-count 0)
@@ -89,7 +89,7 @@
             ((string-prefix-p "cmd/" name) (cl-incf cmd-count))
             ((string-prefix-p "regex/" name) (cl-incf regex-count))
             ((string-prefix-p "integration/" name) (cl-incf integration-count)))))))
-    (message "mark-graf test counts:
+    (message "markdown-modern test counts:
   Export tests:      %d
   Command tests:     %d
   Regex tests:       %d
@@ -99,5 +99,5 @@
              export-count cmd-count regex-count integration-count
              (+ export-count cmd-count regex-count integration-count))))
 
-(provide 'mark-graf-test)
-;;; mark-graf-test.el ends here
+(provide 'markdown-modern-test)
+;;; markdown-modern-test.el ends here

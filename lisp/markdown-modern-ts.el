@@ -1,8 +1,8 @@
-;;; mark-graf-ts.el --- Tree-sitter integration for mark-graf -*- lexical-binding: t; -*-
+;;; markdown-modern-ts.el --- Tree-sitter integration for markdown-modern -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 mark-graf contributors
+;; Copyright (C) 2026 markdown-modern contributors
 
-;; This file is part of mark-graf.
+;; This file is part of markdown-modern.
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 
 ;;; Commentary:
 
-;; Tree-sitter integration layer for mark-graf.
+;; Tree-sitter integration layer for markdown-modern.
 ;; Provides parsing, AST queries, and element detection.
 
 ;;; Code:
@@ -29,36 +29,36 @@
 
 ;;; Data Structures
 
-(cl-defstruct mark-graf-node
+(cl-defstruct markdown-modern-node
   "Represents a parsed markdown element."
   type        ; Symbol: 'heading, 'emphasis, 'code-block, etc.
   start       ; Buffer position (1-indexed)
   end         ; Buffer position (1-indexed)
   level       ; For headings: 1-6; for lists: nesting depth
   language    ; For code blocks: language identifier
-  children    ; List of child mark-graf-node
+  children    ; List of child markdown-modern-node
   properties  ; Plist of additional properties
   treesit-node) ; The underlying treesit node
 
 ;;; Internal Variables
 
-(defvar-local mark-graf-ts--use-tree-sitter nil
+(defvar-local markdown-modern-ts--use-tree-sitter nil
   "Whether tree-sitter is being used for parsing.
-Set to t before loading mark-graf to enable tree-sitter
+Set to t before loading markdown-modern to enable tree-sitter
 \(requires markdown grammar to be installed).")
 
-(defvar-local mark-graf-ts--parser nil
+(defvar-local markdown-modern-ts--parser nil
   "Tree-sitter parser for markdown.")
 
-(defvar-local mark-graf-ts--inline-parser nil
+(defvar-local markdown-modern-ts--inline-parser nil
   "Tree-sitter parser for markdown-inline.")
 
-(defvar-local mark-graf-ts--parse-cache nil
+(defvar-local markdown-modern-ts--parse-cache nil
   "Cache of parsed regions.")
 
 ;;; Grammar Management
 
-(defconst mark-graf-ts--grammar-sources
+(defconst markdown-modern-ts--grammar-sources
   '((markdown . ("https://github.com/tree-sitter-grammars/tree-sitter-markdown"
                  "split_parser"
                  "tree-sitter-markdown/src"))
@@ -67,57 +67,57 @@ Set to t before loading mark-graf to enable tree-sitter
                         "tree-sitter-markdown-inline/src")))
   "Tree-sitter grammar sources for markdown.")
 
-(defun mark-graf-ts--ensure-grammar ()
+(defun markdown-modern-ts--ensure-grammar ()
   "Ensure markdown tree-sitter grammar is available."
-  (when mark-graf-ts--use-tree-sitter
+  (when markdown-modern-ts--use-tree-sitter
     (condition-case err
         (unless (treesit-language-available-p 'markdown)
           (if (yes-or-no-p "Markdown tree-sitter grammar not found. Install it? ")
-              (mark-graf-ts--install-grammar)
-            (mark-graf-ts--enable-fallback-mode)))
+              (markdown-modern-ts--install-grammar)
+            (markdown-modern-ts--enable-fallback-mode)))
       (error
-       (message "mark-graf: Grammar check failed (%s), using fallback" (error-message-string err))
-       (mark-graf-ts--enable-fallback-mode)))))
+       (message "markdown-modern: Grammar check failed (%s), using fallback" (error-message-string err))
+       (markdown-modern-ts--enable-fallback-mode)))))
 
-(defun mark-graf-ts--install-grammar ()
+(defun markdown-modern-ts--install-grammar ()
   "Install markdown tree-sitter grammar."
   (condition-case err
-      (let ((treesit-language-source-alist mark-graf-ts--grammar-sources))
+      (let ((treesit-language-source-alist markdown-modern-ts--grammar-sources))
         (message "Installing markdown grammar...")
         (treesit-install-language-grammar 'markdown)
         (message "Installing markdown-inline grammar...")
         (treesit-install-language-grammar 'markdown-inline)
         (message "Grammars installed successfully."))
     (error
-     (message "mark-graf: Grammar installation failed (%s), using fallback" (error-message-string err))
-     (mark-graf-ts--enable-fallback-mode))))
+     (message "markdown-modern: Grammar installation failed (%s), using fallback" (error-message-string err))
+     (markdown-modern-ts--enable-fallback-mode))))
 
-(defun mark-graf-ts--enable-fallback-mode ()
+(defun markdown-modern-ts--enable-fallback-mode ()
   "Enable regex-based parsing fallback when tree-sitter unavailable."
-  (setq mark-graf-ts--use-tree-sitter nil)
-  (message "mark-graf: Using fallback regex parser (limited functionality)"))
+  (setq markdown-modern-ts--use-tree-sitter nil)
+  (message "markdown-modern: Using fallback regex parser (limited functionality)"))
 
 ;;; Parser Initialization
 
-(defun mark-graf-ts--init ()
+(defun markdown-modern-ts--init ()
   "Initialize tree-sitter parsers for the current buffer."
-  (when mark-graf-ts--use-tree-sitter
+  (when markdown-modern-ts--use-tree-sitter
     (condition-case err
         (progn
           (when (treesit-language-available-p 'markdown)
-            (setq mark-graf-ts--parser
+            (setq markdown-modern-ts--parser
                   (treesit-parser-create 'markdown)))
           (when (treesit-language-available-p 'markdown-inline)
-            (setq mark-graf-ts--inline-parser
+            (setq markdown-modern-ts--inline-parser
                   (treesit-parser-create 'markdown-inline)))
-          (setq mark-graf-ts--parse-cache (make-hash-table :test 'equal)))
+          (setq markdown-modern-ts--parse-cache (make-hash-table :test 'equal)))
       (error
-       (message "mark-graf: Tree-sitter init failed (%s), using fallback" (error-message-string err))
-       (mark-graf-ts--enable-fallback-mode)))))
+       (message "markdown-modern: Tree-sitter init failed (%s), using fallback" (error-message-string err))
+       (markdown-modern-ts--enable-fallback-mode)))))
 
 ;;; Node Type Mapping
 
-(defconst mark-graf-ts--node-type-map
+(defconst markdown-modern-ts--node-type-map
   '(;; Block elements
     ("atx_heading" . heading)
     ("setext_heading" . heading)
@@ -171,22 +171,22 @@ Set to t before loading mark-graf to enable tree-sitter
     ("link_destination" . link-url)
     ("link_title" . link-title)
     ("image_description" . image-alt))
-  "Mapping from tree-sitter node types to mark-graf element types.")
+  "Mapping from tree-sitter node types to markdown-modern element types.")
 
-(defun mark-graf-ts--map-node-type (ts-type)
-  "Map tree-sitter node type TS-TYPE to mark-graf type."
-  (or (cdr (assoc ts-type mark-graf-ts--node-type-map))
+(defun markdown-modern-ts--map-node-type (ts-type)
+  "Map tree-sitter node type TS-TYPE to markdown-modern type."
+  (or (cdr (assoc ts-type markdown-modern-ts--node-type-map))
       (intern ts-type)))
 
 ;;; Queries
 
-(defconst mark-graf-ts--heading-query
+(defconst markdown-modern-ts--heading-query
   (treesit-query-compile
    'markdown
    '((atx_heading) @heading))
   "Query for finding headings.")
 
-(defconst mark-graf-ts--block-query
+(defconst markdown-modern-ts--block-query
   (treesit-query-compile
    'markdown
    '([(atx_heading)
@@ -202,38 +202,38 @@ Set to t before loading mark-graf to enable tree-sitter
 
 ;;; Node Access Functions
 
-(defun mark-graf-ts--root-node ()
+(defun markdown-modern-ts--root-node ()
   "Get the root node of the markdown parse tree."
-  (when mark-graf-ts--parser
-    (treesit-parser-root-node mark-graf-ts--parser)))
+  (when markdown-modern-ts--parser
+    (treesit-parser-root-node markdown-modern-ts--parser)))
 
-(defun mark-graf-ts--node-at (pos)
+(defun markdown-modern-ts--node-at (pos)
   "Get the smallest tree-sitter node at position POS."
-  (when mark-graf-ts--parser
+  (when markdown-modern-ts--parser
     (treesit-node-at pos 'markdown)))
 
-(defun mark-graf-ts--element-at (pos)
-  "Get the mark-graf element at buffer position POS."
-  (when-let ((ts-node (mark-graf-ts--node-at pos)))
-    (mark-graf-ts--make-element ts-node)))
+(defun markdown-modern-ts--element-at (pos)
+  "Get the markdown-modern element at buffer position POS."
+  (when-let ((ts-node (markdown-modern-ts--node-at pos)))
+    (markdown-modern-ts--make-element ts-node)))
 
-(defun mark-graf-ts--make-element (ts-node)
-  "Create a mark-graf-node from tree-sitter node TS-NODE."
+(defun markdown-modern-ts--make-element (ts-node)
+  "Create a markdown-modern-node from tree-sitter node TS-NODE."
   (when ts-node
     (let* ((type-str (treesit-node-type ts-node))
-           (type (mark-graf-ts--map-node-type type-str))
+           (type (markdown-modern-ts--map-node-type type-str))
            (start (treesit-node-start ts-node))
            (end (treesit-node-end ts-node)))
-      (make-mark-graf-node
+      (make-markdown-modern-node
        :type type
        :start start
        :end end
-       :level (mark-graf-ts--get-heading-level ts-node)
-       :language (mark-graf-ts--get-code-language ts-node)
+       :level (markdown-modern-ts--get-heading-level ts-node)
+       :language (markdown-modern-ts--get-code-language ts-node)
        :treesit-node ts-node
        :properties nil))))
 
-(defun mark-graf-ts--get-heading-level (ts-node)
+(defun markdown-modern-ts--get-heading-level (ts-node)
   "Get heading level from TS-NODE if it's a heading, nil otherwise."
   (when (string-match-p "heading" (treesit-node-type ts-node))
     (let ((marker (treesit-node-child-by-field-name ts-node "marker")))
@@ -251,70 +251,70 @@ Set to t before loading mark-graf to enable tree-sitter
               ("atx_h6_marker" 6)
               (_ 1))))))))
 
-(defun mark-graf-ts--get-code-language (ts-node)
+(defun markdown-modern-ts--get-code-language (ts-node)
   "Get code language from TS-NODE if it's a code block, nil otherwise."
   (when (string-match-p "code_block" (treesit-node-type ts-node))
     (when-let ((info (treesit-node-child-by-field-name ts-node "info_string")))
       (string-trim (treesit-node-text info)))))
 
-(defun mark-graf-ts--heading-text (node)
+(defun markdown-modern-ts--heading-text (node)
   "Get the text content of heading NODE (without markers)."
-  (when (eq (mark-graf-node-type node) 'heading)
-    (let* ((ts-node (mark-graf-node-treesit-node node))
+  (when (eq (markdown-modern-node-type node) 'heading)
+    (let* ((ts-node (markdown-modern-node-treesit-node node))
            (text (treesit-node-text ts-node)))
       ;; Remove leading # markers and whitespace
       (string-trim (replace-regexp-in-string "^#+ *" "" text)))))
 
 ;;; Traversal Functions
 
-(defun mark-graf-ts--walk-headings (callback)
+(defun markdown-modern-ts--walk-headings (callback)
   "Walk all headings in buffer, calling CALLBACK with each node."
-  (when-let ((root (mark-graf-ts--root-node)))
-    (dolist (capture (treesit-query-capture root mark-graf-ts--heading-query))
-      (funcall callback (mark-graf-ts--make-element (cdr capture))))))
+  (when-let ((root (markdown-modern-ts--root-node)))
+    (dolist (capture (treesit-query-capture root markdown-modern-ts--heading-query))
+      (funcall callback (markdown-modern-ts--make-element (cdr capture))))))
 
-(defun mark-graf-ts--walk-blocks (callback &optional start end)
+(defun markdown-modern-ts--walk-blocks (callback &optional start end)
   "Walk block elements, calling CALLBACK with each.
 Optional START and END limit the range."
-  (when-let ((root (mark-graf-ts--root-node)))
+  (when-let ((root (markdown-modern-ts--root-node)))
     (let ((captures (treesit-query-capture
-                     root mark-graf-ts--block-query
+                     root markdown-modern-ts--block-query
                      (or start (point-min))
                      (or end (point-max)))))
       (dolist (capture captures)
-        (funcall callback (mark-graf-ts--make-element (cdr capture)))))))
+        (funcall callback (markdown-modern-ts--make-element (cdr capture)))))))
 
-(defun mark-graf-ts--children (node)
-  "Get children of NODE as mark-graf-nodes."
-  (when-let ((ts-node (mark-graf-node-treesit-node node)))
+(defun markdown-modern-ts--children (node)
+  "Get children of NODE as markdown-modern-nodes."
+  (when-let ((ts-node (markdown-modern-node-treesit-node node)))
     (let ((children '())
           (count (treesit-node-child-count ts-node)))
       (dotimes (i count)
-        (push (mark-graf-ts--make-element
+        (push (markdown-modern-ts--make-element
                (treesit-node-child ts-node i))
               children))
       (nreverse children))))
 
-(defun mark-graf-ts--parent (node)
-  "Get parent of NODE as mark-graf-node."
-  (when-let* ((ts-node (mark-graf-node-treesit-node node))
+(defun markdown-modern-ts--parent (node)
+  "Get parent of NODE as markdown-modern-node."
+  (when-let* ((ts-node (markdown-modern-node-treesit-node node))
               (parent (treesit-node-parent ts-node)))
-    (mark-graf-ts--make-element parent)))
+    (markdown-modern-ts--make-element parent)))
 
 ;;; Block Boundary Detection
 
-(defun mark-graf-ts--containing-block (pos)
+(defun markdown-modern-ts--containing-block (pos)
   "Get the block element containing position POS."
-  (when-let ((node (mark-graf-ts--node-at pos)))
+  (when-let ((node (markdown-modern-ts--node-at pos)))
     ;; Walk up to find block-level element
     (let ((current node))
       (while (and current
-                  (not (mark-graf-ts--block-element-p current)))
+                  (not (markdown-modern-ts--block-element-p current)))
         (setq current (treesit-node-parent current)))
       (when current
-        (mark-graf-ts--make-element current)))))
+        (markdown-modern-ts--make-element current)))))
 
-(defun mark-graf-ts--block-element-p (ts-node)
+(defun markdown-modern-ts--block-element-p (ts-node)
   "Return non-nil if TS-NODE is a block-level element."
   (member (treesit-node-type ts-node)
           '("atx_heading" "setext_heading" "paragraph"
@@ -322,55 +322,55 @@ Optional START and END limit the range."
             "block_quote" "list" "list_item"
             "thematic_break" "pipe_table" "html_block")))
 
-(defun mark-graf-ts--containing-block-bounds (start end)
+(defun markdown-modern-ts--containing-block-bounds (start end)
   "Get bounds of block containing region START to END."
   (let ((block-start start)
         (block-end end))
     ;; Expand to block boundaries
-    (when-let ((start-block (mark-graf-ts--containing-block start)))
-      (setq block-start (min block-start (mark-graf-node-start start-block))))
-    (when-let ((end-block (mark-graf-ts--containing-block end)))
-      (setq block-end (max block-end (mark-graf-node-end end-block))))
+    (when-let ((start-block (markdown-modern-ts--containing-block start)))
+      (setq block-start (min block-start (markdown-modern-node-start start-block))))
+    (when-let ((end-block (markdown-modern-ts--containing-block end)))
+      (setq block-end (max block-end (markdown-modern-node-end end-block))))
     (cons block-start block-end)))
 
 ;;; Line/Region Queries
 
-(defun mark-graf-ts--elements-in-region (start end)
+(defun markdown-modern-ts--elements-in-region (start end)
   "Get all elements in region from START to END."
   (let ((elements '()))
-    (mark-graf-ts--walk-blocks
+    (markdown-modern-ts--walk-blocks
      (lambda (node)
        (push node elements))
      start end)
     (nreverse elements)))
 
-(defun mark-graf-ts--elements-on-line (line-num)
+(defun markdown-modern-ts--elements-on-line (line-num)
   "Get elements on line number LINE-NUM."
   (save-excursion
     (goto-char (point-min))
     (forward-line (1- line-num))
     (let ((start (line-beginning-position))
           (end (line-end-position)))
-      (mark-graf-ts--elements-in-region start end))))
+      (markdown-modern-ts--elements-in-region start end))))
 
 ;;; Inline Element Detection
 
-(defun mark-graf-ts--inline-elements-in (start end)
+(defun markdown-modern-ts--inline-elements-in (start end)
   "Get inline elements within range START to END."
-  (when mark-graf-ts--inline-parser
+  (when markdown-modern-ts--inline-parser
     (let ((elements '())
           (_text (buffer-substring-no-properties start end)))
       ;; Parse the text range for inline elements
       (treesit-parser-set-included-ranges
-       mark-graf-ts--inline-parser
+       markdown-modern-ts--inline-parser
        (list (cons start end)))
       ;; Query for inline elements
-      (when-let ((root (treesit-parser-root-node mark-graf-ts--inline-parser)))
-        (dolist (child (mark-graf-ts--collect-inline-nodes root))
-          (push (mark-graf-ts--make-element child) elements)))
+      (when-let ((root (treesit-parser-root-node markdown-modern-ts--inline-parser)))
+        (dolist (child (markdown-modern-ts--collect-inline-nodes root))
+          (push (markdown-modern-ts--make-element child) elements)))
       (nreverse elements))))
 
-(defun mark-graf-ts--collect-inline-nodes (node)
+(defun markdown-modern-ts--collect-inline-nodes (node)
   "Recursively collect all inline element nodes from NODE."
   (let ((result '())
         (type (treesit-node-type node)))
@@ -383,44 +383,44 @@ Optional START and END limit the range."
     (unless (string= type "code_span")
       (dotimes (i (treesit-node-child-count node))
         (setq result (append result
-                             (mark-graf-ts--collect-inline-nodes
+                             (markdown-modern-ts--collect-inline-nodes
                               (treesit-node-child node i))))))
     result))
 
 ;;; Fallback Regex-based Parsing
 
-(defconst mark-graf-ts--heading-regex
+(defconst markdown-modern-ts--heading-regex
   "^\\(#\\{1,6\\}\\) +\\(.*\\)"
   "Regex for ATX headings.")
 
-(defconst mark-graf-ts--emphasis-regex
+(defconst markdown-modern-ts--emphasis-regex
   "\\(?:^\\|[^\\*_]\\)\\(\\*\\([^\\*\n\r]+\\)\\*\\|_\\([^_\n\r]+\\)_\\)"
   "Regex for emphasis (italic). Only matches within a single line.")
 
-(defconst mark-graf-ts--strong-regex
+(defconst markdown-modern-ts--strong-regex
   "\\(?:^\\|[^\\*_]\\)\\(\\*\\*\\([^\\*\n\r]+\\)\\*\\*\\|__\\([^_\n\r]+\\)__\\)"
   "Regex for strong (bold). Only matches within a single line.")
 
-(defconst mark-graf-ts--code-span-regex
+(defconst markdown-modern-ts--code-span-regex
   "`\\([^`\n\r]+\\)`"
   "Regex for inline code. Only matches within a single line.")
 
-(defconst mark-graf-ts--image-regex
+(defconst markdown-modern-ts--image-regex
   "!\\[\\([^]]*\\)\\](\\([^)]+\\))"
   "Regex for inline images.")
 
-(defconst mark-graf-ts--link-regex
+(defconst markdown-modern-ts--link-regex
   "\\[\\([^]]+\\)\\](\\([^)]+\\))"
   "Regex for inline links.")
 
-(defconst mark-graf-ts--code-block-regex
+(defconst markdown-modern-ts--code-block-regex
   "^[ \t]?[ \t]?[ \t]?\\(?:```\\|~~~\\)\\([a-zA-Z0-9_+-]*\\)?[ \t]*\r?$"
   "Regex for fenced code block start/end.
 Group 1 captures the language (empty for a bare fence).
 Allows up to 3 spaces indent per CommonMark spec.
 Handles Windows CRLF line endings with \\r?.")
 
-(defun mark-graf-ts--fallback-parse-region (start end)
+(defun markdown-modern-ts--fallback-parse-region (start end)
   "Parse region from START to END using regex fallback."
   (condition-case err
       (let ((elements '())
@@ -448,7 +448,7 @@ Handles Windows CRLF line endings with \\r?.")
           (when (re-search-forward closing-regex search-limit t)
             (let ((block-end (match-end 0)))
               (push (cons block-start block-end) code-block-regions)
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'code-block
                      :start block-start
                      :end block-end
@@ -503,12 +503,12 @@ Handles Windows CRLF line endings with \\r?.")
         ;; and math markers inside backticks are treated as literal text.
         (goto-char start)
         (while (and (< (point) end)
-                    (re-search-forward mark-graf-ts--code-span-regex end t))
+                    (re-search-forward markdown-modern-ts--code-span-regex end t))
           (unless (in-special-block-p (match-beginning 0))
             (let ((span-start (match-beginning 0))
                   (span-end (min (match-end 0) end)))
               (push (cons span-start span-end) code-span-regions)
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'code-span
                      :start span-start
                      :end span-end)
@@ -517,9 +517,9 @@ Handles Windows CRLF line endings with \\r?.")
         ;; Find headings (not in code blocks)
         (goto-char start)
         (while (and (< (point) end)
-                    (re-search-forward mark-graf-ts--heading-regex end t))
+                    (re-search-forward markdown-modern-ts--heading-regex end t))
           (unless (in-code-block-p (match-beginning 0))
-            (push (make-mark-graf-node
+            (push (make-markdown-modern-node
                    :type 'heading
                    :start (match-beginning 0)
                    :end (min (match-end 0) end)
@@ -531,7 +531,7 @@ Handles Windows CRLF line endings with \\r?.")
         (while (and (< (point) end)
                     (re-search-forward "^\\(---+\\|\\*\\*\\*+\\|___+\\)[ \t]*$" end t))
           (unless (in-code-block-p (match-beginning 0))
-            (push (make-mark-graf-node
+            (push (make-markdown-modern-node
                    :type 'hr
                    :start (match-beginning 0)
                    :end (min (match-end 0) end))
@@ -552,7 +552,7 @@ Handles Windows CRLF line endings with \\r?.")
                             (looking-at "^>"))
                   (setq quote-end (line-end-position))
                   (forward-line 1)))
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'blockquote
                      :start quote-start
                      :end (min quote-end end)
@@ -568,7 +568,7 @@ Handles Windows CRLF line endings with \\r?.")
           (unless (in-code-block-p (match-beginning 0))
             (let ((item-start (match-beginning 0))
                   (indent (length (match-string 1))))
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'list-item
                      :start item-start
                      :end (min (line-end-position) end)
@@ -584,7 +584,7 @@ Handles Windows CRLF line endings with \\r?.")
             (let ((item-start (match-beginning 0))
                   (indent (length (match-string 1)))
                   (num (string-to-number (match-string 2))))
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'list-item
                      :start item-start
                      :end (min (line-end-position) end)
@@ -606,7 +606,7 @@ Handles Windows CRLF line endings with \\r?.")
                             (looking-at "^|.+|[ \t]*$"))
                   (setq table-end (match-end 0))
                   (forward-line 1)))
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'table
                      :start table-start
                      :end (min table-end end))
@@ -622,7 +622,7 @@ Handles Windows CRLF line endings with \\r?.")
             (unless (in-code-block-p block-start)
               (if (re-search-forward "^\\$\\$[ \t]*\r?$" end t)
                   (let ((block-end (match-end 0)))
-                    (push (make-mark-graf-node
+                    (push (make-markdown-modern-node
                            :type 'math-block
                            :start block-start
                            :end (min block-end end))
@@ -641,7 +641,7 @@ Handles Windows CRLF line endings with \\r?.")
                              (eq (char-before pos) ?$))
                         (and (< mend (point-max))
                              (eq (char-after mend) ?$)))
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'math
                      :start pos
                      :end (min mend end))
@@ -650,10 +650,10 @@ Handles Windows CRLF line endings with \\r?.")
         ;; Find inline elements - outside code blocks and code spans
         (goto-char start)
         (while (and (< (point) end)
-                    (re-search-forward mark-graf-ts--strong-regex end t))
+                    (re-search-forward markdown-modern-ts--strong-regex end t))
           (let ((pos (match-beginning 1)))
             (unless (in-literal-region-p pos)
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'strong
                      :start pos
                      :end (min (match-end 1) end))
@@ -661,10 +661,10 @@ Handles Windows CRLF line endings with \\r?.")
 
         (goto-char start)
         (while (and (< (point) end)
-                    (re-search-forward mark-graf-ts--emphasis-regex end t))
+                    (re-search-forward markdown-modern-ts--emphasis-regex end t))
           (let ((pos (match-beginning 1)))
             (unless (in-literal-region-p pos)
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'emphasis
                      :start pos
                      :end (min (match-end 1) end))
@@ -673,10 +673,10 @@ Handles Windows CRLF line endings with \\r?.")
         ;; Find images (before links so links can skip image positions)
         (goto-char start)
         (while (and (< (point) end)
-                    (re-search-forward mark-graf-ts--image-regex end t))
+                    (re-search-forward markdown-modern-ts--image-regex end t))
           (let ((pos (match-beginning 0)))
             (unless (in-literal-region-p pos)
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'image
                      :start pos
                      :end (min (match-end 0) end)
@@ -686,13 +686,13 @@ Handles Windows CRLF line endings with \\r?.")
 
         (goto-char start)
         (while (and (< (point) end)
-                    (re-search-forward mark-graf-ts--link-regex end t))
+                    (re-search-forward markdown-modern-ts--link-regex end t))
           (let ((pos (match-beginning 0)))
             (unless (or (in-literal-region-p pos)
                         ;; Skip if preceded by ! (that's an image, not a link)
                         (and (> pos (point-min))
                              (eq (char-before pos) ?!)))
-              (push (make-mark-graf-node
+              (push (make-markdown-modern-node
                      :type 'link
                      :start pos
                      :end (min (match-end 0) end)
@@ -701,8 +701,8 @@ Handles Windows CRLF line endings with \\r?.")
                     elements))))))
       (nreverse elements))
     (error
-     (message "mark-graf: Parse error: %s" (error-message-string err))
+     (message "markdown-modern: Parse error: %s" (error-message-string err))
      nil)))
 
-(provide 'mark-graf-ts)
-;;; mark-graf-ts.el ends here
+(provide 'markdown-modern-ts)
+;;; markdown-modern-ts.el ends here
