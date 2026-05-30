@@ -252,9 +252,14 @@ Set to t before loading markdown-modern to enable tree-sitter
               (_ 1))))))))
 
 (defun markdown-modern-ts--get-code-language (ts-node)
-  "Get code language from TS-NODE if it's a code block, nil otherwise."
+  "Get code language from TS-NODE if it's a code block, nil otherwise.
+In the tree-sitter-markdown grammar the language is an `info_string' child
+node (not a field), so look it up by type."
   (when (string-match-p "code_block" (treesit-node-type ts-node))
-    (when-let ((info (treesit-node-child-by-field-name ts-node "info_string")))
+    (when-let ((info (car (treesit-filter-child
+                           ts-node
+                           (lambda (c)
+                             (string= (treesit-node-type c) "info_string"))))))
       (string-trim (treesit-node-text info)))))
 
 (defun markdown-modern-ts--heading-text (node)

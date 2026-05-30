@@ -36,6 +36,8 @@ test:
 		-l markdown-modern-regex-test \
 		-l markdown-modern-integration-test \
 		-l markdown-modern-jit-test \
+		-l markdown-modern-render-test \
+		-l markdown-modern-ts-test \
 		-f ert-run-tests-batch-and-exit
 
 # Run only export tests
