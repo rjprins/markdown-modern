@@ -7,7 +7,7 @@ EL_FILES = $(wildcard lisp/*.el)
 ELC_FILES = $(EL_FILES:.el=.elc)
 TEST_FILES = $(wildcard test/*-test.el)
 
-.PHONY: all compile test test-export test-cmd test-regex test-integration clean lint package help
+.PHONY: all compile test test-export test-cmd test-regex test-integration bench clean lint package help
 
 # Default target
 all: compile
@@ -71,6 +71,14 @@ test-integration:
 		-l markdown-modern \
 		-l markdown-modern-integration-test \
 		--eval "(ert-run-tests-batch-and-exit \"^integration/\")"
+
+# Rendering benchmark (not a pass/fail test)
+bench:
+	@echo "Running markdown-modern rendering benchmark..."
+	@$(BATCH) \
+		-l markdown-modern \
+		-l markdown-modern-bench \
+		--eval "(markdown-modern-bench)"
 
 # Run tests with verbose output
 test-verbose:
