@@ -99,10 +99,16 @@ markdown-modern has a single view mode. Markdown is always rendered inline; when
 cursor enters the scope of a markup element, that element's raw markup is
 revealed so you can edit it in place, and re-rendered once the cursor leaves:
 
-- On a heading line, the `#` markers appear.
+- On a heading line, the `#` markers appear (at the heading's size).
 - Inside (or right next to) emphasis, a code span, or a link, that element's
   delimiters appear.
+- On a list item or blockquote, the leading marker (`- `, `1. `, `> `) appears.
 - Inside a fenced code block or table, the raw block is shown.
+
+Task checkboxes are the exception: they are treated as interactive widgets, not
+markup to reveal. Point on a checkbox keeps the rendered `☐`/`☑`; `SPC` toggles
+it, and `Backspace`/`Delete` on it removes the checkbox, leaving a plain list
+item.
 
 Plain prose is never disturbed, so moving the cursor through ordinary text does
 no work. There is no source/rendered toggle to manage.
@@ -127,6 +133,8 @@ You can also reveal the element at point on demand with
 | `C-c <up/down>` | Move item | Reorder list items |
 | `C-c <left/right>` | Promote/demote | Change indentation |
 | `C-c C-x C-b` | `markdown-modern-toggle-checkbox` | Toggle task checkbox |
+| `SPC` (on a checkbox) | `markdown-modern-space-or-toggle-checkbox` | Toggle the checkbox under point |
+| `Backspace`/`Delete` (on a checkbox) | `markdown-modern-checkbox-delete-{backward,forward}` | Remove the checkbox, keep the list item |
 
 ### Tables
 

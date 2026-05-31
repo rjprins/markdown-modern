@@ -460,6 +460,15 @@ single source of truth shared between point-motion reveal and jit-lock.")
     (define-key map (kbd "C-c <right>") #'markdown-modern-demote-item)
     (define-key map (kbd "C-c C-x C-b") #'markdown-modern-toggle-checkbox)
 
+    ;; Task checkboxes are widgets, not revealed markup: SPC toggles the
+    ;; checkbox under point, and Backspace/Delete on it removes the whole
+    ;; checkbox at once, leaving a plain list item.
+    (define-key map (kbd "SPC") #'markdown-modern-space-or-toggle-checkbox)
+    (define-key map (kbd "DEL") #'markdown-modern-checkbox-delete-backward)
+    (define-key map (kbd "<backspace>") #'markdown-modern-checkbox-delete-backward)
+    (define-key map (kbd "C-d") #'markdown-modern-checkbox-delete-forward)
+    (define-key map (kbd "<deletechar>") #'markdown-modern-checkbox-delete-forward)
+
     ;; Tables
     (define-key map (kbd "C-c |") #'markdown-modern-insert-table)
     (define-key map (kbd "C-c C-c ^") #'markdown-modern-table-sort)
@@ -829,11 +838,14 @@ POS immediately before or after the markup counts as inside it."
 (defconst markdown-modern--marker-node-types
   '("list_marker_minus" "list_marker_plus" "list_marker_star"
     "list_marker_dot" "list_marker_parenthesis"
-    "task_list_marker_checked" "task_list_marker_unchecked"
     "block_quote_marker")
   "Tree-sitter node types for line-leading markers revealed at point.
-These render as glyphs (list bullets, checkboxes, blockquote bars); revealing
-them shows the original source marker (`- ', `[x]', `> ', ...) for editing.")
+These render as glyphs (list bullets, blockquote bars); revealing them shows
+the original source marker (`- ', `> ', ...) for editing.
+
+Task checkboxes are deliberately excluded: a rendered checkbox is treated as a
+toggle/remove widget (`markdown-modern-space-or-toggle-checkbox' and friends),
+not as markup to reveal.  See `markdown-modern--marker-at'.")
 
 (defun markdown-modern--marker-at-ts (pos)
   "Return (START . END) of a list/task/blockquote marker at or adjacent to POS.
@@ -852,33 +864,42 @@ Tree-sitter implementation."
    (list pos (1- pos))))
 
 (defun markdown-modern--marker-at-fallback (pos)
-  "Return (START . END) of a list/task/blockquote marker at or adjacent to POS.
+  "Return (START . END) of a list/blockquote marker at or adjacent to POS.
 Regex-fallback implementation."
   (save-excursion
     (goto-char pos)
     (beginning-of-line)
     (when (looking-at
-           "[ \t]*\\(>+[ \t]?\\|[-*+][ \t]+\\|[0-9]+[.)][ \t]+\\)\\(\\[[ xX]\\]\\)?")
-      (let ((ms (match-beginning 1)) (me (match-end 1))
-            (cs (match-beginning 2)) (ce (match-end 2)))
-        (cond
-         ;; On or just after a task checkbox.
-         ((and cs (>= pos cs) (<= pos ce)) (cons cs ce))
-         ;; On or just after the list bullet / blockquote marker.
-         ((and (>= pos ms) (<= pos me)) (cons ms me)))))))
+           "[ \t]*\\(>+[ \t]?\\|[-*+][ \t]+\\|[0-9]+[.)][ \t]+\\)")
+      (let ((ms (match-beginning 1)) (me (match-end 1)))
+        ;; On or just after the list bullet / blockquote marker.
+        (when (and (>= pos ms) (<= pos me))
+          (cons ms me))))))
+
+(defun markdown-modern--task-line-p (pos)
+  "Return non-nil if the line containing POS is a task list item."
+  (save-excursion
+    (goto-char pos)
+    (beginning-of-line)
+    (looking-at "[ \t]*[-*+][ \t]+\\[[ xX]\\]")))
 
 (defun markdown-modern--marker-at (pos)
-  "Return (START . END) of a line-leading marker at or adjacent to POS, or nil."
-  (if markdown-modern-ts--use-tree-sitter
-      (markdown-modern--marker-at-ts pos)
-    (markdown-modern--marker-at-fallback pos)))
+  "Return (START . END) of a line-leading marker at or adjacent to POS, or nil.
+Task list items are excluded entirely: a rendered checkbox is an interactive
+toggle/remove widget, not markup to reveal, so neither the checkbox nor the
+leading bullet of a task line is revealed at point."
+  (unless (markdown-modern--task-line-p pos)
+    (if markdown-modern-ts--use-tree-sitter
+        (markdown-modern--marker-at-ts pos)
+      (markdown-modern--marker-at-fallback pos))))
 
 (defun markdown-modern--markup-element-at (pos)
   "Return (START . END) of the smallest markup element containing POS.
 Return nil when POS is in plain prose with no markup to reveal.  A line-leading
-marker (list bullet, task checkbox, blockquote marker) under or adjacent to POS
-takes priority; then inline markup (emphasis, code span, link, ...); then a
-block-level element (heading, code block, table, ...) revealed whole.
+marker (list bullet, blockquote marker) under or adjacent to POS takes priority;
+then inline markup (emphasis, code span, link, ...); then a block-level element
+\(heading, code block, table, ...) revealed whole.  Task checkboxes are not
+revealed; they are interactive widgets (see `markdown-modern--marker-at').
 Works with both the tree-sitter and regex-fallback parsers."
   (or (markdown-modern--marker-at pos)
       (if markdown-modern-ts--use-tree-sitter

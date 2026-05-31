@@ -391,6 +391,72 @@ Continues the current list type or creates a new unordered list."
      (t
       (message "No checkbox on current line")))))
 
+(defun markdown-modern--checkbox-overlay-at-point ()
+  "Return the rendered task-checkbox overlay under point, or nil.
+Matches when point is anywhere on the checkbox glyph, from just before the
+opening bracket through just after the closing bracket."
+  (cl-flet ((cb (p)
+              (and (>= p (point-min)) (<= p (point-max))
+                   (cl-find-if
+                    (lambda (ov)
+                      (eq (overlay-get ov 'markdown-modern-type) 'checkbox))
+                    (overlays-at p)))))
+    (or (cb (point)) (cb (1- (point))))))
+
+;;;###autoload
+(defun markdown-modern-space-or-toggle-checkbox (n)
+  "Toggle the task checkbox under point, or insert a space.
+When point is on a rendered task-list checkbox, toggle it between checked and
+unchecked and insert nothing.  Otherwise insert N spaces, like
+`self-insert-command'.
+
+A rendered checkbox is a widget: the only things you do to it are toggle it or
+remove it (see `markdown-modern-checkbox-delete-backward'), so its markup is
+never revealed at point."
+  (interactive "p")
+  (if (markdown-modern--checkbox-overlay-at-point)
+      (markdown-modern-toggle-checkbox)
+    (self-insert-command n)))
+
+;;;###autoload
+(defun markdown-modern-remove-checkbox ()
+  "Remove the task checkbox on the current line, leaving a plain list item.
+`- [ ] text' becomes `- text', in a single undoable step.  With no checkbox on
+the line, do nothing."
+  (interactive)
+  (save-excursion
+    (beginning-of-line)
+    (if (looking-at "\\([ \t]*[-*+][ \t]+\\)\\[[ xX]\\][ \t]*")
+        (replace-match "\\1")
+      (message "No checkbox on current line"))))
+
+;;;###autoload
+(defun markdown-modern-checkbox-delete-backward (n)
+  "Remove the task checkbox under point, or delete backward.
+When point is on a rendered checkbox, remove the whole checkbox at once, leaving
+a plain list item (see `markdown-modern-remove-checkbox').  Otherwise delete N
+characters backward."
+  (interactive "p")
+  (if (markdown-modern--checkbox-overlay-at-point)
+      (markdown-modern-remove-checkbox)
+    (delete-char (- n))))
+
+;;;###autoload
+(defun markdown-modern-checkbox-delete-forward (n)
+  "Remove the task checkbox under point, or delete forward.
+When point is on a rendered checkbox, remove the whole checkbox at once, leaving
+a plain list item (see `markdown-modern-remove-checkbox').  Otherwise delete N
+characters forward."
+  (interactive "p")
+  (if (markdown-modern--checkbox-overlay-at-point)
+      (markdown-modern-remove-checkbox)
+    (delete-char n)))
+
+;; Honour `delete-selection-mode' the way the commands these stand in for do.
+(put 'markdown-modern-space-or-toggle-checkbox 'delete-selection t)
+(put 'markdown-modern-checkbox-delete-backward 'delete-selection 'supersede)
+(put 'markdown-modern-checkbox-delete-forward 'delete-selection 'supersede)
+
 ;;;###autoload
 (defun markdown-modern-move-item-up ()
   "Move current list item up."

@@ -150,12 +150,49 @@ fallback is used."
       (should r)
       (should (= (char-after (car r)) ?-)))))
 
-(ert-deftest render/marker-reveal-checkbox ()
-  "Point on a task checkbox reveals it (fallback)."
+(ert-deftest render/checkbox-not-revealed ()
+  "A task checkbox is a widget, so point on it reveals no markup (fallback).
+Neither the checkbox nor the task line's leading bullet is revealed."
   (markdown-modern-render-test--with "- [x] done\n" nil
-    (let ((r (markdown-modern--markup-element-at 3)))   ; the [
-      (should r)
-      (should (= (char-after (car r)) ?\[)))))
+    (should-not (markdown-modern--markup-element-at 1))   ; the -
+    (should-not (markdown-modern--markup-element-at 3))   ; the [
+    (should-not (markdown-modern--markup-element-at 4)))) ; the x
+
+(ert-deftest render/checkbox-space-toggles ()
+  "SPC on a rendered checkbox toggles it instead of inserting a space."
+  (markdown-modern-render-test--with "- [ ] task\n" nil
+    (goto-char 3)                        ; on the checkbox glyph
+    (markdown-modern-space-or-toggle-checkbox 1)
+    (should (equal (buffer-string) "- [x] task\n"))))
+
+(ert-deftest render/checkbox-space-inserts-off-checkbox ()
+  "SPC inserts a space normally when point is not on a checkbox."
+  (markdown-modern-render-test--with "- [ ] task\n" nil
+    (goto-char 9)                        ; the s of task
+    (let ((last-command-event ?\s))
+      (markdown-modern-space-or-toggle-checkbox 1))
+    (should (equal (buffer-string) "- [ ] ta sk\n"))))
+
+(ert-deftest render/checkbox-delete-backward-removes-checkbox ()
+  "Backspace on a checkbox removes the whole checkbox, leaving a plain item."
+  (markdown-modern-render-test--with "- [x] done\n" nil
+    (goto-char 3)                        ; on the checkbox glyph
+    (markdown-modern-checkbox-delete-backward 1)
+    (should (equal (buffer-string) "- done\n"))))
+
+(ert-deftest render/checkbox-delete-forward-removes-checkbox ()
+  "Delete on a checkbox removes the whole checkbox, leaving a plain item."
+  (markdown-modern-render-test--with "- [x] done\n" nil
+    (goto-char 5)                        ; within the checkbox glyph
+    (markdown-modern-checkbox-delete-forward 1)
+    (should (equal (buffer-string) "- done\n"))))
+
+(ert-deftest render/checkbox-delete-backward-normal-off-checkbox ()
+  "Backspace off a checkbox deletes one character backward as usual."
+  (markdown-modern-render-test--with "- [x] done\n" nil
+    (goto-char 9)                        ; before the n of done
+    (markdown-modern-checkbox-delete-backward 1)
+    (should (equal (buffer-string) "- [x] dne\n"))))
 
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here

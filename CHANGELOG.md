@@ -8,9 +8,12 @@ on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 
 - Reveal-at-point now covers line-leading markers: a list bullet, an ordered
-  marker, a task checkbox, or a blockquote marker under or adjacent to point
-  shows its raw source (`- `, `1. `, `[x]`, `> `) for editing, then re-renders
-  on leave.
+  marker, or a blockquote marker under or adjacent to point shows its raw
+  source (`- `, `1. `, `> `) for editing, then re-renders on leave.
+- Task checkboxes are now interactive widgets instead of revealed markup. Point
+  on a checkbox keeps the rendered `☐`/`☑`; `SPC` toggles it, and
+  `Backspace`/`Delete` on it removes the whole checkbox at once, leaving a plain
+  list item.
 
 ### Changed
 

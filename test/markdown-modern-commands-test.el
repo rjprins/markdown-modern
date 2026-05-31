@@ -188,6 +188,21 @@ Use [ and ] to mark region boundaries in INITIAL."
   "|- [X] task" "|- [ ] task"
   (markdown-modern-toggle-checkbox))
 
+(mg-cmd-test checkbox-remove-unchecked
+  "Remove an unchecked checkbox, leaving a plain list item"
+  "- [ ] |task" "- task"
+  (markdown-modern-remove-checkbox))
+
+(mg-cmd-test checkbox-remove-checked
+  "Remove a checked checkbox, leaving a plain list item"
+  "- [x] |task" "- task"
+  (markdown-modern-remove-checkbox))
+
+(mg-cmd-test checkbox-remove-indented
+  "Remove a nested checkbox, preserving indentation"
+  "  - [ ] |task" "  - task"
+  (markdown-modern-remove-checkbox))
+
 (mg-cmd-test list-promote
   "Promote list item decreases indent"
   "|  - item" "|- item"

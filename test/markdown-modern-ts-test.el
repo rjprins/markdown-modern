@@ -143,11 +143,11 @@
       (should r)
       (should (= (char-after (car r)) ?1)))))
 
-(markdown-modern-ts-test--deftest ts/marker-reveal-checkbox
+(markdown-modern-ts-test--deftest ts/checkbox-not-revealed
   (markdown-modern-ts-test--with "- [ ] task\n"
-    (let ((r (markdown-modern--markup-element-at 3)))   ; the [
-      (should r)
-      (should (= (char-after (car r)) ?\[)))))
+    ;; A checkbox is a widget; neither it nor the task line's bullet reveals.
+    (should-not (markdown-modern--markup-element-at 1))    ; the -
+    (should-not (markdown-modern--markup-element-at 3))))  ; the [
 
 (markdown-modern-ts-test--deftest ts/marker-reveal-blockquote
   (markdown-modern-ts-test--with "> quoted\n"
