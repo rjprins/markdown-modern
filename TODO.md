@@ -27,6 +27,22 @@ space, so hard-wrapped sources render like a GitHub README.
 - Make it a defcustom (default nil to keep current behavior; or default t for
   README-faithful rendering — decide based on the reading-first use case).
 
+## Auto-increment and auto-renumber numeric lists
+
+`markdown-modern-insert-list-item` already increments the next ordered-list
+item when continuing a list. It does not yet renumber the surrounding numeric
+list after inserting, deleting, moving, promoting, or demoting list items.
+
+Enhancement: add commands and/or automatic cleanup for ordered Markdown lists.
+
+- Approach: detect the ordered list containing point, preserve the marker style
+  (`1.` vs `1)`), and renumber sibling items from the list's starting number.
+  Call this after list item insertion/reordering and expose a manual
+  `renumber-list` command.
+- Difficulty: medium. Watch out for nested ordered lists, mixed ordered and
+  unordered children, task lists, blockquoted lists, and Markdown's permissive
+  rule that rendered numbering need not match source numbering.
+
 ## Keep tables rendered while editing
 
 When point enters a table, reveal-at-point currently un-renders the whole table
@@ -54,8 +70,10 @@ the minimum needed.
 
 ## Further marker / element reveals not yet covered
 
-The line-leading markers (list bullets, ordered markers, task checkboxes,
-blockquote markers) are now revealed at point. Still not revealed:
+The line-leading markers (list bullets, ordered markers, blockquote markers)
+are now revealed at point. Task checkboxes are deliberately *not* revealed —
+they are interactive widgets (`SPC` toggles, `Backspace`/`Delete` removes).
+Still not revealed:
 
 - **Display math** (`$...$`, `$$...$$`) — not in the reveal types, so the
   rendered Unicode/SVG math can't be edited by putting point on it.
@@ -66,5 +84,7 @@ blockquote markers) are now revealed at point. Still not revealed:
 Done:
 
 - Code-block syntax highlighting wired up (1.0.1).
-- Reveal line-leading markers (bullets, ordered, checkboxes, blockquote) and
-  heading `#` markers at the heading's size (Unreleased — see CHANGELOG).
+- Reveal line-leading markers (bullets, ordered, blockquote) and heading `#`
+  markers at the heading's size (Unreleased — see CHANGELOG).
+- Task checkboxes as interactive widgets: no reveal; `SPC` toggles,
+  `Backspace`/`Delete` removes the checkbox (Unreleased — see CHANGELOG).
