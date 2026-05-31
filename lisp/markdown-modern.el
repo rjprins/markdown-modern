@@ -306,8 +306,10 @@ No background is used to avoid issues with `visual-line-mode' wrapping."
   :group 'markdown-modern-faces)
 
 (defface markdown-modern-list-bullet
-  '((t :foreground "#5588cc"))
-  "Face for list bullet characters."
+  '((t :inherit fixed-pitch :foreground "#5588cc"))
+  "Face for list bullet characters.
+Inherits `fixed-pitch' so the bullet glyph is the same width as the raw
+marker it replaces (no shift when the marker is revealed)."
   :group 'markdown-modern-faces)
 
 (defface markdown-modern-list-number

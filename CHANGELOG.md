@@ -16,6 +16,9 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 - Revealed heading markers (`#`) now appear at the heading's size rather than
   the default size.
+- List bullets now render in a fixed-pitch slot, so the rendered glyph (`●`) and
+  the raw marker it replaces (`-`, `*`, `+`) are the same width. Revealing an
+  unordered list marker at point no longer shifts the item's content sideways.
 
 ## [1.0.1] - 2026-05-30
 

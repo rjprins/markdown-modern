@@ -958,6 +958,13 @@ Includes `wrap-prefix' for proper line continuation."
             (overlay-put ov 'display (propertize (string bullet)
                                                 'face 'markdown-modern-list-bullet))
             (overlay-put ov 'markdown-modern-type 'list-marker))
+          ;; Keep the marker slot (marker + trailing gap) monospaced.  This is a
+          ;; face-only overlay, so `reveal-markup' keeps it when the marker is
+          ;; revealed at point: the raw `- ' then shows fixed-pitch, the same
+          ;; width as the bullet glyph, so the content does not shift.
+          (let ((ov (markdown-modern-render--get-overlay marker-start content-start)))
+            (overlay-put ov 'face 'fixed-pitch)
+            (overlay-put ov 'markdown-modern-type 'list-marker-slot))
           ;; Add wrap-prefix to content
           (when (< content-start eol)
             (let ((ov (markdown-modern-render--get-overlay content-start eol)))
