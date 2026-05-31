@@ -52,34 +52,19 @@ the minimum needed.
   (`C-c '`) opens a code block in a dedicated buffer; a similar
   "edit-table-in-a-grid" command could be an alternative to inline cell editing.
 
-## Reveal the list bullet when point is adjacent
+## Further marker / element reveals not yet covered
 
-Rendered list items show a bullet glyph (● / ○ / ■). When point is on or right
-next to a bullet, reveal the original source marker (`-`, `*`, `+`, or `1.`)
-the way other markup is revealed at point, so it can be edited.
+The line-leading markers (list bullets, ordered markers, task checkboxes,
+blockquote markers) are now revealed at point. Still not revealed:
 
-- Today `markdown-modern--markup-element-at` does not special-case the list
-  marker: point in a list item lands in the item's inline content (or nil), so
-  the bullet glyph stays rendered.
-- Approach: when point is within / adjacent to the leading marker of a
-  `list-item`, return the marker's range; `reveal-markup` then drops the
-  `list-marker` display overlay and the raw `- ` shows. Re-render on leave.
-- Difficulty: medium — mostly detecting "adjacent to the bullet" (the marker is
-  at the start of the item, possibly indented).
-
-## Heading markers (`#`) at the heading's size
-
-When a heading is revealed, its `#` markers currently show in the default
-(small) face, because the heading face is only applied to the content
-(`content-start..end`), not the markers.
-
-- Fix: in `markdown-modern-render--heading`, apply the heading face over the
-  whole line (`start..end`) instead of just the content. The markers stay
-  hidden while rendered (their `display ""` overlay wins); when revealed they
-  then appear at the heading's size.
-- Difficulty: low (one overlay range change). Verify it doesn't disturb the
-  rendered look (markers are hidden, so the extra face is invisible there).
+- **Display math** (`$...$`, `$$...$$`) — not in the reveal types, so the
+  rendered Unicode/SVG math can't be edited by putting point on it.
+- Anything else rendered via a `display` glyph that is not a parse marker.
 
 ---
 
-Done: code-block syntax highlighting was wired up in 1.0.1 (see CHANGELOG).
+Done:
+
+- Code-block syntax highlighting wired up (1.0.1).
+- Reveal line-leading markers (bullets, ordered, checkboxes, blockquote) and
+  heading `#` markers at the heading's size (Unreleased — see CHANGELOG).
