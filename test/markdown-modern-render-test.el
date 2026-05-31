@@ -130,5 +130,32 @@ fallback is used."
           (setq n (1+ n))))
       (should (> n 0)))))
 
+(ert-deftest render/heading-marker-keeps-size ()
+  "A revealed heading marker carries the heading face, not the default."
+  (markdown-modern-render-test--with "## Heading\n" nil
+    (setq markdown-modern--revealed-region (markdown-modern--markup-element-at 4))
+    (markdown-modern--jit-fontify (point-min) (point-max))
+    (let ((faces nil) (display nil))
+      (dolist (ov (overlays-in 1 2))           ; the first #
+        (when (overlay-get ov 'markdown-modern)
+          (when (overlay-get ov 'face) (push (overlay-get ov 'face) faces))
+          (when (overlay-get ov 'display) (setq display t))))
+      (should (memq 'markdown-modern-heading-2 faces))
+      (should-not display))))
+
+(ert-deftest render/marker-reveal-bullet ()
+  "Point on a list bullet reveals the source marker (fallback)."
+  (markdown-modern-render-test--with "- an item\n" nil
+    (let ((r (markdown-modern--markup-element-at 1)))
+      (should r)
+      (should (= (char-after (car r)) ?-)))))
+
+(ert-deftest render/marker-reveal-checkbox ()
+  "Point on a task checkbox reveals it (fallback)."
+  (markdown-modern-render-test--with "- [x] done\n" nil
+    (let ((r (markdown-modern--markup-element-at 3)))   ; the [
+      (should r)
+      (should (= (char-after (car r)) ?\[)))))
+
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here

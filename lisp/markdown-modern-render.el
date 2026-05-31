@@ -282,8 +282,10 @@ are kept, so revealed text stays formatted."
           (let ((ov (markdown-modern-render--get-overlay start marker-end)))
             (overlay-put ov 'display "")
             (overlay-put ov 'markdown-modern-type 'heading-marker))
-          ;; Apply face to content
-          (let ((ov (markdown-modern-render--get-overlay content-start end)))
+          ;; Apply the heading face over the whole line (markers included), so
+          ;; when the markers are revealed at point they appear at the heading's
+          ;; size.  While rendered they stay hidden by the display "" overlay.
+          (let ((ov (markdown-modern-render--get-overlay start end)))
             (overlay-put ov 'face face)
             (overlay-put ov 'markdown-modern-type 'heading-content))
           ;; Render inline markup inside the heading (code spans, emphasis,

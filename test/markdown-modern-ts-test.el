@@ -129,5 +129,36 @@
 (markdown-modern-ts-test--deftest ts/render-code-block    (markdown-modern-render-test--assert-code-block t))
 (markdown-modern-ts-test--deftest ts/render-table         (markdown-modern-render-test--assert-table t))
 
+;;; Line-leading markers revealed at point
+
+(markdown-modern-ts-test--deftest ts/marker-reveal-bullet
+  (markdown-modern-ts-test--with "- item\n"
+    (let ((r (markdown-modern--markup-element-at 1)))
+      (should r)
+      (should (= (char-after (car r)) ?-)))))
+
+(markdown-modern-ts-test--deftest ts/marker-reveal-ordered
+  (markdown-modern-ts-test--with "1. item\n"
+    (let ((r (markdown-modern--markup-element-at 1)))
+      (should r)
+      (should (= (char-after (car r)) ?1)))))
+
+(markdown-modern-ts-test--deftest ts/marker-reveal-checkbox
+  (markdown-modern-ts-test--with "- [ ] task\n"
+    (let ((r (markdown-modern--markup-element-at 3)))   ; the [
+      (should r)
+      (should (= (char-after (car r)) ?\[)))))
+
+(markdown-modern-ts-test--deftest ts/marker-reveal-blockquote
+  (markdown-modern-ts-test--with "> quoted\n"
+    (let ((r (markdown-modern--markup-element-at 1)))
+      (should r)
+      (should (= (char-after (car r)) ?>)))))
+
+(markdown-modern-ts-test--deftest ts/marker-not-in-plain-text
+  (markdown-modern-ts-test--with "- item text\n"
+    ;; Point in the item's plain text reveals nothing.
+    (should-not (markdown-modern--markup-element-at 6))))
+
 (provide 'markdown-modern-ts-test)
 ;;; markdown-modern-ts-test.el ends here

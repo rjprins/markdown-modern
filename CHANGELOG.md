@@ -3,6 +3,20 @@
 All notable changes to markdown-modern are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- Reveal-at-point now covers line-leading markers: a list bullet, an ordered
+  marker, a task checkbox, or a blockquote marker under or adjacent to point
+  shows its raw source (`- `, `1. `, `[x]`, `> `) for editing, then re-renders
+  on leave.
+
+### Changed
+
+- Revealed heading markers (`#`) now appear at the heading's size rather than
+  the default size.
+
 ## [1.0.1] - 2026-05-30
 
 ### Fixed

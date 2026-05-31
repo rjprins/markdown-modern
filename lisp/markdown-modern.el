@@ -824,15 +824,64 @@ POS immediately before or after the markup counts as inside it."
     link-shortcut image autolink autolink-email)
   "Inline markup element types that are revealed individually at point.")
 
+(defconst markdown-modern--marker-node-types
+  '("list_marker_minus" "list_marker_plus" "list_marker_star"
+    "list_marker_dot" "list_marker_parenthesis"
+    "task_list_marker_checked" "task_list_marker_unchecked"
+    "block_quote_marker")
+  "Tree-sitter node types for line-leading markers revealed at point.
+These render as glyphs (list bullets, checkboxes, blockquote bars); revealing
+them shows the original source marker (`- ', `[x]', `> ', ...) for editing.")
+
+(defun markdown-modern--marker-at-ts (pos)
+  "Return (START . END) of a list/task/blockquote marker at or adjacent to POS.
+Tree-sitter implementation."
+  (cl-some
+   (lambda (p)
+     (when (and (> p 0) (<= p (point-max)))
+       (when-let ((node (treesit-node-at p 'markdown)))
+         (let ((n node) (hit nil) (depth 0))
+           (while (and n (not hit) (< depth 3))
+             (when (member (treesit-node-type n) markdown-modern--marker-node-types)
+               (setq hit (cons (treesit-node-start n) (treesit-node-end n))))
+             (setq n (treesit-node-parent n)
+                   depth (1+ depth)))
+           hit))))
+   (list pos (1- pos))))
+
+(defun markdown-modern--marker-at-fallback (pos)
+  "Return (START . END) of a list/task/blockquote marker at or adjacent to POS.
+Regex-fallback implementation."
+  (save-excursion
+    (goto-char pos)
+    (beginning-of-line)
+    (when (looking-at
+           "[ \t]*\\(>+[ \t]?\\|[-*+][ \t]+\\|[0-9]+[.)][ \t]+\\)\\(\\[[ xX]\\]\\)?")
+      (let ((ms (match-beginning 1)) (me (match-end 1))
+            (cs (match-beginning 2)) (ce (match-end 2)))
+        (cond
+         ;; On or just after a task checkbox.
+         ((and cs (>= pos cs) (<= pos ce)) (cons cs ce))
+         ;; On or just after the list bullet / blockquote marker.
+         ((and (>= pos ms) (<= pos me)) (cons ms me)))))))
+
+(defun markdown-modern--marker-at (pos)
+  "Return (START . END) of a line-leading marker at or adjacent to POS, or nil."
+  (if markdown-modern-ts--use-tree-sitter
+      (markdown-modern--marker-at-ts pos)
+    (markdown-modern--marker-at-fallback pos)))
+
 (defun markdown-modern--markup-element-at (pos)
   "Return (START . END) of the smallest markup element containing POS.
-Return nil when POS is in plain prose with no markup to reveal.  Inline markup
-\(emphasis, code span, link, ...) takes priority over its containing block;
-block-level markup (heading, code block, table, ...) is revealed whole.
+Return nil when POS is in plain prose with no markup to reveal.  A line-leading
+marker (list bullet, task checkbox, blockquote marker) under or adjacent to POS
+takes priority; then inline markup (emphasis, code span, link, ...); then a
+block-level element (heading, code block, table, ...) revealed whole.
 Works with both the tree-sitter and regex-fallback parsers."
-  (if markdown-modern-ts--use-tree-sitter
-      (markdown-modern--markup-element-at-ts pos)
-    (markdown-modern--markup-element-at-fallback pos)))
+  (or (markdown-modern--marker-at pos)
+      (if markdown-modern-ts--use-tree-sitter
+          (markdown-modern--markup-element-at-ts pos)
+        (markdown-modern--markup-element-at-fallback pos))))
 
 (defun markdown-modern--markup-element-at-ts (pos)
   "Tree-sitter implementation of `markdown-modern--markup-element-at' for POS."
