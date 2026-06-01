@@ -1055,6 +1055,39 @@ content beyond that many lines is truncated and the last line ends with `…'."
                  (integer :tag "Maximum lines"))
   :group 'markdown-modern)
 
+(defcustom markdown-modern-table-ascii-punctuation nil
+  "When non-nil, fold wide punctuation glyphs to ASCII inside table cells.
+Some fonts draw glyphs such as the em-dash from a proportional fallback font
+that is wider than one monospace cell; since the box layout assumes one cell per
+character, that misaligns the column borders.  Enabling this substitutes those
+glyphs with ASCII equivalents from `markdown-modern-table-glyph-substitutions'
+for the rendered table only -- the buffer text, the row you are editing, and
+prose elsewhere are untouched."
+  :type 'boolean
+  :group 'markdown-modern)
+
+(defcustom markdown-modern-table-glyph-substitutions
+  '((?— . "--") (?– . "-") (?― . "--")
+    (?→ . "->") (?← . "<-") (?↔ . "<->") (?⇒ . "=>") (?⇐ . "<=")
+    (?… . "...") (?• . "*") (?× . "x"))
+  "Alist of (CHAR . REPLACEMENT) applied to table cells.
+Only used when `markdown-modern-table-ascii-punctuation' is non-nil."
+  :type '(alist :key-type character :value-type string)
+  :group 'markdown-modern)
+
+(defun markdown-modern-render--table-cell-content (cell)
+  "Return CELL's display text: markdown stripped, then optionally ASCII-folded.
+Folding (per `markdown-modern-table-glyph-substitutions') happens only when
+`markdown-modern-table-ascii-punctuation' is non-nil.  Used by both the column
+width calculation and the row formatter so they always agree."
+  (let ((s (markdown-modern-render--strip-markdown (string-trim cell))))
+    (if markdown-modern-table-ascii-punctuation
+        (mapconcat (lambda (ch)
+                     (let ((sub (assq ch markdown-modern-table-glyph-substitutions)))
+                       (if sub (cdr sub) (char-to-string ch))))
+                   s "")
+      s)))
+
 (defun markdown-modern-render--table-char-pixel-width ()
   "Approximate on-screen pixel width of one fixed-pitch table character.
 Used only to size tables to the window (see
@@ -1113,7 +1146,7 @@ character capacity (see `markdown-modern-render--table-display-width')."
         (dolist (cell row)
           (let* ((trimmed (string-trim cell))
                  (is-sep (string-match-p "^[-:|]+$" trimmed))
-                 (content (if is-sep "" (markdown-modern-render--strip-markdown trimmed)))
+                 (content (if is-sep "" (markdown-modern-render--table-cell-content cell)))
                  (cell-width (string-width content)))
             (if (nth col widths)
                 (when (> cell-width (nth col widths))
@@ -1216,8 +1249,8 @@ the most lines; shorter cells are padded with blanks so the box stays aligned."
               (let ((col 0) (acc nil))
                 (dotimes (_ num-cols)
                   (let* ((width (or (nth col widths) 15))
-                         (content (markdown-modern-render--strip-markdown
-                                   (string-trim (or (nth col cells) "")))))
+                         (content (markdown-modern-render--table-cell-content
+                                   (or (nth col cells) ""))))
                     (push (markdown-modern-render--table-wrap-cell content width) acc))
                   (setq col (1+ col)))
                 (nreverse acc)))

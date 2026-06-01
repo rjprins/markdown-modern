@@ -34,6 +34,12 @@ on [Keep a Changelog](https://keepachangelog.com/).
   `markdown-modern-table-max-cell-lines` caps how tall a cell may grow (ellipsis
   past that). Prose continues to wrap as before. Set
   `markdown-modern-table-max-width` to pin a fixed width instead.
+- New `markdown-modern-table-ascii-punctuation` (default nil). Some fonts draw
+  glyphs like the em-dash from a proportional fallback font wider than one
+  monospace cell, which misaligns the rendered table box. Enable this to fold
+  such glyphs to ASCII (`—`→`--`, `→`→`->`, `…`→`...`, configurable via
+  `markdown-modern-table-glyph-substitutions`) inside table cells only; the
+  buffer text, the row being edited, and prose are untouched.
 
 ## [1.0.1] - 2026-05-30
 

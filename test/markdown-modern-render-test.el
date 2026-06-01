@@ -292,5 +292,26 @@ to the box at any `text-scale' zoom, where `window-font-width' is unreliable."
       ;; neither column is narrowed below the configured minimum
       (should (cl-every (lambda (w) (>= w 8)) widths)))))
 
+(ert-deftest render/table-ascii-punctuation-fold ()
+  "With ASCII folding on, wide glyphs become ASCII in cells; off keeps them."
+  (let ((markdown-modern-table-max-cell-lines nil))
+    (let ((markdown-modern-table-ascii-punctuation t))
+      (let ((block (markdown-modern-render--table-format-row '("a — b → c") '(20) nil)))
+        (should (string-match-p "--" block))
+        (should (string-match-p "->" block))
+        (should-not (string-match-p "—" block))))
+    (let ((markdown-modern-table-ascii-punctuation nil))
+      (let ((block (markdown-modern-render--table-format-row '("a — b → c") '(20) nil)))
+        (should (string-match-p "—" block))))))
+
+(ert-deftest render/table-ascii-fold-keeps-width-consistent ()
+  "Folding feeds both the width calc and the formatter, so columns still align."
+  (let ((markdown-modern-table-ascii-punctuation t)
+        (markdown-modern-table-max-width 200)
+        (markdown-modern-table-min-column-width 8))
+    (let* ((rows '(("x — y" "plain"))))
+      ;; widths see the folded (longer) content, so the box reserves room for it
+      (should (markdown-modern-render--table-column-widths rows)))))
+
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here
