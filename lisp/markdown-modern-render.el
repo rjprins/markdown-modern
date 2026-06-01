@@ -711,9 +711,18 @@ Dispatches to mermaid renderer for mermaid code blocks."
             (markdown-modern-render--highlight-code
              content-start content-end detected-lang))
 
-          ;; Hide closing fence
+          ;; Hide closing fence, but preserve its newline (cover only the fence
+          ;; text, not the line break) so it renders as a blank line -- exactly
+          ;; like the opening fence above.  Consuming the newline (covering up to
+          ;; END) would drop the whole line, so the block would be one line
+          ;; shorter than its revealed source and the text below would shift up
+          ;; by a line when the fence is revealed at point.
           (when (< closing-fence-start end)
-            (let ((ov (markdown-modern-render--get-overlay closing-fence-start end)))
+            (let* ((closing-fence-eol (save-excursion
+                                        (goto-char closing-fence-start)
+                                        (line-end-position)))
+                   (ov (markdown-modern-render--get-overlay
+                        closing-fence-start closing-fence-eol)))
               (overlay-put ov 'display "")
               (overlay-put ov 'markdown-modern-type 'code-fence)
               (overlay-put ov 'priority 100)))))))))

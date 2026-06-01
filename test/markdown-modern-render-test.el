@@ -326,5 +326,21 @@ wrapped lines."
       (should (null (overlay-get ov 'line-prefix)))
       (should (null (overlay-get ov 'wrap-prefix))))))
 
+(ert-deftest render/code-fences-preserve-line-count ()
+  "Hiding the code fences must not swallow their newlines.
+Both fences render as blank lines (display \"\" over the fence text only), so the
+rendered block has the same number of lines as its raw source -- otherwise the
+text below would shift when the fence is revealed at point."
+  (markdown-modern-render-test--with "```python\nprint(1)\n```\nafter\n" nil
+    (let ((swallowed 0) (fences 0))
+      (dolist (ov (overlays-in (point-min) (point-max)))
+        (when (eq (overlay-get ov 'markdown-modern-type) 'code-fence)
+          (setq fences (1+ fences))
+          (when (string-match-p "\n" (buffer-substring-no-properties
+                                      (overlay-start ov) (overlay-end ov)))
+            (setq swallowed (1+ swallowed)))))
+      (should (= fences 2))         ; opening + closing
+      (should (= swallowed 0)))))   ; neither hides a line break
+
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here
