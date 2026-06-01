@@ -1038,17 +1038,26 @@ If nil, automatically uses window width minus margins."
   :group 'markdown-modern)
 
 (defun markdown-modern-render--table-char-pixel-width ()
-  "Pixel width of one fixed-pitch table character in the current window.
-Tables inherit `fixed-pitch', which can differ from the buffer's default font
-under `variable-pitch-mode', so column maths must be done in this font's metric,
-not the default one.  Falls back to the frame's character width when no window
-or font information is available (e.g. in batch tests)."
-  (or (ignore-errors
-        (window-font-width (get-buffer-window (current-buffer))
-                           'markdown-modern-table))
-      (ignore-errors (window-font-width nil 'markdown-modern-table))
-      (and (fboundp 'frame-char-width) (frame-char-width))
-      8))
+  "Approximate on-screen pixel width of one fixed-pitch table character.
+Used only to size tables to the window (see
+`markdown-modern-render--table-display-width').  `window-font-width' reports the
+nominal width and ignores a `text-scale-mode' zoom, so multiply by the
+text-scale factor.  This over-estimates the width slightly (so the table is
+sized a touch narrow), which is the safe direction: it never wraps.  Falls back
+to the frame's character width when no window/font info is available."
+  (let ((base (or (ignore-errors
+                    (window-font-width (get-buffer-window (current-buffer))
+                                       'markdown-modern-table))
+                  (ignore-errors (window-font-width nil 'markdown-modern-table))
+                  (and (fboundp 'frame-char-width) (frame-char-width))
+                  8))
+        (scale (if (and (boundp 'text-scale-mode-amount)
+                        (boundp 'text-scale-mode-step)
+                        (numberp text-scale-mode-amount)
+                        (not (zerop text-scale-mode-amount)))
+                   (expt text-scale-mode-step text-scale-mode-amount)
+                 1)))
+    (max 1 (round (* base scale)))))
 
 (defun markdown-modern-render--table-display-width ()
   "Available width for tables, in fixed-pitch character columns.
@@ -1173,25 +1182,6 @@ IS-SEPARATOR non-nil formats the separator row instead of a data row."
             (push padded parts)))
         (concat "│" (mapconcat #'identity (nreverse parts) "│") "│")))))
 
-(defun markdown-modern-render--table-column-pixels (widths)
-  "Return the pixel x-position of each column border for WIDTHS.
-Element K is the x of the border that follows column K-1 in the box drawn by
-`markdown-modern-render--table-format-row' (element 0 is the left border, x 0).
-Used to pixel-align the editable active row to the box, which stays correct even
-when the table's fixed-pitch font differs from the buffer's default font."
-  (let ((char-px (markdown-modern-render--table-char-pixel-width))
-        (positions (list 0))
-        (acc 0)
-        (k 0))
-    (dolist (w widths)
-      (setq k (1+ k)
-            acc (+ acc w))
-      ;; Border K sits at character column 3*K + sum(widths before K): each
-      ;; cell occupies a leading space, its content, a trailing space and the
-      ;; border glyph.
-      (push (* char-px (+ (* 3 k) acc)) positions))
-    (nreverse positions)))
-
 (defun markdown-modern-render--table-border-overlay (pos string after)
   "Draw a horizontal grid line STRING as a zero-length overlay at POS.
 With AFTER non-nil it is an `after-string', otherwise a `before-string'.  The
@@ -1211,57 +1201,72 @@ leaves intact while a neighbouring row is being edited."
     (push ov markdown-modern-render--overlays)
     ov))
 
+(defun markdown-modern-render--table-edit-overlay (start end prop value)
+  "Helper: overlay START..END with PROP set to VALUE, tagged as table-edit."
+  (let ((ov (markdown-modern-render--get-overlay start end)))
+    (overlay-put ov prop value)
+    (overlay-put ov 'priority 200)
+    (overlay-put ov 'markdown-modern-type 'table-edit)
+    ov))
+
 (defun markdown-modern-render--table-row-edit (bol eol is-header widths)
-  "Render the table row BOL..EOL as an editable, pixel-aligned grid row.
+  "Render the table row BOL..EOL as an editable, aligned grid row.
 The cell text stays as real, editable buffer text; each `|' is shown as a `│'
-glyph and the whitespace before each border is stretched so the column borders
-line up with the rendered box from WIDTHS.  IS-HEADER selects the header face.
-This is what keeps the row a grid while it is edited, re-aligning live as the
-cell text grows or shrinks (the pixel `:align-to' adjusts the stretch itself)."
+glyph, and each cell's surrounding whitespace is replaced by table-face spaces
+that pad it to its column width from WIDTHS.  Because the padding is literal
+spaces in the same fixed-pitch face the box uses, the column borders line up
+exactly with the rest of the box at any zoom/`text-scale' level -- no pixel
+measurement, which `window-font-width' reports incorrectly under remapping.
+IS-HEADER selects the header face.  Re-aligns live: each edit re-renders the
+row, recomputing the padding for the cell's new content width."
   (let* ((face (if is-header 'markdown-modern-table-header 'markdown-modern-table))
-         (pixels (markdown-modern-render--table-column-pixels widths))
-         (npix (length pixels))
-         (glyph (propertize "│" 'face 'markdown-modern-table-border)))
-    ;; Face over the whole line so the cell text uses the fixed-pitch table
-    ;; font (matching the box metrics) without hiding the text.
+         (glyph (propertize "│" 'face 'markdown-modern-table-border))
+         (pipes nil))
+    ;; Face over the whole line so the cell text uses the fixed-pitch table font
+    ;; (matching the box metrics) without hiding the text.
     (let ((ov (markdown-modern-render--get-overlay bol eol)))
       (overlay-put ov 'face face)
       (overlay-put ov 'priority 200)
       (overlay-put ov 'markdown-modern-type 'table-edit)
       (overlay-put ov 'line-prefix "")
       (overlay-put ov 'wrap-prefix ""))
+    ;; Collect the pipe positions, then glyph each one.
     (save-excursion
       (goto-char bol)
-      (let ((pipe-idx 0))
-        (while (re-search-forward "|" eol t)
-          (let* ((p (1- (point)))
-                 (px (nth (min pipe-idx (1- npix)) pixels)))
-            (cond
-             ;; First (left) border: lives at column 0, no stretch needed.
-             ((= pipe-idx 0)
-              (let ((ov (markdown-modern-render--get-overlay p (1+ p))))
-                (overlay-put ov 'display glyph)
-                (overlay-put ov 'priority 200)
-                (overlay-put ov 'markdown-modern-type 'table-edit)))
-             ;; A space precedes the pipe: stretch it to the border pixel.
-             ((and (> p bol) (eq (char-before p) ?\s))
-              (let ((ov (markdown-modern-render--get-overlay (1- p) p)))
-                (overlay-put ov 'display (list 'space :align-to (list px)))
-                (overlay-put ov 'priority 200)
-                (overlay-put ov 'markdown-modern-type 'table-edit))
-              (let ((ov (markdown-modern-render--get-overlay p (1+ p))))
-                (overlay-put ov 'display glyph)
-                (overlay-put ov 'priority 200)
-                (overlay-put ov 'markdown-modern-type 'table-edit)))
-             ;; No space to stretch: push the glyph itself to the border pixel.
-             (t
-              (let ((ov (markdown-modern-render--get-overlay p (1+ p))))
-                (overlay-put ov 'before-string
-                             (propertize " " 'display (list 'space :align-to (list px))))
-                (overlay-put ov 'display glyph)
-                (overlay-put ov 'priority 200)
-                (overlay-put ov 'markdown-modern-type 'table-edit)))))
-          (setq pipe-idx (1+ pipe-idx)))))))
+      (while (re-search-forward "|" eol t) (push (1- (point)) pipes)))
+    (setq pipes (nreverse pipes))
+    (dolist (p pipes)
+      (markdown-modern-render--table-edit-overlay p (1+ p) 'display glyph))
+    ;; Pad each cell (between consecutive pipes) to `width' + 2 display columns:
+    ;; one leading space, the content, enough spaces to fill the column, and one
+    ;; trailing space -- exactly the layout `--table-format-row' draws.
+    (let ((col 0) (ps pipes))
+      (while (and (cdr ps) (nth col widths))
+        (let* ((pk (car ps)) (pk1 (cadr ps))
+               (width (nth col widths))
+               (raw (buffer-substring-no-properties (1+ pk) pk1))
+               (content (string-trim raw))
+               (cw (string-width content)))
+          (if (string-empty-p content)
+              ;; Empty cell: fill the whole interior with table-face spaces.
+              (markdown-modern-render--table-edit-overlay
+               (1+ pk) pk1 'display (make-string (+ width 2) ?\s))
+            (let* ((lead-n (- (length raw) (length (string-trim-left raw))))
+                   (trail-n (- (length raw) (length (string-trim-right raw))))
+                   (cs (+ 1 pk lead-n))
+                   (ce (- pk1 trail-n))
+                   ;; pad fills the column past the content, plus the one
+                   ;; trailing space (never less than that single space).
+                   (trail (make-string (max 1 (1+ (- width cw))) ?\s)))
+              ;; Leading single space (inject one if the source has none).
+              (if (> cs (1+ pk))
+                  (markdown-modern-render--table-edit-overlay (1+ pk) cs 'display " ")
+                (markdown-modern-render--table-edit-overlay pk (1+ pk) 'after-string " "))
+              ;; Trailing pad (inject before the closing pipe if no source space).
+              (if (> pk1 ce)
+                  (markdown-modern-render--table-edit-overlay ce pk1 'display trail)
+                (markdown-modern-render--table-edit-overlay pk1 (1+ pk1) 'before-string trail)))))
+        (setq col (1+ col) ps (cdr ps))))))
 
 (defun markdown-modern-render--table (elem)
   "Render table element ELEM using per-row overlays for reliable display.

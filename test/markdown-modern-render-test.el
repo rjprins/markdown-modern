@@ -247,12 +247,21 @@ reveal-at-point logic leaves them intact while a neighbouring row is edited."
       (should (= num-cols 2))
       (should (<= (+ (apply #'+ widths) overhead) markdown-modern-table-max-width)))))
 
-(ert-deftest render/table-column-pixels-monotonic ()
-  "Column border pixel positions increase strictly from a zero left border."
-  (let ((px (markdown-modern-render--table-column-pixels '(5 8 3))))
-    (should (= (length px) 4))            ; one left border + one per column
-    (should (= (car px) 0))
-    (should (apply #'< px))))             ; strictly increasing
+(ert-deftest render/table-active-row-pads-with-spaces ()
+  "The active row aligns by padding cells with literal table-face spaces.
+Padding with real spaces (rather than pixel `:align-to') keeps columns aligned
+to the box at any `text-scale' zoom, where `window-font-width' is unreliable."
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
+    (setq markdown-modern--revealed-region (markdown-modern--markup-element-at 23))
+    (markdown-modern--jit-fontify (point-min) (point-max))
+    (let ((pad nil) (align nil))
+      (dolist (ov (overlays-in (point-min) (point-max)))
+        (when (eq (overlay-get ov 'markdown-modern-type) 'table-edit)
+          (let ((d (overlay-get ov 'display)))
+            (cond ((and (stringp d) (string-match-p "\\` +\\'" d)) (setq pad t))
+                  ((and (consp d) (eq (car d) 'space)) (setq align t))))))
+      (should pad)              ; padding is literal spaces
+      (should-not align))))     ; not pixel :align-to
 
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here
