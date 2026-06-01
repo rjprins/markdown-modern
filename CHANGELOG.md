@@ -22,6 +22,9 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- Tables no longer have a background colour; only the grid lines are tinted
+  (grey foreground). The `markdown-modern-table`, `-table-header` and
+  `-table-border` faces lost their `:background`.
 - Revealed heading markers (`#`) now appear at the heading's size rather than
   the default size.
 - List bullets now render in a fixed-pitch slot, so the rendered glyph (`●`) and

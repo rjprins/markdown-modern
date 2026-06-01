@@ -333,36 +333,24 @@ marker it replaces (no shift when the marker is revealed)."
   :group 'markdown-modern-faces)
 
 (defface markdown-modern-table
-  '((((background light))
-     :inherit fixed-pitch
-     :background "#e0e0f0")
-    (((background dark))
-     :inherit fixed-pitch
-     :background "#2a2a45"))
+  '((t :inherit fixed-pitch))
   "Face for table data rows.
 Inherits `fixed-pitch' so columns stay aligned under `variable-pitch-mode'."
   :group 'markdown-modern-faces)
 
 (defface markdown-modern-table-header
-  '((((background light))
-     :inherit markdown-modern-table
-     :weight bold)
-    (((background dark))
-     :inherit markdown-modern-table
-     :weight bold))
-  "Face for table header cells (same background as table, bold text)."
+  '((t :inherit markdown-modern-table :weight bold))
+  "Face for table header cells (bold text)."
   :group 'markdown-modern-faces)
 
 (defface markdown-modern-table-border
   '((((background light))
      :inherit fixed-pitch
-     :foreground "#888888"
-     :background "#d8d8e0")
+     :foreground "#888888")
     (((background dark))
      :inherit fixed-pitch
-     :foreground "#666666"
-     :background "#202038"))
-  "Face for table separator row."
+     :foreground "#666666"))
+  "Face for the table grid lines (borders and separator row)."
   :group 'markdown-modern-faces)
 
 (defface markdown-modern-table-cell
@@ -390,9 +378,11 @@ Inherits `fixed-pitch' so columns stay aligned under `variable-pitch-mode'."
   "Face for visible markdown delimiters."
   :group 'markdown-modern-faces)
 
-;; Force-update face attributes that defface won't change on reload
-(dolist (face '(markdown-modern-table markdown-modern-table-border))
-  (set-face-attribute face nil :extend nil))
+;; Force-update face attributes that defface won't change on reload (defface is
+;; a no-op for an already-defined face), so reloads drop the old backgrounds.
+(dolist (face '(markdown-modern-table markdown-modern-table-header
+                markdown-modern-table-border))
+  (set-face-attribute face nil :extend nil :background 'unspecified))
 ;; Force-update math face in case it was previously defined differently
 (set-face-attribute 'markdown-modern-math nil
                     :foreground "#aa5588"
