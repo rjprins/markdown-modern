@@ -1305,6 +1305,18 @@ leaves intact while a neighbouring row is being edited."
     (overlay-put ov 'markdown-modern-type 'table-edit)
     ov))
 
+(defun markdown-modern-render--cell-pad (n)
+  "Return a string of at least one space whose first character carries `cursor'.
+N is the desired number of spaces.  When this string is a cell's trailing-pad
+`display', point landing at the start of the pad (the end of the cell's text)
+would, by Emacs default, draw the cursor at the END of the display string -- the
+cell's right edge -- even though typing happens at the text's end.  The `cursor'
+property on the first character pins the cursor to the start of the pad, so it
+tracks the text instead of jumping to the cell edge."
+  (let ((s (make-string (max 1 n) ?\s)))
+    (put-text-property 0 1 'cursor t s)
+    s))
+
 (defun markdown-modern-render--table-row-edit (bol eol is-header widths)
   "Render the table row BOL..EOL as an editable, aligned grid row.
 The cell text stays as real, editable buffer text; each `|' is shown as a `│'
@@ -1344,14 +1356,14 @@ row, recomputing the padding for the cell's new content width."
           (if (string-empty-p content)
               ;; Empty cell: fill the whole interior with table-face spaces.
               (markdown-modern-render--table-edit-overlay
-               (1+ pk) pk1 'display (make-string (+ width 2) ?\s))
+               (1+ pk) pk1 'display (markdown-modern-render--cell-pad (+ width 2)))
             (let* ((lead-n (- (length raw) (length (string-trim-left raw))))
                    (trail-n (- (length raw) (length (string-trim-right raw))))
                    (cs (+ 1 pk lead-n))
                    (ce (- pk1 trail-n))
                    ;; pad fills the column past the content, plus the one
                    ;; trailing space (never less than that single space).
-                   (trail (make-string (max 1 (1+ (- width cw))) ?\s)))
+                   (trail (markdown-modern-render--cell-pad (1+ (- width cw)))))
               ;; Leading single space (inject one if the source has none).
               (if (> cs (1+ pk))
                   (markdown-modern-render--table-edit-overlay (1+ pk) cs 'display " ")

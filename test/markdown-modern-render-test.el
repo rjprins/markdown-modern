@@ -342,5 +342,22 @@ text below would shift when the fence is revealed at point."
       (should (= fences 2))         ; opening + closing
       (should (= swallowed 0)))))   ; neither hides a line break
 
+(ert-deftest render/table-edit-cursor-tracks-text ()
+  "The active cell's trailing pad carries a `cursor' text property.
+Without it, point at the end of a cell's text (the start of the pad `display'
+string) would draw the cursor at the cell's right edge instead of next to the
+text being typed."
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
+    (setq markdown-modern--revealed-region (markdown-modern--markup-element-at 23))
+    (markdown-modern--jit-fontify (point-min) (point-max))
+    (let ((with-cursor 0))
+      (dolist (ov (overlays-in (point-min) (point-max)))
+        (let ((d (overlay-get ov 'display)))
+          (when (and (stringp d) (> (length d) 0)
+                     (string-match-p "\\` +\\'" d)
+                     (get-text-property 0 'cursor d))
+            (setq with-cursor (1+ with-cursor)))))
+      (should (> with-cursor 0)))))
+
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here
