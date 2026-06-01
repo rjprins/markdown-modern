@@ -1037,6 +1037,24 @@ If nil, automatically uses window width minus margins."
                  (integer :tag "Fixed width"))
   :group 'markdown-modern)
 
+(defcustom markdown-modern-table-min-column-width 8
+  "Smallest width, in characters, a table column is shrunk to.
+When a table is too wide for the window, its columns are narrowed to fit; once a
+column reaches this width it is not narrowed further.  Cells whose content still
+does not fit are wrapped onto multiple lines instead (see
+`markdown-modern-render--table-format-row').  A column whose natural content is
+already narrower than this keeps its natural width."
+  :type 'integer
+  :group 'markdown-modern)
+
+(defcustom markdown-modern-table-max-cell-lines nil
+  "Maximum number of wrapped lines a single rendered table cell may occupy.
+When nil, a cell wraps to as many lines as its content needs.  When a number,
+content beyond that many lines is truncated and the last line ends with `…'."
+  :type '(choice (const :tag "Unlimited" nil)
+                 (integer :tag "Maximum lines"))
+  :group 'markdown-modern)
+
 (defun markdown-modern-render--table-char-pixel-width ()
   "Approximate on-screen pixel width of one fixed-pitch table character.
 Used only to size tables to the window (see
@@ -1078,15 +1096,17 @@ prefix needs subtracting.  Falls back to 80 when the buffer is not displayed."
 
 (defun markdown-modern-render--table-column-widths (rows)
   "Calculate per-column character widths from ROWS, fitted to the window.
-Columns start at their widest cell, then the whole table is scaled down (with
-over-long cells elided by `markdown-modern-render--table-truncate-to-width') so
-the rendered box never exceeds the available width.  This guarantees the table
-fits the window and therefore never wraps.  The available width is
+Columns start at their widest cell (natural width).  If the table does not fit
+the available width, the widest columns are narrowed one character at a time
+\(down to `markdown-modern-table-min-column-width', or their natural width if
+that is already smaller) until it fits.  Columns narrower than their content are
+wrapped onto multiple lines by `markdown-modern-render--table-format-row', so
+the table fits the window without eliding content.  The available width is
 `markdown-modern-table-max-width' when set, otherwise the window's fixed-pitch
 character capacity (see `markdown-modern-render--table-display-width')."
   (let ((widths nil)
         (num-cols 0))
-    ;; First pass: get natural widths (using string-width for display accuracy)
+    ;; First pass: natural widths (using string-width for display accuracy).
     (dolist (row rows)
       (setq num-cols (max num-cols (length row)))
       (let ((col 0))
@@ -1100,24 +1120,30 @@ character capacity (see `markdown-modern-render--table-display-width')."
                   (setf (nth col widths) cell-width))
               (setq widths (append widths (list cell-width)))))
           (setq col (1+ col)))))
-    ;; Ensure minimum width of 5 per column
-    (setq widths (mapcar (lambda (w) (max 5 (or w 5))) widths))
-    ;; Always scale down to the available width so the box fits the window and
-    ;; can never wrap.  Cells whose natural content exceeds their scaled width
-    ;; are elided with `…' by `markdown-modern-render--table-format-row'.
+    ;; Floor every column at 1 so empty columns are still visible.
+    (setq widths (mapcar (lambda (w) (max 1 (or w 1))) widths))
+    ;; Narrow the widest columns until the table fits.  Each column's narrowing
+    ;; floor is the smaller of its natural width and the configured minimum, so
+    ;; short columns keep their natural width and wide columns stop at the
+    ;; minimum (then wrap).
     (when (> num-cols 0)
       (let* ((available-total (or markdown-modern-table-max-width
                                   (markdown-modern-render--table-display-width)))
              (border-overhead (+ 1 num-cols (* 2 num-cols)))
              (available (max num-cols (- available-total border-overhead)))
-             (total (apply #'+ widths)))
-        (when (> total available)
-          (let ((scale (/ (float available) (float total))))
-            (setq widths (mapcar (lambda (w) (max 5 (floor (* w scale)))) widths)))
-          (let ((new-total (apply #'+ widths)))
-            (when (> new-total available)
-              (let ((per-col (max 5 (/ available num-cols))))
-                (setq widths (mapcar (lambda (_) per-col) widths))))))))
+             (floors (mapcar (lambda (w) (min w markdown-modern-table-min-column-width))
+                             widths)))
+        (while (and (> (apply #'+ widths) available)
+                    ;; stop when every column has hit its floor
+                    (cl-some (lambda (i) (> (nth i widths) (nth i floors)))
+                             (number-sequence 0 (1- num-cols))))
+          ;; shrink the column that is currently furthest above its floor
+          (let ((best 0) (best-slack -1))
+            (dotimes (i num-cols)
+              (let ((slack (- (nth i widths) (nth i floors))))
+                (when (> slack best-slack)
+                  (setq best i best-slack slack))))
+            (setf (nth best widths) (1- (nth best widths)))))))
     widths))
 
 (defun markdown-modern-render--wrap-text (text width)
@@ -1160,27 +1186,52 @@ Uses `string-width' for accurate multi-byte character handling."
             (setq hi mid))))
       (concat (substring str 0 lo) "…"))))
 
+(defun markdown-modern-render--table-wrap-cell (content width)
+  "Wrap CONTENT to WIDTH, returning a list of lines honouring the line cap.
+When `markdown-modern-table-max-cell-lines' is a number, content past that many
+lines is dropped and the last kept line is truncated to end with `…'."
+  (let ((lines (markdown-modern-render--wrap-text content width))
+        (cap markdown-modern-table-max-cell-lines))
+    (if (and cap (> cap 0) (> (length lines) cap))
+        (let ((kept (cl-subseq lines 0 cap)))
+          ;; Mark the dropped continuation with an ellipsis on the last line.
+          (setf (nth (1- cap) kept)
+                (markdown-modern-render--table-truncate-to-width
+                 (concat (nth (1- cap) kept) "…") width))
+          kept)
+      lines)))
+
 (defun markdown-modern-render--table-format-row (cells widths is-separator)
-  "Format CELLS with WIDTHS.  Return single-line string, truncating if needed.
-IS-SEPARATOR non-nil formats the separator row instead of a data row."
+  "Format CELLS with WIDTHS.  Return a (possibly multi-line) string block.
+IS-SEPARATOR non-nil formats the `├─┼─┤' separator row.  For data rows, each
+cell is wrapped to its column width and the row is as tall as the cell needing
+the most lines; shorter cells are padded with blanks so the box stays aligned."
   (let ((num-cols (length widths)))
     (if is-separator
         ;; Separator row - single line
         (concat "├" (mapconcat (lambda (w) (make-string (+ w 2) ?─)) widths "┼") "┤")
-      ;; Data row - truncate cells that exceed width
-      (let ((parts nil))
-        (dotimes (col num-cols)
-          (let* ((width (or (nth col widths) 15))
-                 (cell (or (nth col cells) ""))
-                 (content (markdown-modern-render--strip-markdown (string-trim cell)))
-                 (cw (string-width content))
-                 (truncated (if (> cw width)
-                                (markdown-modern-render--table-truncate-to-width content width)
-                              content))
-                 (pad-needed (max 0 (- width (string-width truncated))))
-                 (padded (concat " " truncated (make-string pad-needed ?\s) " ")))
-            (push padded parts)))
-        (concat "│" (mapconcat #'identity (nreverse parts) "│") "│")))))
+      ;; Data row - wrap each cell to its column width, then lay the wrapped
+      ;; lines out side by side.
+      (let* ((cell-lines
+              (let ((col 0) (acc nil))
+                (dotimes (_ num-cols)
+                  (let* ((width (or (nth col widths) 15))
+                         (content (markdown-modern-render--strip-markdown
+                                   (string-trim (or (nth col cells) "")))))
+                    (push (markdown-modern-render--table-wrap-cell content width) acc))
+                  (setq col (1+ col)))
+                (nreverse acc)))
+             (height (apply #'max 1 (mapcar #'length cell-lines)))
+             (out nil))
+        (dotimes (k height)
+          (let ((parts nil))
+            (dotimes (col num-cols)
+              (let* ((width (or (nth col widths) 15))
+                     (line (or (nth k (nth col cell-lines)) ""))
+                     (pad (max 0 (- width (string-width line)))))
+                (push (concat " " line (make-string pad ?\s) " ") parts)))
+            (push (concat "│" (mapconcat #'identity (nreverse parts) "│") "│") out)))
+        (mapconcat #'identity (nreverse out) "\n")))))
 
 (defun markdown-modern-render--table-border-overlay (pos string after)
   "Draw a horizontal grid line STRING as a zero-length overlay at POS.

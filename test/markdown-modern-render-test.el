@@ -263,5 +263,34 @@ to the box at any `text-scale' zoom, where `window-font-width' is unreliable."
       (should pad)              ; padding is literal spaces
       (should-not align))))     ; not pixel :align-to
 
+(ert-deftest render/table-cell-wraps-when-narrow ()
+  "A cell wider than its column wraps onto multiple lines instead of eliding."
+  (let ((markdown-modern-table-max-cell-lines nil)
+        (markdown-modern-table-min-column-width 4))
+    (let ((block (markdown-modern-render--table-format-row '("hello world") '(6) nil)))
+      (should (string-match-p "\n" block))      ; multi-line
+      (should-not (string-match-p "…" block))   ; nothing elided
+      ;; every visual line stays within the column's box width
+      (dolist (line (split-string block "\n"))
+        (should (<= (string-width line) (+ 6 2 2)))))))
+
+(ert-deftest render/table-cell-line-cap ()
+  "`markdown-modern-table-max-cell-lines' caps cell height and adds an ellipsis."
+  (let ((markdown-modern-table-max-cell-lines 1))
+    (let ((block (markdown-modern-render--table-format-row '("hello world foo") '(6) nil)))
+      (should-not (string-match-p "\n" block))  ; capped to one line
+      (should (string-match-p "…" block)))))     ; truncation marked
+
+(ert-deftest render/table-widths-shrink-to-min-then-wrap ()
+  "Wide columns shrink only to the configured minimum, leaving wrapping to fit."
+  (let ((markdown-modern-table-max-width 30)
+        (markdown-modern-table-min-column-width 8))
+    (let ((widths (markdown-modern-render--table-column-widths
+                   '(("a very long heading here" "another long heading")
+                     ("x" "y")))))
+      (should (= (length widths) 2))
+      ;; neither column is narrowed below the configured minimum
+      (should (cl-every (lambda (w) (>= w 8)) widths)))))
+
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here

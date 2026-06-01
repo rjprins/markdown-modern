@@ -144,8 +144,10 @@ You can also reveal the element at point on demand with
 Tables render as a box-drawing grid that stays drawn while you edit: the row
 under the cursor becomes editable in place, its `│` borders kept pixel-aligned
 to the rest of the box and re-flowing live as the cell text grows or shrinks.
-Tables are sized to fit the window, so they never wrap (over-wide cells elide
-with `…`; raise `markdown-modern-table-max-width` for natural width instead).
+Tables are sized to fit the window, so they never wrap the buffer: columns are
+narrowed to fit (down to `markdown-modern-table-min-column-width`) and cells
+whose content still doesn't fit wrap onto multiple lines. Raise
+`markdown-modern-table-max-width` for natural width instead.
 
 | Key | Command | Description |
 |-----|---------|-------------|
@@ -189,7 +191,9 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
 |----------|---------|-------------|
 | `markdown-modern-manage-text-width` | `nil` | Let markdown-modern constrain the reading width; when `nil` it leaves `fill-column` and wrapping to your config |
 | `markdown-modern-text-width` | `90` | Reading width in characters (used only when `manage-text-width` is non-nil) |
-| `markdown-modern-table-max-width` | `nil` | Cap rendered table width; `nil` = fit to the window (over-wide tables elide cells with `…` so they never wrap). Set a large number for natural width + horizontal scroll (`C-c C-v t`) |
+| `markdown-modern-table-max-width` | `nil` | Cap rendered table width; `nil` = fit to the window (over-wide columns wrap onto multiple lines so they never wrap the buffer). Set a large number for natural width + horizontal scroll (`C-c C-v t`) |
+| `markdown-modern-table-min-column-width` | `8` | Narrowest a column is shrunk to before its content wraps onto multiple lines |
+| `markdown-modern-table-max-cell-lines` | `nil` | Max wrapped lines per cell (`nil` = unlimited); content past the cap ends with `…` |
 
 ### Code blocks
 

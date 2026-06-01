@@ -27,9 +27,12 @@ on [Keep a Changelog](https://keepachangelog.com/).
 - List bullets now render in a fixed-pitch slot, so the rendered glyph (`●`) and
   the raw marker it replaces (`-`, `*`, `+`) are the same width. Revealing an
   unordered list marker at point no longer shifts the item's content sideways.
-- Tables are now always sized to fit the window width (long cells are elided
-  with `…`), so a wide table no longer soft-wraps into a garbled block under
-  `visual-line-mode`. Prose continues to wrap as before. Set
+- Tables are now always sized to fit the window width, so a wide table no longer
+  soft-wraps into a garbled block under `visual-line-mode`. Columns are narrowed
+  to fit down to `markdown-modern-table-min-column-width`, after which cell
+  content wraps onto multiple lines rather than being elided, so nothing is lost.
+  `markdown-modern-table-max-cell-lines` caps how tall a cell may grow (ellipsis
+  past that). Prose continues to wrap as before. Set
   `markdown-modern-table-max-width` to pin a fixed width instead.
 
 ## [1.0.1] - 2026-05-30
