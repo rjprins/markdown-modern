@@ -1305,18 +1305,6 @@ leaves intact while a neighbouring row is being edited."
     (overlay-put ov 'markdown-modern-type 'table-edit)
     ov))
 
-(defun markdown-modern-render--cell-pad (n)
-  "Return a string of at least one space whose first character carries `cursor'.
-N is the desired number of spaces.  When this string is a cell's trailing-pad
-`display', point landing at the start of the pad (the end of the cell's text)
-would, by Emacs default, draw the cursor at the END of the display string -- the
-cell's right edge -- even though typing happens at the text's end.  The `cursor'
-property on the first character pins the cursor to the start of the pad, so it
-tracks the text instead of jumping to the cell edge."
-  (let ((s (make-string (max 1 n) ?\s)))
-    (put-text-property 0 1 'cursor t s)
-    s))
-
 (defun markdown-modern-render--table-row-edit (bol eol is-header widths)
   "Render the table row BOL..EOL as an editable, aligned grid row.
 The cell text stays as real, editable buffer text; each `|' is shown as a `│'
@@ -1343,35 +1331,23 @@ row, recomputing the padding for the cell's new content width."
     (setq pipes (nreverse pipes))
     (dolist (p pipes)
       (markdown-modern-render--table-edit-overlay p (1+ p) 'display glyph))
-    ;; Pad each cell (between consecutive pipes) to `width' + 2 display columns:
-    ;; one leading space, the content, enough spaces to fill the column, and one
-    ;; trailing space -- exactly the layout `--table-format-row' draws.
+    ;; Pad each cell (between consecutive pipes) to `width' + 2 display columns.
+    ;; The cell's own text and spaces stay REAL buffer text -- nothing `display's
+    ;; over them -- so point tracks exactly where you type, including spaces
+    ;; typed between words.  Only the remaining fill is added as a virtual
+    ;; `before-string' just before the closing pipe; point never enters it.
     (let ((col 0) (ps pipes))
       (while (and (cdr ps) (nth col widths))
-        (let* ((pk (car ps)) (pk1 (cadr ps))
-               (width (nth col widths))
-               (raw (buffer-substring-no-properties (1+ pk) pk1))
-               (content (string-trim raw))
-               (cw (string-width content)))
-          (if (string-empty-p content)
-              ;; Empty cell: fill the whole interior with table-face spaces.
-              (markdown-modern-render--table-edit-overlay
-               (1+ pk) pk1 'display (markdown-modern-render--cell-pad (+ width 2)))
-            (let* ((lead-n (- (length raw) (length (string-trim-left raw))))
-                   (trail-n (- (length raw) (length (string-trim-right raw))))
-                   (cs (+ 1 pk lead-n))
-                   (ce (- pk1 trail-n))
-                   ;; pad fills the column past the content, plus the one
-                   ;; trailing space (never less than that single space).
-                   (trail (markdown-modern-render--cell-pad (1+ (- width cw)))))
-              ;; Leading single space (inject one if the source has none).
-              (if (> cs (1+ pk))
-                  (markdown-modern-render--table-edit-overlay (1+ pk) cs 'display " ")
-                (markdown-modern-render--table-edit-overlay pk (1+ pk) 'after-string " "))
-              ;; Trailing pad (inject before the closing pipe if no source space).
-              (if (> pk1 ce)
-                  (markdown-modern-render--table-edit-overlay ce pk1 'display trail)
-                (markdown-modern-render--table-edit-overlay pk1 (1+ pk1) 'before-string trail)))))
+        (let* ((pk1 (cadr ps))
+               (raw-width (string-width
+                           (buffer-substring-no-properties (1+ (car ps)) pk1)))
+               (fill (- (+ (nth col widths) 2) raw-width)))
+          (when (> fill 0)
+            (let ((ov (markdown-modern-render--get-overlay pk1 (1+ pk1))))
+              (overlay-put ov 'before-string
+                           (propertize (make-string fill ?\s) 'face face))
+              (overlay-put ov 'priority 200)
+              (overlay-put ov 'markdown-modern-type 'table-edit))))
         (setq col (1+ col) ps (cdr ps))))))
 
 (defun markdown-modern-render--table (elem)

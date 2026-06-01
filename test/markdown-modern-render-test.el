@@ -249,17 +249,22 @@ reveal-at-point logic leaves them intact while a neighbouring row is edited."
 
 (ert-deftest render/table-active-row-pads-with-spaces ()
   "The active row aligns by padding cells with literal table-face spaces.
-Padding with real spaces (rather than pixel `:align-to') keeps columns aligned
-to the box at any `text-scale' zoom, where `window-font-width' is unreliable."
-  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
-    (setq markdown-modern--revealed-region (markdown-modern--markup-element-at 23))
+Padding with real spaces (a virtual `before-string'), rather than pixel
+`:align-to', keeps columns aligned to the box at any `text-scale' zoom, where
+`window-font-width' is unreliable."
+  (markdown-modern-render-test--with "| name | x |\n|---|---|\n| a | b |\n" nil
+    (goto-char (point-min))
+    (forward-line 2)
+    (setq markdown-modern--revealed-region
+          (markdown-modern--markup-element-at (+ (point) 2)))
     (markdown-modern--jit-fontify (point-min) (point-max))
     (let ((pad nil) (align nil))
       (dolist (ov (overlays-in (point-min) (point-max)))
         (when (eq (overlay-get ov 'markdown-modern-type) 'table-edit)
-          (let ((d (overlay-get ov 'display)))
-            (cond ((and (stringp d) (string-match-p "\\` +\\'" d)) (setq pad t))
-                  ((and (consp d) (eq (car d) 'space)) (setq align t))))))
+          (let ((bs (overlay-get ov 'before-string))
+                (d (overlay-get ov 'display)))
+            (when (and (stringp bs) (string-match-p "\\` +\\'" bs)) (setq pad t))
+            (when (and (consp d) (eq (car d) 'space)) (setq align t)))))
       (should pad)              ; padding is literal spaces
       (should-not align))))     ; not pixel :align-to
 
@@ -343,21 +348,29 @@ text below would shift when the fence is revealed at point."
       (should (= swallowed 0)))))   ; neither hides a line break
 
 (ert-deftest render/table-edit-cursor-tracks-text ()
-  "The active cell's trailing pad carries a `cursor' text property.
-Without it, point at the end of a cell's text (the start of the pad `display'
-string) would draw the cursor at the cell's right edge instead of next to the
-text being typed."
-  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
-    (setq markdown-modern--revealed-region (markdown-modern--markup-element-at 23))
+  "The active cell's text/spaces stay real; only fill is a virtual before-string.
+Nothing must `display' over the cell's interior text -- if it did, point inside
+it (e.g. on a space typed between words) would draw the cursor at the cell's
+edge instead of next to the text.  Padding is virtual `before-string' before the
+closing pipe.  Only the pipe glyphs (`│') may carry a `display'."
+  (markdown-modern-render-test--with "| name | x |\n|---|---|\n| a | b |\n" nil
+    (goto-char (point-min))
+    (forward-line 2)                    ; the "| a | b |" data row
+    (setq markdown-modern--revealed-region
+          (markdown-modern--markup-element-at (+ (point) 2)))
     (markdown-modern--jit-fontify (point-min) (point-max))
-    (let ((with-cursor 0))
+    (let ((fill-before-strings 0) (display-over-text 0))
       (dolist (ov (overlays-in (point-min) (point-max)))
-        (let ((d (overlay-get ov 'display)))
-          (when (and (stringp d) (> (length d) 0)
-                     (string-match-p "\\` +\\'" d)
-                     (get-text-property 0 'cursor d))
-            (setq with-cursor (1+ with-cursor)))))
-      (should (> with-cursor 0)))))
+        (when (eq (overlay-get ov 'markdown-modern-type) 'table-edit)
+          (let ((bs (overlay-get ov 'before-string))
+                (d (overlay-get ov 'display)))
+            (when (and (stringp bs) (string-match-p "\\` +\\'" bs))
+              (setq fill-before-strings (1+ fill-before-strings)))
+            ;; the only display overlays may be the pipe glyphs
+            (when (and (stringp d) (not (string-match-p "│" d)))
+              (setq display-over-text (1+ display-over-text))))))
+      (should (> fill-before-strings 0))    ; padding is virtual
+      (should (= display-over-text 0)))))   ; cell text is never covered
 
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here
