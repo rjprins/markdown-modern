@@ -33,7 +33,10 @@ on [Keep a Changelog](https://keepachangelog.com/).
   content wraps onto multiple lines rather than being elided, so nothing is lost.
   `markdown-modern-table-max-cell-lines` caps how tall a cell may grow (ellipsis
   past that). Prose continues to wrap as before. Set
-  `markdown-modern-table-max-width` to pin a fixed width instead.
+  `markdown-modern-table-max-width` to pin a fixed width instead. Multi-line
+  cells respect `markdown-modern-left-margin`: the table inherits the margin
+  uniformly so wrapped continuation lines stay aligned with the first line
+  (rather than the buffer's `wrap-prefix` indenting only the continuations).
 - New `markdown-modern-table-ascii-punctuation` (default nil). Some fonts draw
   glyphs like the em-dash from a proportional fallback font wider than one
   monospace cell, which misaligns the rendered table box. Enable this to fold

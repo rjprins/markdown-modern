@@ -313,5 +313,18 @@ to the box at any `text-scale' zoom, where `window-font-width' is unreliable."
       ;; widths see the folded (longer) content, so the box reserves room for it
       (should (markdown-modern-render--table-column-widths rows)))))
 
+(ert-deftest render/table-inherits-left-margin ()
+  "Table overlays must not pin `line-prefix'/`wrap-prefix'.
+The buffer's left-margin `wrap-prefix' reaches the embedded continuation lines
+of a multi-line cell regardless of overlay overrides, so the table instead
+inherits the margin uniformly (first and continuation lines alike) to stay
+aligned.  Pinning it to \"\" would un-indent only the first line and skew the
+wrapped lines."
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
+    (let ((ov (markdown-modern-render-test--ov 'table)))
+      (should ov)
+      (should (null (overlay-get ov 'line-prefix)))
+      (should (null (overlay-get ov 'wrap-prefix))))))
+
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here

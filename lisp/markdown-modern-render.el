@@ -1121,10 +1121,15 @@ prefix needs subtracting.  Falls back to 80 when the buffer is not displayed."
     (if win
         (let* ((char-px (markdown-modern-render--table-char-pixel-width))
                (body-px (window-body-width win t))
-               (cols (/ body-px (max 1 char-px))))
-          ;; Leave a one-column safety margin so the rightmost border is never
-          ;; flush against the window edge (which could trigger a wrap).
-          (max 20 (- cols 1)))
+               (cols (/ body-px (max 1 char-px)))
+               ;; The table inherits the buffer's left-margin `line-prefix'
+               ;; uniformly (so multi-line cells stay aligned), so reserve room
+               ;; for it.  Counting the margin as that many table columns
+               ;; slightly over-reserves (the margin font is usually narrower),
+               ;; which is the safe direction -- the table never wraps.
+               (margin (or (bound-and-true-p markdown-modern-left-margin) 0)))
+          ;; Also leave a one-column safety margin on the right edge.
+          (max 20 (- cols margin 1)))
       (or markdown-modern-table-max-width 80))))
 
 (defun markdown-modern-render--table-column-widths (rows)
@@ -1280,8 +1285,6 @@ leaves intact while a neighbouring row is being edited."
       (overlay-put ov 'before-string string))
     (overlay-put ov 'priority 200)
     (overlay-put ov 'markdown-modern-type 'table-grid-line)
-    (overlay-put ov 'line-prefix "")
-    (overlay-put ov 'wrap-prefix "")
     (push ov markdown-modern-render--overlays)
     ov))
 
@@ -1311,9 +1314,7 @@ row, recomputing the padding for the cell's new content width."
     (let ((ov (markdown-modern-render--get-overlay bol eol)))
       (overlay-put ov 'face face)
       (overlay-put ov 'priority 200)
-      (overlay-put ov 'markdown-modern-type 'table-edit)
-      (overlay-put ov 'line-prefix "")
-      (overlay-put ov 'wrap-prefix ""))
+      (overlay-put ov 'markdown-modern-type 'table-edit))
     ;; Collect the pipe positions, then glyph each one.
     (save-excursion
       (goto-char bol)
@@ -1455,20 +1456,22 @@ push the box past the window width and wrap it."
           (let ((ov (markdown-modern-render--get-overlay bol eol)))
             (overlay-put ov 'face 'markdown-modern-table)
             (overlay-put ov 'priority 200)
-            (overlay-put ov 'markdown-modern-type 'table-edit)
-            (overlay-put ov 'line-prefix "")
-            (overlay-put ov 'wrap-prefix "")))
+            (overlay-put ov 'markdown-modern-type 'table-edit)))
          (active
           (markdown-modern-render--table-row-edit bol eol is-hdr widths))
          (t
           (let ((formatted (markdown-modern-render--table-format-row cells widths is-sep))
                 (face (if is-hdr 'markdown-modern-table-header 'markdown-modern-table))
                 (ov (markdown-modern-render--get-overlay bol eol)))
+            ;; Do NOT override line-prefix/wrap-prefix here.  The buffer's
+            ;; left-margin `wrap-prefix' reaches the embedded continuation lines
+            ;; of a multi-line cell no matter what the overlay says, so the table
+            ;; instead inherits the margin uniformly (first and continuation
+            ;; lines alike) and stays internally aligned; the fit budget in
+            ;; `markdown-modern-render--table-display-width' reserves room for it.
             (overlay-put ov 'display (propertize formatted 'face face))
             (overlay-put ov 'priority 200)
-            (overlay-put ov 'markdown-modern-type 'table)
-            (overlay-put ov 'line-prefix "")
-            (overlay-put ov 'wrap-prefix ""))))
+            (overlay-put ov 'markdown-modern-type 'table))))
         ;; Bottom grid line below the last row.
         (when is-last
           (markdown-modern-render--table-border-overlay eol bottom-border t)))
