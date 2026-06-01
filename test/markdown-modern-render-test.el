@@ -194,5 +194,65 @@ Neither the checkbox nor the task line's leading bullet is revealed."
     (markdown-modern-checkbox-delete-backward 1)
     (should (equal (buffer-string) "- [x] dne\n"))))
 
+;;; Table editing: row-level reveal, fit-to-window, pixel alignment
+
+(ert-deftest render/table-reveal-narrows-to-row ()
+  "Point inside a table reveals just the current row, not the whole block."
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
+    (let ((r (markdown-modern--markup-element-at 23)))   ; the 1 on the data row
+      (should r)
+      (should (markdown-modern--table-row-region-p r))
+      ;; The region stays on the data row; it must not reach the earlier rows.
+      (should (>= (car r) 21)))))
+
+(ert-deftest render/non-table-block-not-narrowed ()
+  "Revealing a non-table block still returns the whole multi-line block."
+  (markdown-modern-render-test--with "```\nx\n```\n" nil
+    (let ((r (markdown-modern--markup-element-at 5)))    ; the x inside the fence
+      (should r)
+      (should-not (markdown-modern--table-row-region-p r))
+      ;; Spans more than one line (the whole fenced block).
+      (should (> (- (cdr r) (car r)) 4)))))
+
+(ert-deftest render/table-row-reveal-keeps-box ()
+  "Revealing a row keeps the other rows boxed and draws the active row editable."
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
+    (setq markdown-modern--revealed-region (markdown-modern--markup-element-at 23))
+    (markdown-modern--jit-fontify (point-min) (point-max))
+    ;; The active row is rendered as an editable grid row, not a box string.
+    (should (> (markdown-modern-render-test--count 'table-edit) 0))
+    ;; The remaining rows keep their boxed display string.
+    (should (> (markdown-modern-render-test--count 'table) 0))))
+
+(ert-deftest render/table-grid-lines-have-no-display ()
+  "Horizontal grid lines are independent overlays that survive reveal.
+They carry a `before-string'/`after-string' and no `display', so the generic
+reveal-at-point logic leaves them intact while a neighbouring row is edited."
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
+    (let ((line (markdown-modern-render-test--ov 'table-grid-line)))
+      (should line)
+      (should-not (overlay-get line 'display))
+      (should (or (overlay-get line 'before-string)
+                  (overlay-get line 'after-string))))))
+
+(ert-deftest render/table-column-widths-fit-available ()
+  "Column widths are scaled so the rendered box fits the available width."
+  (let ((markdown-modern-table-max-width 24))
+    (let* ((rows '(("aaaaaaaaaaaaaaaa" "bbbbbbbbbbbbbbbb")
+                   ("c" "d")))
+           (widths (markdown-modern-render--table-column-widths rows))
+           (num-cols (length widths))
+           ;; left border + one right border per column + two pad spaces per cell
+           (overhead (+ 1 num-cols (* 2 num-cols))))
+      (should (= num-cols 2))
+      (should (<= (+ (apply #'+ widths) overhead) markdown-modern-table-max-width)))))
+
+(ert-deftest render/table-column-pixels-monotonic ()
+  "Column border pixel positions increase strictly from a zero left border."
+  (let ((px (markdown-modern-render--table-column-pixels '(5 8 3))))
+    (should (= (length px) 4))            ; one left border + one per column
+    (should (= (car px) 0))
+    (should (apply #'< px))))             ; strictly increasing
+
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here

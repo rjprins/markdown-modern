@@ -662,9 +662,11 @@ the new code and overlays take effect."
 ;;;###autoload
 (defun markdown-modern-toggle-truncate-lines ()
   "Toggle between line wrapping and a horizontal-scroll view.
-Tables render at their natural width and are never truncated; when one is
-wider than the window, turn this on to read it by scrolling horizontally
-\(\\[scroll-left] / \\[scroll-right]) instead of having long lines wrap.
+Long unwrapped lines (e.g. code) can then be read by scrolling horizontally
+\(\\[scroll-left] / \\[scroll-right]) instead of soft-wrapping.  Tables are
+already sized to fit the window (over-long cells are elided with `…'), so they
+never wrap regardless; to read a wide table at its natural width, set
+`markdown-modern-table-max-width' to a large number and turn this on to scroll.
 This remembers and restores whatever wrapping minor modes were active, so it
 does not impose `visual-line-mode' on a buffer that was not using it."
   (interactive)
@@ -750,6 +752,25 @@ Plist keys: :block-start :block-end :content-start :content-end :language."
 ;; one.  `markdown-modern--jit-fontify' consults the same variable so the revealed
 ;; element stays revealed across re-renders.
 
+(defun markdown-modern--table-row-region-p (region)
+  "Return non-nil when REGION (a (START . END) cons) is a single table row.
+A table row is a source line of the form `| ... |'.  The reveal logic treats
+tables at row granularity: the table renderer keeps the rest of the box drawn
+and renders the active row as an editable, aligned grid row, so its overlays
+must NOT be stripped the way other revealed markup is."
+  (and region
+       (save-excursion
+         (goto-char (car region))
+         (beginning-of-line)
+         (looking-at-p "^[ \t]*|.+|[ \t]*$"))))
+
+(defun markdown-modern--table-row-at (pos start end)
+  "Return (BOL . EOL) of the table row line at POS, clamped to START..END."
+  (save-excursion
+    (goto-char pos)
+    (cons (max start (line-beginning-position))
+          (min end (line-end-position)))))
+
 (defun markdown-modern--extend-region-to-blocks (start end)
   "Expand START..END outward to whole containing-block bounds, clamped to buffer.
 Ensures jit-lock never renders a partial table, fenced block, or list.
@@ -801,10 +822,14 @@ the true rendered extent."
            (bend (cdr b)))
       (markdown-modern-render--render-region bstart bend)
       ;; Keep the element under point revealed across re-renders (markup
-      ;; visible, styling preserved).
+      ;; visible, styling preserved).  A revealed table row is an exception: the
+      ;; table renderer already drew it as an editable grid row during
+      ;; `render-region' above, so stripping its display overlays here would
+      ;; destroy that.
       (when (and markdown-modern--revealed-region
                  (< (car markdown-modern--revealed-region) bend)
-                 (> (cdr markdown-modern--revealed-region) bstart))
+                 (> (cdr markdown-modern--revealed-region) bstart)
+                 (not (markdown-modern--table-row-region-p markdown-modern--revealed-region)))
         (markdown-modern-render--reveal-markup
          (max bstart (car markdown-modern--revealed-region))
          (min bend (cdr markdown-modern--revealed-region))))
@@ -916,6 +941,10 @@ Works with both the tree-sitter and regex-fallback parsers."
        ;; Prose containers: reveal the innermost inline markup at point.
        ((memq btype '(paragraph list-item))
         (markdown-modern--inline-element-at pos bstart bend))
+       ;; Tables reveal at row granularity: return just the current row so the
+       ;; renderer keeps the rest of the box and draws this row editable.
+       ((eq btype 'table)
+        (markdown-modern--table-row-at pos bstart bend))
        ;; Block-level markup: reveal the entire block.
        ((memq btype markdown-modern--reveal-block-types)
         (cons bstart bend))
@@ -929,7 +958,8 @@ Parses the block window around POS and returns the smallest markup element
          (els (ignore-errors
                 (markdown-modern-ts--fallback-parse-region (car b) (cdr b))))
          (best nil)
-         (best-size nil))
+         (best-size nil)
+         (best-type nil))
     (dolist (el els)
       (let ((type (markdown-modern-node-type el))
             (s (markdown-modern-node-start el))
@@ -940,7 +970,11 @@ Parses the block window around POS and returns the smallest markup element
           (let ((size (- e s)))
             (when (or (null best-size) (< size best-size))
               (setq best (cons s e)
-                    best-size size))))))
+                    best-size size
+                    best-type type))))))
+    ;; Tables reveal at row granularity (see `markdown-modern--markup-element-at-ts').
+    (when (and best (eq best-type 'table))
+      (setq best (markdown-modern--table-row-at pos (car best) (cdr best))))
     best))
 
 (defun markdown-modern--update-reveal ()
@@ -951,17 +985,36 @@ actually changes."
   (when markdown-modern--rendering-enabled
     (let ((new (markdown-modern--markup-element-at (point)))
           (old markdown-modern--revealed-region))
-      (unless (equal new old)
+      (unless (or (equal new old)
+                  ;; Typing within the same table row only grows/shrinks its end
+                  ;; bound; the active row is unchanged, and the jit re-render
+                  ;; plus the live `:align-to' keep it aligned, so skip the
+                  ;; reveal bookkeeping (avoids re-rendering the whole table on
+                  ;; every keystroke).  The stale end bound is harmless: the
+                  ;; renderer's overlap test still marks this row active.
+                  (and old new
+                       (= (car new) (car old))
+                       (markdown-modern--table-row-region-p new)))
+        ;; Publish the new revealed region first: the table renderer reads
+        ;; `markdown-modern--revealed-region' to decide which row to draw as an
+        ;; editable grid row, so it must be current before any re-render below.
+        (setq markdown-modern--revealed-region new)
         ;; Hide the previously revealed element by cleanly re-rendering its
-        ;; containing block (clear + re-render avoids duplicate overlays).
+        ;; containing block (clear + re-render avoids duplicate overlays); for a
+        ;; table this re-boxes the row we just left.
         (when old
           (let ((b (markdown-modern--extend-region-to-blocks (car old) (cdr old))))
             (markdown-modern-render--render-region (car b) (cdr b))))
-        (setq markdown-modern--revealed-region new)
-        ;; Reveal the new element: show its raw markup but keep the styling
+        ;; Reveal the new element.  A table row is drawn by the table renderer
+        ;; itself (an aligned, editable grid row), so re-render its block instead
+        ;; of stripping display overlays the way `reveal-markup' does.  Other
+        ;; markup keeps its raw source shown while the styling is preserved
         ;; (heading stays big, emphasis stays emphasised, ...).
         (when new
-          (markdown-modern-render--reveal-markup (car new) (cdr new)))))))
+          (if (markdown-modern--table-row-region-p new)
+              (let ((b (markdown-modern--extend-region-to-blocks (car new) (cdr new))))
+                (markdown-modern-render--render-region (car b) (cdr b)))
+            (markdown-modern-render--reveal-markup (car new) (cdr new))))))))
 
 ;;; Core Functions
 

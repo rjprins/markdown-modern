@@ -34,6 +34,7 @@
 
 ;; Variables defined in markdown-modern.el
 (defvar markdown-modern--rendering-enabled)
+(defvar markdown-modern--revealed-region)
 (defvar markdown-modern-display-images)
 (defvar markdown-modern-image-max-width)
 (defvar markdown-modern-image-max-height)
@@ -1036,30 +1037,44 @@ If nil, automatically uses window width minus margins."
                  (integer :tag "Fixed width"))
   :group 'markdown-modern)
 
+(defun markdown-modern-render--table-char-pixel-width ()
+  "Pixel width of one fixed-pitch table character in the current window.
+Tables inherit `fixed-pitch', which can differ from the buffer's default font
+under `variable-pitch-mode', so column maths must be done in this font's metric,
+not the default one.  Falls back to the frame's character width when no window
+or font information is available (e.g. in batch tests)."
+  (or (ignore-errors
+        (window-font-width (get-buffer-window (current-buffer))
+                           'markdown-modern-table))
+      (ignore-errors (window-font-width nil 'markdown-modern-table))
+      (and (fboundp 'frame-char-width) (frame-char-width))
+      8))
+
 (defun markdown-modern-render--table-display-width ()
-  "Get the available display width for tables.
-Uses `window-body-width' of the window displaying the current buffer,
-falling back to 80 if the buffer is not yet displayed.
-Subtracts `line-prefix' width because Emacs applies `line-prefix' to
-each visual line within an overlay's display string, which would
-otherwise cause overflow and garbled wrapping in `visual-line-mode'."
-  (let* ((win (get-buffer-window (current-buffer)))
-         (raw-width (if win
-                       (max 40 (window-body-width win))
-                     (or markdown-modern-table-max-width 80)))
-         (prefix-width (if (and (local-variable-p 'line-prefix)
-                                line-prefix
-                                (stringp line-prefix))
-                           (string-width line-prefix)
-                         0)))
-    (max 40 (- raw-width prefix-width))))
+  "Available width for tables, in fixed-pitch character columns.
+Computed from the window's body pixel width divided by the fixed-pitch
+character pixel width, so it is accurate even under `variable-pitch-mode'
+where the table font differs from the buffer's default font.  Table overlays
+override `line-prefix' to \"\", so the table starts at the left text edge and no
+prefix needs subtracting.  Falls back to 80 when the buffer is not displayed."
+  (let ((win (get-buffer-window (current-buffer))))
+    (if win
+        (let* ((char-px (markdown-modern-render--table-char-pixel-width))
+               (body-px (window-body-width win t))
+               (cols (/ body-px (max 1 char-px))))
+          ;; Leave a one-column safety margin so the rightmost border is never
+          ;; flush against the window edge (which could trigger a wrap).
+          (max 20 (- cols 1)))
+      (or markdown-modern-table-max-width 80))))
 
 (defun markdown-modern-render--table-column-widths (rows)
-  "Calculate column widths from ROWS at natural content width.
-Columns are sized to their widest cell so no content is truncated.  Tables
-are scaled down to fit only when `markdown-modern-table-max-width' is set to a
-number; with the default nil a wide table keeps its natural width and is
-read by scrolling horizontally (see `markdown-modern-toggle-truncate-lines')."
+  "Calculate per-column character widths from ROWS, fitted to the window.
+Columns start at their widest cell, then the whole table is scaled down (with
+over-long cells elided by `markdown-modern-render--table-truncate-to-width') so
+the rendered box never exceeds the available width.  This guarantees the table
+fits the window and therefore never wraps.  The available width is
+`markdown-modern-table-max-width' when set, otherwise the window's fixed-pitch
+character capacity (see `markdown-modern-render--table-display-width')."
   (let ((widths nil)
         (num-cols 0))
     ;; First pass: get natural widths (using string-width for display accuracy)
@@ -1078,12 +1093,14 @@ read by scrolling horizontally (see `markdown-modern-toggle-truncate-lines')."
           (setq col (1+ col)))))
     ;; Ensure minimum width of 5 per column
     (setq widths (mapcar (lambda (w) (max 5 (or w 5))) widths))
-    ;; Scale down only when a fixed maximum width is configured.  By default
-    ;; tables render at natural width (no truncation); over-wide tables are
-    ;; handled by horizontal scrolling, not by clipping cell content.
-    (when markdown-modern-table-max-width
-      (let* ((border-overhead (+ 1 num-cols (* 2 num-cols)))
-             (available (max num-cols (- markdown-modern-table-max-width border-overhead)))
+    ;; Always scale down to the available width so the box fits the window and
+    ;; can never wrap.  Cells whose natural content exceeds their scaled width
+    ;; are elided with `…' by `markdown-modern-render--table-format-row'.
+    (when (> num-cols 0)
+      (let* ((available-total (or markdown-modern-table-max-width
+                                  (markdown-modern-render--table-display-width)))
+             (border-overhead (+ 1 num-cols (* 2 num-cols)))
+             (available (max num-cols (- available-total border-overhead)))
              (total (apply #'+ widths)))
         (when (> total available)
           (let ((scale (/ (float available) (float total))))
@@ -1156,6 +1173,96 @@ IS-SEPARATOR non-nil formats the separator row instead of a data row."
             (push padded parts)))
         (concat "│" (mapconcat #'identity (nreverse parts) "│") "│")))))
 
+(defun markdown-modern-render--table-column-pixels (widths)
+  "Return the pixel x-position of each column border for WIDTHS.
+Element K is the x of the border that follows column K-1 in the box drawn by
+`markdown-modern-render--table-format-row' (element 0 is the left border, x 0).
+Used to pixel-align the editable active row to the box, which stays correct even
+when the table's fixed-pitch font differs from the buffer's default font."
+  (let ((char-px (markdown-modern-render--table-char-pixel-width))
+        (positions (list 0))
+        (acc 0)
+        (k 0))
+    (dolist (w widths)
+      (setq k (1+ k)
+            acc (+ acc w))
+      ;; Border K sits at character column 3*K + sum(widths before K): each
+      ;; cell occupies a leading space, its content, a trailing space and the
+      ;; border glyph.
+      (push (* char-px (+ (* 3 k) acc)) positions))
+    (nreverse positions)))
+
+(defun markdown-modern-render--table-border-overlay (pos string after)
+  "Draw a horizontal grid line STRING as a zero-length overlay at POS.
+With AFTER non-nil it is an `after-string', otherwise a `before-string'.  The
+overlay carries no `display' property and is created directly (not via
+`markdown-modern-render--get-overlay', whose `evaporate' flag would delete an
+empty overlay), so it is an independent grid line that the reveal-at-point logic
+leaves intact while a neighbouring row is being edited."
+  (let ((ov (make-overlay pos pos nil t nil)))
+    (overlay-put ov 'markdown-modern t)
+    (if after
+        (overlay-put ov 'after-string string)
+      (overlay-put ov 'before-string string))
+    (overlay-put ov 'priority 200)
+    (overlay-put ov 'markdown-modern-type 'table-grid-line)
+    (overlay-put ov 'line-prefix "")
+    (overlay-put ov 'wrap-prefix "")
+    (push ov markdown-modern-render--overlays)
+    ov))
+
+(defun markdown-modern-render--table-row-edit (bol eol is-header widths)
+  "Render the table row BOL..EOL as an editable, pixel-aligned grid row.
+The cell text stays as real, editable buffer text; each `|' is shown as a `│'
+glyph and the whitespace before each border is stretched so the column borders
+line up with the rendered box from WIDTHS.  IS-HEADER selects the header face.
+This is what keeps the row a grid while it is edited, re-aligning live as the
+cell text grows or shrinks (the pixel `:align-to' adjusts the stretch itself)."
+  (let* ((face (if is-header 'markdown-modern-table-header 'markdown-modern-table))
+         (pixels (markdown-modern-render--table-column-pixels widths))
+         (npix (length pixels))
+         (glyph (propertize "│" 'face 'markdown-modern-table-border)))
+    ;; Face over the whole line so the cell text uses the fixed-pitch table
+    ;; font (matching the box metrics) without hiding the text.
+    (let ((ov (markdown-modern-render--get-overlay bol eol)))
+      (overlay-put ov 'face face)
+      (overlay-put ov 'priority 200)
+      (overlay-put ov 'markdown-modern-type 'table-edit)
+      (overlay-put ov 'line-prefix "")
+      (overlay-put ov 'wrap-prefix ""))
+    (save-excursion
+      (goto-char bol)
+      (let ((pipe-idx 0))
+        (while (re-search-forward "|" eol t)
+          (let* ((p (1- (point)))
+                 (px (nth (min pipe-idx (1- npix)) pixels)))
+            (cond
+             ;; First (left) border: lives at column 0, no stretch needed.
+             ((= pipe-idx 0)
+              (let ((ov (markdown-modern-render--get-overlay p (1+ p))))
+                (overlay-put ov 'display glyph)
+                (overlay-put ov 'priority 200)
+                (overlay-put ov 'markdown-modern-type 'table-edit)))
+             ;; A space precedes the pipe: stretch it to the border pixel.
+             ((and (> p bol) (eq (char-before p) ?\s))
+              (let ((ov (markdown-modern-render--get-overlay (1- p) p)))
+                (overlay-put ov 'display (list 'space :align-to (list px)))
+                (overlay-put ov 'priority 200)
+                (overlay-put ov 'markdown-modern-type 'table-edit))
+              (let ((ov (markdown-modern-render--get-overlay p (1+ p))))
+                (overlay-put ov 'display glyph)
+                (overlay-put ov 'priority 200)
+                (overlay-put ov 'markdown-modern-type 'table-edit)))
+             ;; No space to stretch: push the glyph itself to the border pixel.
+             (t
+              (let ((ov (markdown-modern-render--get-overlay p (1+ p))))
+                (overlay-put ov 'before-string
+                             (propertize " " 'display (list 'space :align-to (list px))))
+                (overlay-put ov 'display glyph)
+                (overlay-put ov 'priority 200)
+                (overlay-put ov 'markdown-modern-type 'table-edit)))))
+          (setq pipe-idx (1+ pipe-idx)))))))
+
 (defun markdown-modern-render--table (elem)
   "Render table element ELEM using per-row overlays for reliable display.
 Always finds the COMPLETE table by scanning beyond element boundaries."
@@ -1193,10 +1300,12 @@ Always finds the COMPLETE table by scanning beyond element boundaries."
               (setq keep-going nil))))
       (setq rows (nreverse rows))
       (setq row-info (nreverse row-info))
-      ;; Clear overlays in the full table region (properly tracked)
+      ;; Clear overlays in the full table region (properly tracked).  Extend one
+      ;; past the last row's end so the zero-length bottom-border overlay (an
+      ;; `after-string' at that position) is also released on re-render.
       (when row-info
         (let ((table-start (nth 0 (car row-info)))
-              (table-end (nth 1 (car (last row-info)))))
+              (table-end (min (1+ (nth 1 (car (last row-info)))) (point-max))))
           (markdown-modern-render--clear-region table-start table-end)))
       ;; Create per-row overlays
       (when (and rows row-info)
@@ -1206,18 +1315,27 @@ Always finds the COMPLETE table by scanning beyond element boundaries."
              rows row-info widths)))))))
 
 (defun markdown-modern-render--table-create-overlays (rows row-info widths)
-  "Create per-row overlays for table ROWS with ROW-INFO and WIDTHS.
-Each source line gets its own overlay, avoiding multi-line display issues."
+  "Create overlays rendering table ROWS (ROW-INFO, WIDTHS) as a box grid.
+Each source line gets one content overlay; the horizontal grid lines (top,
+bottom and the dividers between data rows) are drawn as independent overlays
+carrying `before-string'/`after-string' so they survive while an individual row
+is edited.  The row overlapping `markdown-modern--revealed-region' is rendered
+in place as an editable, aligned grid row (see
+`markdown-modern-render--table-row-edit'); every other row shows the rendered
+box.  Overlays override `line-prefix'/`wrap-prefix' with empty strings: Emacs
+applies those to every visual line, and the buffer-local indent would otherwise
+push the box past the window width and wrap it."
   (let* ((top-border (propertize
-                      (concat "┌" (mapconcat (lambda (w) (make-string (+ w 2) ?─)) widths "┬") "┐")
+                      (concat "┌" (mapconcat (lambda (w) (make-string (+ w 2) ?─)) widths "┬") "┐\n")
                       'face 'markdown-modern-table))
          (bottom-border (propertize
-                         (concat "└" (mapconcat (lambda (w) (make-string (+ w 2) ?─)) widths "┴") "┘")
+                         (concat "\n└" (mapconcat (lambda (w) (make-string (+ w 2) ?─)) widths "┴") "┘")
                          'face 'markdown-modern-table))
          (row-separator (propertize
-                         (concat "├" (mapconcat (lambda (w) (make-string (+ w 2) ?─)) widths "┼") "┤")
+                         (concat "├" (mapconcat (lambda (w) (make-string (+ w 2) ?─)) widths "┼") "┤\n")
                          'face 'markdown-modern-table))
          (num-rows (length row-info))
+         (reveal markdown-modern--revealed-region)
          (row-idx 0))
     (dolist (info row-info)
       (let* ((bol (nth 0 info))
@@ -1226,41 +1344,45 @@ Each source line gets its own overlay, avoiding multi-line display issues."
              (is-hdr (nth 3 info))
              (is-first (= row-idx 0))
              (is-last (= row-idx (1- num-rows)))
-             (next-is-sep (and (< (1+ row-idx) num-rows)
-                               (nth 2 (nth (1+ row-idx) row-info))))
+             (prev-is-sep (and (> row-idx 0)
+                               (nth 2 (nth (1- row-idx) row-info))))
              (cells (nth row-idx rows))
-             (formatted (markdown-modern-render--table-format-row cells widths is-sep))
-             (face (if is-hdr 'markdown-modern-table-header 'markdown-modern-table))
-             (parts nil))
-        ;; Top border before first row
+             ;; A row is "active" when the reveal region (a single table line)
+             ;; overlaps it; at most one row matches.
+             (active (and reveal
+                          (<= (car reveal) eol)
+                          (>= (cdr reveal) bol))))
+        ;; Top grid line above the first row.
         (when is-first
-          (push top-border parts)
-          (push "\n" parts))
-        ;; Row content at natural width (no truncation; scroll for overflow)
-        (push (propertize formatted 'face face) parts)
-        (push "\n" parts)
-        ;; After-row: bottom border on last, separator between data rows
+          (markdown-modern-render--table-border-overlay bol top-border nil))
+        ;; Divider above this row, between two consecutive data rows.
+        (when (and (not is-first) (not is-sep) (not prev-is-sep))
+          (markdown-modern-render--table-border-overlay bol row-separator nil))
+        ;; The row itself: editable when active, boxed otherwise.
         (cond
-         (is-last
-          (push bottom-border parts)
-          (push "\n" parts))
-         ((and (not is-sep) (not next-is-sep))
-          (push row-separator parts)
-          (push "\n" parts)))
-        ;; Create overlay covering this source line + its newline
-        (let* ((ov-end (min (1+ eol) (point-max)))
-               (display-str (apply #'concat (nreverse parts)))
-               (ov (markdown-modern-render--get-overlay bol ov-end)))
-          (overlay-put ov 'display display-str)
-          (overlay-put ov 'priority 200)
-          (overlay-put ov 'markdown-modern-type 'table)
-          ;; Override buffer-local line-prefix/wrap-prefix with empty
-          ;; strings.  Emacs applies these to every visual line inside
-          ;; an overlay's display string; the buffer-local 4-space
-          ;; indent would push the table past window-body-width and
-          ;; visual-line-mode wraps each row, garbling the table.
-          (overlay-put ov 'line-prefix "")
-          (overlay-put ov 'wrap-prefix "")))
+         ((and active is-sep)
+          ;; Editing the delimiter row: show its raw `| --- |' source (in the
+          ;; fixed-pitch table font) so its alignment markers can be edited.
+          (let ((ov (markdown-modern-render--get-overlay bol eol)))
+            (overlay-put ov 'face 'markdown-modern-table)
+            (overlay-put ov 'priority 200)
+            (overlay-put ov 'markdown-modern-type 'table-edit)
+            (overlay-put ov 'line-prefix "")
+            (overlay-put ov 'wrap-prefix "")))
+         (active
+          (markdown-modern-render--table-row-edit bol eol is-hdr widths))
+         (t
+          (let ((formatted (markdown-modern-render--table-format-row cells widths is-sep))
+                (face (if is-hdr 'markdown-modern-table-header 'markdown-modern-table))
+                (ov (markdown-modern-render--get-overlay bol eol)))
+            (overlay-put ov 'display (propertize formatted 'face face))
+            (overlay-put ov 'priority 200)
+            (overlay-put ov 'markdown-modern-type 'table)
+            (overlay-put ov 'line-prefix "")
+            (overlay-put ov 'wrap-prefix ""))))
+        ;; Bottom grid line below the last row.
+        (when is-last
+          (markdown-modern-render--table-border-overlay eol bottom-border t)))
       (setq row-idx (1+ row-idx)))))
 
 (defun markdown-modern-render--table-row (row)

@@ -103,7 +103,10 @@ revealed so you can edit it in place, and re-rendered once the cursor leaves:
 - Inside (or right next to) emphasis, a code span, or a link, that element's
   delimiters appear.
 - On a list item or blockquote, the leading marker (`- `, `1. `, `> `) appears.
-- Inside a fenced code block or table, the raw block is shown.
+- Inside a fenced code block, the raw block is shown.
+- Inside a table, the table stays a rendered grid: only the row under the cursor
+  becomes editable, with its borders kept aligned to the box and re-flowing live
+  as you type. The rest of the box stays drawn.
 
 Task checkboxes are the exception: they are treated as interactive widgets, not
 markup to reveal. Point on a checkbox keeps the rendered `☐`/`☑`; `SPC` toggles
@@ -137,6 +140,12 @@ You can also reveal the element at point on demand with
 | `Backspace`/`Delete` (on a checkbox) | `markdown-modern-checkbox-delete-{backward,forward}` | Remove the checkbox, keep the list item |
 
 ### Tables
+
+Tables render as a box-drawing grid that stays drawn while you edit: the row
+under the cursor becomes editable in place, its `│` borders kept pixel-aligned
+to the rest of the box and re-flowing live as the cell text grows or shrinks.
+Tables are sized to fit the window, so they never wrap (over-wide cells elide
+with `…`; raise `markdown-modern-table-max-width` for natural width instead).
 
 | Key | Command | Description |
 |-----|---------|-------------|
@@ -180,7 +189,7 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
 |----------|---------|-------------|
 | `markdown-modern-manage-text-width` | `nil` | Let markdown-modern constrain the reading width; when `nil` it leaves `fill-column` and wrapping to your config |
 | `markdown-modern-text-width` | `90` | Reading width in characters (used only when `manage-text-width` is non-nil) |
-| `markdown-modern-table-max-width` | `nil` | Cap rendered table width; `nil` = natural width (scroll over-wide tables with `C-c C-v t`) |
+| `markdown-modern-table-max-width` | `nil` | Cap rendered table width; `nil` = fit to the window (over-wide tables elide cells with `…` so they never wrap). Set a large number for natural width + horizontal scroll (`C-c C-v t`) |
 
 ### Code blocks
 

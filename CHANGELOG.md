@@ -14,6 +14,11 @@ on [Keep a Changelog](https://keepachangelog.com/).
   on a checkbox keeps the rendered `☐`/`☑`; `SPC` toggles it, and
   `Backspace`/`Delete` on it removes the whole checkbox at once, leaving a plain
   list item.
+- Obsidian-style in-place table editing. Entering a table no longer un-renders
+  the whole box to raw pipes: every row stays a rendered grid except the row
+  under point, which becomes editable while keeping its `│` borders pixel-aligned
+  to the box above and below. The alignment re-flows live as you type (no change
+  to the file's text), so a cell grows and shrinks without the borders jumping.
 
 ### Changed
 
@@ -22,6 +27,10 @@ on [Keep a Changelog](https://keepachangelog.com/).
 - List bullets now render in a fixed-pitch slot, so the rendered glyph (`●`) and
   the raw marker it replaces (`-`, `*`, `+`) are the same width. Revealing an
   unordered list marker at point no longer shifts the item's content sideways.
+- Tables are now always sized to fit the window width (long cells are elided
+  with `…`), so a wide table no longer soft-wraps into a garbled block under
+  `visual-line-mode`. Prose continues to wrap as before. Set
+  `markdown-modern-table-max-width` to pin a fixed width instead.
 
 ## [1.0.1] - 2026-05-30
 
