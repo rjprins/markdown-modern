@@ -209,8 +209,11 @@ Set to t before loading markdown-modern to enable tree-sitter
 
 (defun markdown-modern-ts--node-at (pos)
   "Get the smallest tree-sitter node at position POS."
+  ;; Pass the parser object, not the language symbol: since Emacs 31,
+  ;; `treesit-node-at' given a language falls back to the buffer's first
+  ;; parser regardless of language, which here is the inline parser.
   (when markdown-modern-ts--parser
-    (treesit-node-at pos 'markdown)))
+    (treesit-node-at pos markdown-modern-ts--parser)))
 
 (defun markdown-modern-ts--element-at (pos)
   "Get the markdown-modern element at buffer position POS."

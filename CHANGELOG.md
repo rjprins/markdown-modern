@@ -47,6 +47,15 @@ on [Keep a Changelog](https://keepachangelog.com/).
   `markdown-modern-table-glyph-substitutions`) inside table cells only; the
   buffer text, the row being edited, and prose are untouched.
 
+### Fixed
+
+- Rendering and reveal-at-point work again on Emacs 31 with the tree-sitter
+  parser. Emacs 31 changed `treesit-node-at` so that, given a language symbol,
+  it falls back to the buffer's first parser regardless of language; here that
+  is the inline parser, so block lookups found no headings, lists, or tables.
+  Elements then rendered partially or not at all, and nothing was revealed at
+  point. Node lookups now go through the block parser object.
+
 ## [1.0.1] - 2026-05-30
 
 ### Fixed

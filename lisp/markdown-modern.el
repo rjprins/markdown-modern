@@ -868,7 +868,7 @@ Tree-sitter implementation."
   (cl-some
    (lambda (p)
      (when (and (> p 0) (<= p (point-max)))
-       (when-let ((node (treesit-node-at p 'markdown)))
+       (when-let ((node (markdown-modern-ts--node-at p)))
          (let ((n node) (hit nil) (depth 0))
            (while (and n (not hit) (< depth 3))
              (when (member (treesit-node-type n) markdown-modern--marker-node-types)

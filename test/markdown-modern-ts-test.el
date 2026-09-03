@@ -47,6 +47,19 @@
   (mapcar #'markdown-modern-node-type
           (markdown-modern-ts--inline-elements-in (point-min) (point-max))))
 
+;;; Parser selection
+
+(markdown-modern-ts-test--deftest ts/node-at-uses-block-parser
+  ;; Both grammars parse the whole buffer, and the inline parser is created
+  ;; last so it heads `treesit-parser-list'.  Since Emacs 31 `treesit-node-at'
+  ;; with a language symbol falls back to that first parser, so node lookups
+  ;; must go through the block parser object.
+  (markdown-modern-ts-test--with "# Hello\n"
+    (let ((node (markdown-modern-ts--node-at 1)))
+      (should node)
+      (should (eq (treesit-node-parser node) markdown-modern-ts--parser))
+      (should (equal (treesit-node-type node) "atx_h1_marker")))))
+
 ;;; Element detection (mirrors regex coverage on the tree-sitter path)
 
 (markdown-modern-ts-test--deftest ts/heading-detected
