@@ -461,7 +461,7 @@ characters forward."
 (defun markdown-modern-move-item-up ()
   "Move current list item up."
   (interactive)
-  (when-let ((bounds (markdown-modern-list-item-bounds)))
+  (when-let* ((bounds (markdown-modern-list-item-bounds)))
     (let ((start (car bounds))
           (end (cdr bounds)))
       (when (> start (point-min))
@@ -475,7 +475,7 @@ characters forward."
 (defun markdown-modern-move-item-down ()
   "Move current list item down."
   (interactive)
-  (when-let ((bounds (markdown-modern-list-item-bounds)))
+  (when-let* ((bounds (markdown-modern-list-item-bounds)))
     (let ((start (car bounds))
           (end (cdr bounds)))
       (when (< end (point-max))
@@ -539,7 +539,7 @@ characters forward."
   "Sort table by _COLUMN (0-indexed)."
   (interactive
    (list (markdown-modern-table-column-at-point)))
-  (when-let ((bounds (markdown-modern-table-bounds)))
+  (when-let* ((bounds (markdown-modern-table-bounds)))
     (let ((start (car bounds))
           (end (cdr bounds)))
       (save-excursion
@@ -658,7 +658,7 @@ Elsewhere: cycle global visibility."
 (defun markdown-modern-toggle-element-at-point ()
   "Toggle rendering of element at point."
   (interactive)
-  (if-let ((elem (markdown-modern-ts--element-at (point))))
+  (if-let* ((elem (markdown-modern-ts--element-at (point))))
       (let* ((start (markdown-modern-node-start elem))
              (end (markdown-modern-node-end elem))
              (has-overlay (cl-some

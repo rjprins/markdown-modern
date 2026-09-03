@@ -710,7 +710,7 @@ Scans from buffer start, matching opening/closing fence pairs via regex."
 (defun markdown-modern--fenced-code-block-content-at (pos)
   "Return plist describing the fenced code block at POS, or nil.
 Plist keys: :block-start :block-end :content-start :content-end :language."
-  (when-let ((block (markdown-modern--fenced-code-block-at pos)))
+  (when-let* ((block (markdown-modern--fenced-code-block-at pos)))
     (save-match-data
       (save-excursion
         (goto-char (car block))
@@ -868,7 +868,7 @@ Tree-sitter implementation."
   (cl-some
    (lambda (p)
      (when (and (> p 0) (<= p (point-max)))
-       (when-let ((node (markdown-modern-ts--node-at p)))
+       (when-let* ((node (markdown-modern-ts--node-at p)))
          (let ((n node) (hit nil) (depth 0))
            (while (and n (not hit) (< depth 3))
              (when (member (treesit-node-type n) markdown-modern--marker-node-types)
@@ -923,7 +923,7 @@ Works with both the tree-sitter and regex-fallback parsers."
 
 (defun markdown-modern--markup-element-at-ts (pos)
   "Tree-sitter implementation of `markdown-modern--markup-element-at' for POS."
-  (when-let ((block (markdown-modern-ts--containing-block pos)))
+  (when-let* ((block (markdown-modern-ts--containing-block pos)))
     (let ((btype (markdown-modern-node-type block))
           (bstart (markdown-modern-node-start block))
           (bend (markdown-modern-node-end block)))

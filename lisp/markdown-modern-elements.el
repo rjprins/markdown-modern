@@ -38,7 +38,7 @@
 
 (defun markdown-modern-element-at-point ()
   "Return the type of markdown element at point."
-  (when-let ((elem (markdown-modern-ts--element-at (point))))
+  (when-let* ((elem (markdown-modern-ts--element-at (point))))
     (markdown-modern-node-type elem)))
 
 (defun markdown-modern-in-heading-p ()
@@ -71,7 +71,7 @@
   "Return the heading level at point, or nil if not in a heading."
   (or
    ;; Try tree-sitter first
-   (when-let ((elem (ignore-errors (markdown-modern-ts--element-at (point)))))
+   (when-let* ((elem (ignore-errors (markdown-modern-ts--element-at (point)))))
      (when (eq (markdown-modern-node-type elem) 'heading)
        (markdown-modern-node-level elem)))
    ;; Fallback to regex
@@ -88,7 +88,7 @@
 
 (defun markdown-modern-heading-bounds ()
   "Return (START . END) bounds of current heading, or nil."
-  (when-let ((elem (markdown-modern-ts--element-at (point))))
+  (when-let* ((elem (markdown-modern-ts--element-at (point))))
     (when (eq (markdown-modern-node-type elem) 'heading)
       (cons (markdown-modern-node-start elem)
             (markdown-modern-node-end elem)))))
@@ -295,13 +295,13 @@
 
 (defun markdown-modern-bounds-of-element-at-point ()
   "Return bounds of markdown element at point as (START . END)."
-  (when-let ((elem (markdown-modern-ts--element-at (point))))
+  (when-let* ((elem (markdown-modern-ts--element-at (point))))
     (cons (markdown-modern-node-start elem)
           (markdown-modern-node-end elem))))
 
 (defun markdown-modern-bounds-of-block-at-point ()
   "Return bounds of markdown block at point as (START . END)."
-  (when-let ((block (markdown-modern-ts--containing-block (point))))
+  (when-let* ((block (markdown-modern-ts--containing-block (point))))
     (cons (markdown-modern-node-start block)
           (markdown-modern-node-end block))))
 

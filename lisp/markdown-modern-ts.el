@@ -217,7 +217,7 @@ Set to t before loading markdown-modern to enable tree-sitter
 
 (defun markdown-modern-ts--element-at (pos)
   "Get the markdown-modern element at buffer position POS."
-  (when-let ((ts-node (markdown-modern-ts--node-at pos)))
+  (when-let* ((ts-node (markdown-modern-ts--node-at pos)))
     (markdown-modern-ts--make-element ts-node)))
 
 (defun markdown-modern-ts--make-element (ts-node)
@@ -259,7 +259,7 @@ Set to t before loading markdown-modern to enable tree-sitter
 In the tree-sitter-markdown grammar the language is an `info_string' child
 node (not a field), so look it up by type."
   (when (string-match-p "code_block" (treesit-node-type ts-node))
-    (when-let ((info (car (treesit-filter-child
+    (when-let* ((info (car (treesit-filter-child
                            ts-node
                            (lambda (c)
                              (string= (treesit-node-type c) "info_string"))))))
@@ -277,14 +277,14 @@ node (not a field), so look it up by type."
 
 (defun markdown-modern-ts--walk-headings (callback)
   "Walk all headings in buffer, calling CALLBACK with each node."
-  (when-let ((root (markdown-modern-ts--root-node)))
+  (when-let* ((root (markdown-modern-ts--root-node)))
     (dolist (capture (treesit-query-capture root markdown-modern-ts--heading-query))
       (funcall callback (markdown-modern-ts--make-element (cdr capture))))))
 
 (defun markdown-modern-ts--walk-blocks (callback &optional start end)
   "Walk block elements, calling CALLBACK with each.
 Optional START and END limit the range."
-  (when-let ((root (markdown-modern-ts--root-node)))
+  (when-let* ((root (markdown-modern-ts--root-node)))
     (let ((captures (treesit-query-capture
                      root markdown-modern-ts--block-query
                      (or start (point-min))
@@ -294,7 +294,7 @@ Optional START and END limit the range."
 
 (defun markdown-modern-ts--children (node)
   "Get children of NODE as markdown-modern-nodes."
-  (when-let ((ts-node (markdown-modern-node-treesit-node node)))
+  (when-let* ((ts-node (markdown-modern-node-treesit-node node)))
     (let ((children '())
           (count (treesit-node-child-count ts-node)))
       (dotimes (i count)
@@ -313,7 +313,7 @@ Optional START and END limit the range."
 
 (defun markdown-modern-ts--containing-block (pos)
   "Get the block element containing position POS."
-  (when-let ((node (markdown-modern-ts--node-at pos)))
+  (when-let* ((node (markdown-modern-ts--node-at pos)))
     ;; Walk up to find block-level element
     (let ((current node))
       (while (and current
@@ -335,9 +335,9 @@ Optional START and END limit the range."
   (let ((block-start start)
         (block-end end))
     ;; Expand to block boundaries
-    (when-let ((start-block (markdown-modern-ts--containing-block start)))
+    (when-let* ((start-block (markdown-modern-ts--containing-block start)))
       (setq block-start (min block-start (markdown-modern-node-start start-block))))
-    (when-let ((end-block (markdown-modern-ts--containing-block end)))
+    (when-let* ((end-block (markdown-modern-ts--containing-block end)))
       (setq block-end (max block-end (markdown-modern-node-end end-block))))
     (cons block-start block-end)))
 
@@ -373,7 +373,7 @@ Optional START and END limit the range."
        markdown-modern-ts--inline-parser
        (list (cons start end)))
       ;; Query for inline elements
-      (when-let ((root (treesit-parser-root-node markdown-modern-ts--inline-parser)))
+      (when-let* ((root (treesit-parser-root-node markdown-modern-ts--inline-parser)))
         (dolist (child (markdown-modern-ts--collect-inline-nodes root))
           (push (markdown-modern-ts--make-element child) elements)))
       (nreverse elements))))
