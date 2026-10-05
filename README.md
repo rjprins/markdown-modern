@@ -4,7 +4,10 @@
 
 Modern visual styling for Markdown buffers in Emacs.
 
-![markdown-modern rendering a Markdown buffer inline](images/screenshot.png)
+![markdown-modern revealing bold markers at the cursor while nearby Markdown stays rendered](images/screenshot.png)
+
+The cursor is inside `**bold text**`, so its markers are visible for editing.
+Nearby emphasis, code and links stay rendered.
 
 markdown-modern renders Markdown inline — headings, emphasis, code, tables, images — using text properties and overlays, in the spirit of [org-modern](https://github.com/minad/org-modern). It reveals the raw markup of the element under the cursor for editing, rather than showing raw syntax or a split-pane preview.
 
@@ -350,7 +353,8 @@ Tests that need grammars are skipped in jobs that check the regex fallback.
 
 Run `emacs -Q -L lisp -l scripts/screenshot.el` in a graphical session to
 render `images/demo.md` and replace `images/screenshot.png`. Review the image
-before committing it.
+before committing it. The script places the cursor inside `**bold text**` to
+show reveal-at-point.
 
 ### MELPA recipe
 

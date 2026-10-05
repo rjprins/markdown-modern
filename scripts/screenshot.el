@@ -21,8 +21,10 @@
 (find-file "images/demo.md")
 (markdown-modern-mode)
 (goto-char (point-min))
-(forward-line 2)
+(search-forward "bold text")
+(backward-char 4)
 (markdown-modern--jit-fontify (point-min) (point-max))
+(markdown-modern--update-reveal)
 (run-at-time
  2 nil
  (lambda ()
