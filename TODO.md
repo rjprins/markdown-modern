@@ -1,3 +1,16 @@
+# Maintenance pass
+
+- [x] Fix test runners. `make test`, `make test-verbose`, `make test-count`
+  and the interactive runner must cover all eight test suites.
+- [ ] Add CI. Check Emacs 30.1 and 31.1 with both parser paths on pushes,
+  pull requests and a monthly schedule.
+- [ ] Fix packaging and quality checks. Build a versioned, installable tarball
+  and fail when compilation or package lint reports a problem.
+- [ ] Publish a release. Update the version and changelog, then publish the
+  tested package on GitHub.
+- [ ] Improve installation and visibility. Test fresh installs, document
+  tree-sitter setup, refresh the screenshot and build the MELPA recipe.
+
 # Possible enhancements
 
 Ideas not yet implemented. Each notes the motivation and the rough approach /

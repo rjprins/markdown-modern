@@ -5,9 +5,10 @@ BATCH = $(EMACS) -Q -batch -L lisp -L test
 
 EL_FILES = $(wildcard lisp/*.el)
 ELC_FILES = $(EL_FILES:.el=.elc)
-TEST_FILES = $(wildcard test/*-test.el)
+TEST_BATCH = $(BATCH) -l markdown-modern-test
 
-.PHONY: all compile test test-export test-cmd test-regex test-integration bench clean lint package help
+.PHONY: all compile test test-export test-cmd test-regex test-integration \
+        test-verbose test-count bench check-syntax checkdoc lint package clean ci help
 
 # Default target
 all: compile
@@ -29,16 +30,7 @@ lisp/%.elc: lisp/%.el
 # Run all tests
 test:
 	@echo "Running all markdown-modern tests..."
-	@$(BATCH) \
-		-l markdown-modern \
-		-l markdown-modern-export-test \
-		-l markdown-modern-commands-test \
-		-l markdown-modern-regex-test \
-		-l markdown-modern-integration-test \
-		-l markdown-modern-jit-test \
-		-l markdown-modern-render-test \
-		-l markdown-modern-ts-test \
-		-f ert-run-tests-batch-and-exit
+	@$(TEST_BATCH) -f markdown-modern-run-tests-batch-and-exit
 
 # Run only export tests
 test-export:
@@ -83,28 +75,12 @@ bench:
 # Run tests with verbose output
 test-verbose:
 	@echo "Running all tests (verbose)..."
-	@$(BATCH) \
-		-l markdown-modern \
-		-l markdown-modern-export-test \
-		-l markdown-modern-commands-test \
-		-l markdown-modern-regex-test \
-		-l markdown-modern-integration-test \
-		--eval "(ert-run-tests-batch \"^\\\\(export\\\\|cmd\\\\|regex\\\\|integration\\\\)/\")"
+	@$(TEST_BATCH) -f markdown-modern-run-tests-batch-and-exit
 
 # Count tests
 test-count:
 	@echo "Counting tests..."
-	@$(BATCH) \
-		-l markdown-modern \
-		-l markdown-modern-export-test \
-		-l markdown-modern-commands-test \
-		-l markdown-modern-regex-test \
-		-l markdown-modern-integration-test \
-		--eval "(let ((count 0)) \
-			(mapatoms (lambda (s) (when (and (ert-test-boundp s) \
-				(string-match-p \"^\\\\(export\\\\|cmd\\\\|regex\\\\|integration\\\\)/\" (symbol-name s))) \
-				(setq count (1+ count))))) \
-			(message \"Total test count: %d\" count))"
+	@$(TEST_BATCH) -f markdown-modern-test-stats
 
 #─────────────────────────────────────────────────────────────────────────────
 # Quality Checks

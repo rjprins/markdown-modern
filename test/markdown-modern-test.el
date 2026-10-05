@@ -7,11 +7,8 @@
 ;; Main test runner for markdown-modern.
 ;; Loads all test modules and provides test execution functions.
 ;;
-;; Test organization:
-;;   - markdown-modern-export-test.el    : Export/HTML conversion tests (~45 tests)
-;;   - markdown-modern-commands-test.el  : Interactive command tests (~35 tests)
-;;   - markdown-modern-regex-test.el     : Regex pattern tests (~40 tests)
-;;   - markdown-modern-integration-test.el : End-to-end tests (~15 tests)
+;; Covers commands, export, integration, jit-lock, LaTeX conversion, regex
+;; parsing, rendering and tree-sitter parsing.
 ;;
 ;; Run tests:
 ;;   M-x markdown-modern-run-all-tests
@@ -35,14 +32,21 @@
 (require 'markdown-modern-commands-test)
 (require 'markdown-modern-regex-test)
 (require 'markdown-modern-integration-test)
+(require 'markdown-modern-jit-test)
+(require 'markdown-modern-latex-test)
+(require 'markdown-modern-render-test)
+(require 'markdown-modern-ts-test)
+
+(defconst markdown-modern-test-selector
+  "^\\(export\\|cmd\\|regex\\|integration\\|jit\\|latex\\|render\\|ts\\)/"
+  "ERT selector for all markdown-modern test suites.")
 
 ;;; Test Runner Functions
 
 (defun markdown-modern-run-all-tests ()
   "Run all markdown-modern tests interactively."
   (interactive)
-  (ert-run-tests-interactively
-   "^\\(export\\|cmd\\|regex\\|integration\\)/"))
+  (ert-run-tests-interactively markdown-modern-test-selector))
 
 (defun markdown-modern-run-export-tests ()
   "Run only export tests."
@@ -68,36 +72,18 @@
 
 (defun markdown-modern-run-tests-batch-and-exit ()
   "Run all tests in batch mode and exit with appropriate code."
-  (let ((test-selector "^\\(export\\|cmd\\|regex\\|integration\\)/"))
-    (ert-run-tests-batch-and-exit test-selector)))
+  (ert-run-tests-batch-and-exit markdown-modern-test-selector))
 
 ;;; Test Statistics
 
 (defun markdown-modern-test-stats ()
   "Display test statistics."
   (interactive)
-  (let ((export-count 0)
-        (cmd-count 0)
-        (regex-count 0)
-        (integration-count 0))
-    (mapatoms
-     (lambda (sym)
-       (when (ert-test-boundp sym)
-         (let ((name (symbol-name sym)))
-           (cond
-            ((string-prefix-p "export/" name) (cl-incf export-count))
-            ((string-prefix-p "cmd/" name) (cl-incf cmd-count))
-            ((string-prefix-p "regex/" name) (cl-incf regex-count))
-            ((string-prefix-p "integration/" name) (cl-incf integration-count)))))))
-    (message "markdown-modern test counts:
-  Export tests:      %d
-  Command tests:     %d
-  Regex tests:       %d
-  Integration tests: %d
-  ─────────────────────
-  Total:             %d"
-             export-count cmd-count regex-count integration-count
-             (+ export-count cmd-count regex-count integration-count))))
+  (let ((tests (ert-select-tests markdown-modern-test-selector t)))
+    (dolist (suite '(cmd export integration jit latex regex render ts))
+      (message "%s: %d" suite
+               (length (ert-select-tests (format "^%s/" suite) t))))
+    (message "Total test count: %d" (length tests))))
 
 (provide 'markdown-modern-test)
 ;;; markdown-modern-test.el ends here
