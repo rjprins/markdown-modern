@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 1 * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Emacs ${{ matrix.emacs }} / ${{ matrix.parser }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        emacs: ['30.1', '31.1']
+        parser: [regex, tree-sitter]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: purcell/setup-emacs@34c6ded44899fd1bf74d2889558befd1750e61a7
+        with:
+          version: ${{ matrix.emacs }}
+      - name: Install both Markdown grammars
+        if: matrix.parser == 'tree-sitter'
+        run: |
+          emacs -Q --batch -L lisp -l markdown-modern-ts \
+            --eval '(let ((treesit-language-source-alist markdown-modern-ts--grammar-sources))
+                      (dolist (language (quote (markdown markdown-inline)))
+                        (treesit-install-language-grammar language)
+                        (unless (treesit-language-available-p language)
+                          (error "Grammar unavailable: %s" language))))'
+      - name: Check that grammars are absent
+        if: matrix.parser == 'regex'
+        run: |
+          emacs -Q --batch -l treesit \
+            --eval '(dolist (language (quote (markdown markdown-inline)))
+                      (when (treesit-language-available-p language)
+                        (error "Fallback job found a grammar: %s" language)))'
+      - name: Compile, lint, test and install the tarball
+        run: make ci
+      - name: Check installation from a fresh Git checkout
+        run: emacs -Q --batch -l scripts/install-test.el vc "$PWD"
