@@ -4,7 +4,7 @@
   and the interactive runner must cover all eight test suites.
 - [ ] Add CI. Check Emacs 30.1 and 31.1 with both parser paths on pushes,
   pull requests and a monthly schedule.
-- [ ] Fix packaging and quality checks. Build a versioned, installable tarball
+- [x] Fix packaging and quality checks. Build a versioned, installable tarball
   and fail when compilation or package lint reports a problem.
 - [ ] Publish a release. Update the version and changelog, then publish the
   tested package on GitHub.

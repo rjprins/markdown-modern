@@ -6,9 +6,12 @@ BATCH = $(EMACS) -Q -batch -L lisp -L test
 EL_FILES = $(wildcard lisp/*.el)
 ELC_FILES = $(EL_FILES:.el=.elc)
 TEST_BATCH = $(BATCH) -l markdown-modern-test
+VERSION = $(shell sed -n 's/^;; Version: //p' lisp/markdown-modern.el)
+PACKAGE_FILE = dist/markdown-modern-$(VERSION).tar
 
 .PHONY: all compile test test-export test-cmd test-regex test-integration \
-        test-verbose test-count bench check-syntax checkdoc lint package clean ci help
+        test-verbose test-count test-package bench check-syntax checkdoc lint \
+        package clean ci help
 
 # Default target
 all: compile
@@ -99,17 +102,10 @@ checkdoc:
 		$(BATCH) --eval "(checkdoc-file \"$$f\")" || true; \
 	done
 
-# Run package-lint (if available)
+# Install package-lint in .build/elpa and fail on lint errors
 lint:
 	@echo "Running package-lint..."
-	@$(BATCH) \
-		--eval "(require 'package)" \
-		--eval "(package-initialize)" \
-		--eval "(unless (package-installed-p 'package-lint) \
-			(package-refresh-contents) \
-			(package-install 'package-lint))" \
-		--eval "(require 'package-lint)" \
-		-f package-lint-batch-and-exit $(EL_FILES) || echo "(package-lint not available)"
+	@$(BATCH) -l scripts/lint.el $(EL_FILES)
 
 #─────────────────────────────────────────────────────────────────────────────
 # Packaging
@@ -118,12 +114,11 @@ lint:
 # Build distributable package
 package:
 	@echo "Building package..."
-	@mkdir -p dist
-	@tar -cvf dist/markdown-modern.tar \
-		--transform 's,^lisp/,markdown-modern-1.0.0/,' \
-		--transform 's,^README,markdown-modern-1.0.0/README,' \
-		lisp/*.el README.md
-	@echo "Package created: dist/markdown-modern.tar"
+	@$(BATCH) -l scripts/package.el
+
+# Install the tarball in a temporary package directory
+test-package: package
+	@$(EMACS) -Q --batch -l scripts/install-test.el tar "$(PACKAGE_FILE)"
 
 #─────────────────────────────────────────────────────────────────────────────
 # Cleanup
@@ -139,8 +134,13 @@ clean:
 # CI Support
 #─────────────────────────────────────────────────────────────────────────────
 
-# CI pipeline: compile, lint, test
-ci: clean compile test
+# Run the checks in order, including under make -j
+ci:
+	@$(MAKE) clean
+	@$(MAKE) check-syntax
+	@$(MAKE) lint
+	@$(MAKE) test
+	@$(MAKE) test-package
 	@echo "CI checks passed!"
 
 #─────────────────────────────────────────────────────────────────────────────
@@ -163,6 +163,7 @@ help:
 	@echo "  test-integration - Run integration tests only"
 	@echo "  test-verbose     - Run tests with verbose output"
 	@echo "  test-count       - Count total tests"
+	@echo "  test-package     - Install and load the package tarball"
 	@echo ""
 	@echo "Quality targets:"
 	@echo "  check-syntax     - Check for compilation warnings"
