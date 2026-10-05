@@ -146,6 +146,12 @@ revealed so you can edit it in place, and re-rendered once the cursor leaves:
   becomes editable, with its borders kept aligned to the box and re-flowing live
   as you type. The rest of the box stays drawn.
 
+Ordinary newlines within a paragraph render as spaces, so prose flows to the
+window width even when the source is wrapped across several lines. The file's
+text stays unchanged. At a source newline, the cursor shows a subtle `↵` marker;
+moving away restores the space. Two trailing spaces or an unescaped backslash
+keep an explicit Markdown hard break. Blank lines keep paragraphs separate.
+
 Task checkboxes are the exception: they are treated as interactive widgets, not
 markup to reveal. Point on a checkbox keeps the rendered `☐`/`☑`; `SPC` toggles
 it, and `Backspace`/`Delete` on it removes the checkbox, leaving a plain list

@@ -537,6 +537,9 @@ single source of truth shared between point-motion reveal and jit-lock.")
         ;; the after-change hook invalidates the edited block for jit-lock.
         (jit-lock-register #'markdown-modern--jit-fontify)
         (add-hook 'post-command-hook #'markdown-modern--update-reveal nil t)
+        ;; Command-loop point adjustment runs after post-command-hook.  Update
+        ;; the newline marker again at redisplay so backward motion sees it.
+        (add-hook 'pre-redisplay-functions #'markdown-modern-render--update-soft-break-at-point nil t)
         (add-hook 'after-change-functions #'markdown-modern--after-change nil t)
         ;; Clean up when switching to another major mode
         (add-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer nil t)
@@ -567,6 +570,7 @@ single source of truth shared between point-motion reveal and jit-lock.")
   ;; Stop jit-lock rendering and remove hooks
   (jit-lock-unregister #'markdown-modern--jit-fontify)
   (remove-hook 'post-command-hook #'markdown-modern--update-reveal t)
+  (remove-hook 'pre-redisplay-functions #'markdown-modern-render--update-soft-break-at-point t)
   (remove-hook 'after-change-functions #'markdown-modern--after-change t)
   (remove-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer t)
   (remove-hook 'window-size-change-functions #'markdown-modern--on-window-size-change)
@@ -823,6 +827,7 @@ the true rendered extent."
         (markdown-modern-render--reveal-markup
          (max bstart (car markdown-modern--revealed-region))
          (min bend (cdr markdown-modern--revealed-region))))
+      (markdown-modern-render--update-soft-break-at-point)
       `(jit-lock-bounds ,bstart . ,bend))))
 
 (defun markdown-modern--inline-element-at (pos start end)
@@ -1004,7 +1009,8 @@ actually changes."
           (if (markdown-modern--table-row-region-p new)
               (let ((b (markdown-modern--extend-region-to-blocks (car new) (cdr new))))
                 (markdown-modern-render--render-region (car b) (cdr b)))
-            (markdown-modern-render--reveal-markup (car new) (cdr new))))))))
+            (markdown-modern-render--reveal-markup (car new) (cdr new))))))
+    (markdown-modern-render--update-soft-break-at-point)))
 
 ;;; Core Functions
 

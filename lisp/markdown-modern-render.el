@@ -48,6 +48,7 @@
 (declare-function markdown-modern-ts--elements-in-region "markdown-modern-ts")
 (declare-function markdown-modern-ts--fallback-parse-region "markdown-modern-ts")
 (declare-function markdown-modern-ts--inline-elements-in "markdown-modern-ts")
+(declare-function markdown-modern-ts--literal-inline-at-p "markdown-modern-ts")
 (declare-function markdown-modern-ts--children "markdown-modern-ts")
 (declare-function markdown-modern-node-type "markdown-modern-ts")
 (declare-function markdown-modern-node-start "markdown-modern-ts")
@@ -66,6 +67,9 @@
 
 (defvar-local markdown-modern-render--rendering-p nil
   "Non-nil when rendering is in progress.")
+
+(defvar-local markdown-modern-render--active-soft-break nil
+  "Soft-break overlay showing a newline marker at point, or nil.")
 
 ;;; Display Character Sets
 
@@ -104,6 +108,7 @@
   "Initialize the rendering engine for current buffer."
   (setq markdown-modern-render--overlays '())
   (setq markdown-modern-render--overlay-pool '())
+  (setq markdown-modern-render--active-soft-break nil)
   (markdown-modern-render--setup-display-chars))
 
 (defun markdown-modern-render--setup-display-chars ()
@@ -152,6 +157,8 @@
 
 (defun markdown-modern-render--release-overlay (ov)
   "Release overlay OV back to the pool."
+  (when (eq ov markdown-modern-render--active-soft-break)
+    (setq markdown-modern-render--active-soft-break nil))
   (when (overlay-buffer ov)
     (overlay-put ov 'display nil)
     (overlay-put ov 'face nil)
@@ -175,7 +182,8 @@
     (when (overlay-buffer ov)
       (delete-overlay ov)))
   (setq markdown-modern-render--overlays nil)
-  (setq markdown-modern-render--overlay-pool nil))
+  (setq markdown-modern-render--overlay-pool nil)
+  (setq markdown-modern-render--active-soft-break nil))
 
 ;;; Core Rendering Functions
 
@@ -211,12 +219,19 @@ Releases only the overlays that hide or replace source text (those carrying
 a `display' property: the marker/delimiter \"\" overlays, plus table, bullet,
 image and similar replacements), so the markdown syntax becomes visible.
 Overlays that merely apply a face (heading size, bold, italic, code colour)
-are kept, so revealed text stays formatted."
+are kept, so revealed text stays formatted.  Soft breaks keep prose flowing
+even when the surrounding inline markup is revealed."
   (with-silent-modifications
     (dolist (ov (overlays-in start end))
       (when (and (overlay-get ov 'markdown-modern)
                  (overlay-get ov 'display))
-        (markdown-modern-render--release-overlay ov)))))
+        (pcase (overlay-get ov 'markdown-modern-type)
+          ('soft-break
+           ;; Expose any continuation prefix covered by the replacement, but
+           ;; keep the newline itself rendered as a space (or cursor marker).
+           (move-overlay ov (overlay-start ov) (1+ (overlay-start ov))))
+          ('soft-break-whitespace nil)
+          (_ (markdown-modern-render--release-overlay ov)))))))
 
 ;;; Element Rendering Dispatch
 
@@ -263,7 +278,83 @@ are kept, so revealed text stays formatted."
          (inlines (markdown-modern-ts--inline-elements-in start end)))
     (dolist (inline-elem inlines)
       (ignore-errors
-        (markdown-modern-render--render-element inline-elem)))))
+        (markdown-modern-render--render-element inline-elem)))
+    (markdown-modern-render--soft-breaks
+     start end inlines
+     (plist-get (markdown-modern-node-properties elem) :literal-regions))))
+
+(defun markdown-modern-render--soft-breaks (start end inlines literal-regions)
+  "Display ordinary paragraph newlines in START..END as spaces.
+INLINES identifies literal spans whose newlines must not be treated as prose.
+LITERAL-REGIONS supplies additional literal ranges from the fallback parser.
+Keep source text intact, and preserve the final newline and explicit Markdown
+hard breaks (two trailing spaces or an unescaped backslash)."
+  (save-excursion
+    (goto-char start)
+    (while (re-search-forward "\r?\n" end t)
+      (let* ((newline-start (match-beginning 0))
+             (newline (1- (point)))
+             (break-end (point))
+             (break-start newline-start)
+             (slashes 0))
+        (save-excursion
+          (goto-char newline-start)
+          (while (and (> (point) start) (eq (char-before) ?\\))
+            (cl-incf slashes)
+            (backward-char))
+          (goto-char newline-start)
+          (skip-chars-backward " \t" start)
+          (setq break-start (point)))
+        ;; Indentation and repeated quote prefixes belong to the soft break.
+        (skip-chars-forward " \t" end)
+        (while (and (< (point) end) (looking-at ">[ \t]?"))
+          (goto-char (min end (match-end 0)))
+          (skip-chars-forward " \t" end))
+        (setq break-end (point))
+        (unless (or (>= break-end end)
+                    (memq (char-after) '(?\r ?\n))
+                    (= (mod slashes 2) 1)
+                    (and (> newline-start (1+ start))
+                         (eq (char-before newline-start) ?\s)
+                         (eq (char-before (1- newline-start)) ?\s))
+                    (markdown-modern-ts--literal-inline-at-p newline)
+                    (cl-some (lambda (range)
+                               (and (<= (car range) newline) (< newline (cdr range))))
+                             literal-regions)
+                    (cl-some (lambda (el)
+                               (and (memq (markdown-modern-node-type el)
+                                          '(code-span image autolink))
+                                    (<= (markdown-modern-node-start el) newline)
+                                    (< newline (markdown-modern-node-end el))))
+                             inlines))
+          ;; Keep the replacement's start on LF so keyboard traversal can
+          ;; reach it, even when trailing whitespace or CR is also hidden.
+          (when (< break-start newline)
+            (let ((ov (markdown-modern-render--get-overlay break-start newline)))
+              (overlay-put ov 'display "")
+              (overlay-put ov 'markdown-modern-type 'soft-break-whitespace)))
+          (let ((ov (markdown-modern-render--get-overlay newline break-end)))
+            (overlay-put ov 'display " ")
+            ;; Override the quote marker on a joined continuation line.
+            (overlay-put ov 'priority 200)
+            (overlay-put ov 'markdown-modern-type 'soft-break)))))))
+
+(defun markdown-modern-render--update-soft-break-at-point (&optional window)
+  "Mark the source newline under point without unfolding its paragraph.
+When called for redisplay of WINDOW, update only the selected window."
+  (when (or (null window) (eq window (selected-window)))
+    (let ((current (and (eq (char-after) ?\n)
+			(cl-find-if
+			 (lambda (ov)
+			   (eq (overlay-get ov 'markdown-modern-type) 'soft-break))
+			 (overlays-at (point))))))
+      (unless (eq current markdown-modern-render--active-soft-break)
+	(when (and markdown-modern-render--active-soft-break
+                   (overlay-buffer markdown-modern-render--active-soft-break))
+          (overlay-put markdown-modern-render--active-soft-break 'display " "))
+	(when current
+          (overlay-put current 'display (propertize "↵" 'face 'shadow 'cursor t)))
+	(setq markdown-modern-render--active-soft-break current)))))
 
 ;;; Inline Element Rendering
 

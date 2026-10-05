@@ -26,6 +26,7 @@
 
 (require 'treesit)
 (require 'cl-lib)
+(require 'seq)
 
 ;;; Data Structures
 
@@ -395,6 +396,15 @@ Optional START and END limit the range."
                               (treesit-node-child node i))))))
     result))
 
+(defun markdown-modern-ts--literal-inline-at-p (pos)
+  "Return non-nil if POS is inside literal inline code or an HTML tag."
+  (when (and markdown-modern-ts--use-tree-sitter markdown-modern-ts--inline-parser)
+    (let ((node (treesit-node-at pos markdown-modern-ts--inline-parser)))
+      (while (and node
+                  (not (member (treesit-node-type node) '("code_span" "html_tag"))))
+        (setq node (treesit-node-parent node)))
+      node)))
+
 ;;; Fallback Regex-based Parsing
 
 (defconst markdown-modern-ts--heading-regex
@@ -427,6 +437,145 @@ Optional START and END limit the range."
 Group 1 captures the language (empty for a bare fence).
 Allows up to 3 spaces indent per CommonMark spec.
 Handles Windows CRLF line endings with \\r?.")
+
+(defconst markdown-modern-ts--html-block-start-regex
+  (concat "</?"
+          (regexp-opt '("address" "article" "aside" "base" "basefont" "blockquote"
+                        "body" "caption" "center" "col" "colgroup" "dd" "details"
+                        "dialog" "dir" "div" "dl" "dt" "fieldset" "figcaption"
+                        "figure" "footer" "form" "frame" "frameset" "h1" "h2" "h3"
+                        "h4" "h5" "h6" "head" "header" "hr" "html" "iframe" "legend"
+                        "li" "link" "main" "menu" "menuitem" "nav" "noframes" "ol"
+                        "optgroup" "option" "p" "param" "search" "section" "summary"
+                        "table" "tbody" "td" "tfoot" "th" "thead" "title" "tr" "track" "ul"))
+          "\\(?:[ \t>]\\|/>\\|$\\)")
+  "Start of a blank-line-terminated HTML block, per CommonMark section 4.6.")
+
+(defun markdown-modern-ts--fallback-literal-inline-regions (start end)
+  "Find literal inline code and HTML ranges within paragraph START..END."
+  (let (regions)
+    (save-excursion
+      (goto-char start)
+      (while (re-search-forward "`+\\|<[/!?[:alpha:]][^>]*>" end t)
+        (let ((s (match-beginning 0)) (e (match-end 0)))
+          (if (eq (char-after s) ?`)
+              (let ((length (- e s)) close)
+                (save-excursion
+                  (while (and (not close) (re-search-forward "`+" end t))
+                    (when (= (- (match-end 0) (match-beginning 0)) length)
+                      (setq close (match-end 0)))))
+                (when close
+                  (push (cons s close) regions)
+                  (goto-char close)))
+            (push (cons s e) regions)))))
+    regions))
+
+(defun markdown-modern-ts--fallback-paragraphs (start end elements)
+  "Find prose paragraphs in START..END around parsed block ELEMENTS.
+List items start new paragraphs; indented and quoted continuation lines stay
+in the same paragraph.  Literal blocks and blank lines end paragraphs."
+  (let ((blocks (sort (seq-filter
+                       (lambda (el)
+                         (memq (markdown-modern-node-type el)
+                               '(heading hr code-block table math-block)))
+                       elements)
+                      (lambda (a b) (< (markdown-modern-node-start a)
+                                       (markdown-modern-node-start b)))))
+        (literal-regions
+         (sort (mapcar (lambda (el) (cons (markdown-modern-node-start el)
+                                          (markdown-modern-node-end el)))
+                       (seq-filter (lambda (el)
+                                     (memq (markdown-modern-node-type el) '(code-span image)))
+                                   elements))
+               (lambda (a b) (< (car a) (car b)))))
+        paragraphs paragraph-start paragraph-end quote-depth literal fence)
+    (cl-labels
+        ((finish ()
+           (when paragraph-start
+             (while (and literal-regions (<= (cdar literal-regions) paragraph-start))
+               (setq literal-regions (cdr literal-regions)))
+             (push (make-markdown-modern-node
+                    :type 'paragraph :start paragraph-start :end paragraph-end
+                    :properties
+                    (list :literal-regions
+                          (append (markdown-modern-ts--fallback-literal-inline-regions
+                                   paragraph-start paragraph-end)
+                                  (cl-loop for range in literal-regions
+                                           while (< (car range) paragraph-end)
+                                           collect range))))
+                   paragraphs))
+           (setq paragraph-start nil)))
+      (save-excursion
+        (goto-char start)
+        (while (< (point) end)
+          (let* ((bol (point))
+                 (eol (min end (line-end-position)))
+                 (depth 0)
+                 item content content-indent)
+            (setq content-indent (skip-chars-forward " \t" eol))
+            (while (and (< (point) eol) (looking-at ">[ \t]?"))
+              (cl-incf depth)
+              (goto-char (match-end 0))
+              (setq content-indent (skip-chars-forward " \t" eol)))
+            (when (looking-at "\\(?:[-*+]\\|[0-9]+[.)]\\)[ \t]+")
+              (setq item t)
+              (goto-char (min eol (match-end 0))))
+            (setq content (point))
+            ;; Advance through ordered block ranges instead of rescanning all
+            ;; blocks on each line of a large rendered region.
+            (while (and blocks (<= (markdown-modern-node-end (car blocks)) bol))
+              (setq blocks (cdr blocks)))
+            (cond
+             (fence
+              (finish)
+              (when (looking-at-p fence) (setq fence nil)))
+             ((stringp literal)
+              (finish)
+              (when (re-search-forward literal eol t) (setq literal nil)))
+             ((or (= content eol) (looking-at-p "\r?$")
+                  (and blocks (<= (markdown-modern-node-start (car blocks)) bol)))
+              (finish)
+              (setq literal nil))
+             ((looking-at "\\(`\\{3,\\}\\|~\\{3,\\}\\)")
+              (finish)
+              (setq fence (format "%c\\{%d,\\}[ \t]*\r?$"
+                                  (char-after content)
+                                  (length (match-string 1)))))
+             ;; These block boundaries do not consume following prose.
+             ((looking-at-p "\\(?:[=-]+[ \t]*\r?$\\|#\\{1,6\\}[ \t]+\\|\\[[^]\n]+\\]:\\)")
+              (finish))
+             ;; Indented code ends on dedent.
+             ((and (not paragraph-start) (not item) (>= content-indent 4))
+              (finish))
+             ;; Raw HTML and comments may contain blank lines.  Other HTML
+             ;; blocks end at a blank line, rather than at their closing tag.
+             ((or literal
+                  (cond
+                   ((looking-at-p "<\\(?:script\\|style\\|pre\\|textarea\\)\\(?:[ \t>]\\|$\\)")
+                    (setq literal "</\\(?:script\\|style\\|pre\\|textarea\\)>"))
+                   ((looking-at-p "<!--") (setq literal "-->"))
+                   ((looking-at-p "<[?]") (setq literal "[?]>"))
+                   ((looking-at-p "<!\\[CDATA\\[") (setq literal "\\]\\]>"))
+                   ((looking-at-p "<![[:alpha:]]") (setq literal ">"))
+                   ((or (looking-at-p markdown-modern-ts--html-block-start-regex)
+                        (and (not paragraph-start)
+                             (looking-at-p "</?[[:alpha:]][[:alnum:]-]*\\(?:[ \t]+[^>\n]*\\)?/?>[ \t]*\r?$")))
+                    (setq literal t))))
+              (finish)
+              (when (and (stringp literal) (re-search-forward literal eol t))
+                (setq literal nil)))
+             (t
+              ;; An unprefixed line can lazily continue a quoted paragraph.
+              (when (and paragraph-start (= depth 0) (> quote-depth 0) (not item))
+                (setq depth quote-depth))
+              (when (or item (not (equal depth quote-depth))) (finish))
+              (unless paragraph-start (setq paragraph-start content))
+              (setq paragraph-end (min end (1+ (line-end-position)))
+                    quote-depth depth)))
+            (goto-char bol)
+            (forward-line 1)))
+        (finish)))
+    (nreverse paragraphs)))
 
 (defun markdown-modern-ts--fallback-parse-region (start end)
   "Parse region from START to END using regex fallback."
@@ -707,7 +856,9 @@ Handles Windows CRLF line endings with \\r?.")
                      :properties (list :text (match-string 1)
                                        :url (match-string 2)))
                     elements))))))
-      (nreverse elements))
+      (setq elements (nreverse elements))
+      (nconc elements
+             (markdown-modern-ts--fallback-paragraphs start end elements)))
     (error
      (message "markdown-modern: Parse error: %s" (error-message-string err))
      nil)))

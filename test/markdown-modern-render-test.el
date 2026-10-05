@@ -108,6 +108,134 @@ fallback is used."
       ;; The table row is replaced by a rendered display string.
       (should (stringp (overlay-get tbl 'display))))))
 
+(defun markdown-modern-render-test--assert-soft-breaks (ts)
+  "Ordinary newlines flow as spaces with parser TS, without changing source."
+  (dolist (text '("required by\nthis project.\n"
+                  "required by \n  this project.\n"
+                  "required by\r\nthis project.\r\n"
+                  "escaped\\\\\nbackslash\n"
+                  "one\n    continuation\n"))
+    (markdown-modern-render-test--with text ts
+      (goto-char (point-min))
+      (search-forward "\n")
+      (should (equal (get-char-property (1- (point)) 'display) " "))
+      (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                     text))
+      ;; The final newline is a block boundary, not a soft break.
+      (should-not (get-char-property (1- (point-max)) 'display)))))
+
+(defun markdown-modern-render-test--assert-break-boundaries (ts)
+  "Paragraph boundaries and explicit hard breaks stay visible with parser TS."
+  (dolist (text '("one\n\ntwo\n" "one\n \t\ntwo\n"
+                  "one  \ntwo\n" "one\\\ntwo\n"
+                  "one  \r\ntwo\r\n" "one\\\r\ntwo\r\n"
+                  "# Heading\nbody\n" "body\n# Heading\n"
+                  "body\n---\nafter\n" "Title\n===\n"
+                  "- one\n- two\n" "1. one\n2. two\n"
+                  "```text\none\ntwo\n```\n"
+                  "~~~\none\ntwo\n~~~\n"
+                  "```text\none\ntwo\n"
+                  "    one\n    two\n"
+                  ">     one\n>     two\n"
+                  "<div>\none\ntwo\n</div>\n"
+                  "<span\nclass=\"x\">one</span>\n"
+                  "text <span\nclass=\"x\">one</span>\n"
+                  "text `one\ntwo` end\n"
+                  "```text\none\n\ntwo\nthree\n"
+                  "[ref]: https://example.com\nbody\n"))
+    (markdown-modern-render-test--with text ts
+      (goto-char (point-min))
+      (while (search-forward "\n" nil t)
+        (should-not (equal (get-char-property (1- (point)) 'display) " "))))))
+
+(defun markdown-modern-render-test--assert-container-soft-breaks (ts)
+  "Continuation lines flow within lists and quotes with parser TS."
+  (dolist (text '("- one\n  two\n- three\n"
+                  "1. one\n   two\n2. three\n"
+                  "> one\n> two\n\n> three\n"
+                  "> one\ntwo\n"))
+    (markdown-modern-render-test--with text ts
+      (goto-char (point-min))
+      (search-forward "one\n")
+      (should (equal (get-char-property (1- (point)) 'display) " "))
+      ;; Continuation indentation/quote markers are part of the hidden break.
+      (when (memq (char-after) '(?\s ?>))
+        (should (equal (get-char-property (point) 'display) " ")))
+      (search-forward "two\n")
+      (should-not (get-char-property (1- (point)) 'display)))))
+
+(defun markdown-modern-render-test--assert-prose-after-blocks (ts)
+  "Prose after a block still flows with parser TS."
+  (dolist (text '("Title\n===\none\ntwo\n"
+                  "[ref]: https://example.com\none\ntwo\n"
+                  "```text\ncode\n\n```\none\ntwo\n"
+                  "    code\none\ntwo\n"
+                  "<script>\ncode\n</script>\none\ntwo\n"
+                  "<https://example.com>\none\ntwo\n"))
+    (markdown-modern-render-test--with text ts
+      (goto-char (point-min))
+      (search-forward "one\n")
+      (should (equal (get-char-property (1- (point)) 'display) " ")))))
+
+(defun markdown-modern-render-test--assert-soft-break-editing (ts)
+  "A flowed newline remains discoverable and editable with parser TS."
+  (dolist (text '("one\ntwo\n" "> one\n> two\n" "one \n  two\n"
+                  "*one\ntwo*\n" "[one\ntwo](https://example.com)\n"))
+    (markdown-modern-render-test--with text ts
+      (goto-char (point-min))
+      (search-forward "\n")
+      (backward-char)
+      (let ((newline (point)))
+        (markdown-modern--update-reveal)
+        (should (equal (substring-no-properties (get-char-property newline 'display)) "↵"))
+        (when (string-prefix-p "one" text)
+          (should-not markdown-modern--revealed-region))
+        (markdown-modern--jit-fontify newline (1+ newline))
+        (should (equal (substring-no-properties (get-char-property newline 'display)) "↵"))
+        (forward-char)
+        (markdown-modern--update-reveal)
+        ;; Moving off a quote's prefix restores the paragraph rendering too.
+        (search-forward "two")
+        (markdown-modern--update-reveal)
+        (should (equal (get-char-property newline 'display) " ")))))
+  (markdown-modern-render-test--with "one\ntwo\n" ts
+    (goto-char 5)
+    (delete-backward-char 1)
+    (markdown-modern--jit-fontify (point-min) (point-max))
+    (should (equal (buffer-substring-no-properties (point-min) (point-max)) "onetwo\n"))
+    (should (= 0 (markdown-modern-render-test--count 'soft-break))))
+  (markdown-modern-render-test--with "one\ntwo\n" ts
+    (goto-char 4)
+    (insert "  ")
+    (markdown-modern--jit-fontify (point-min) (point-max))
+    ;; Turning a soft break into a hard break removes the space replacement.
+    (should-not (get-char-property 6 'display))
+    (delete-char -1)
+    (goto-char (point-max))
+    (markdown-modern--jit-fontify (point-min) (point-max))
+    (should (equal (get-char-property 5 'display) " "))))
+
+(defun markdown-modern-render-test--assert-soft-break-navigation (ts)
+  "Keyboard point adjustment still reaches source newlines with parser TS."
+  (dolist (text '("one \n  two\n" "one\n  two\n" "one\r\ntwo\r\n"))
+    (markdown-modern-render-test--with text ts
+      (save-window-excursion
+        (switch-to-buffer (current-buffer))
+        (add-hook 'post-command-hook #'markdown-modern--update-reveal nil t)
+        (add-hook 'pre-redisplay-functions #'markdown-modern-render--update-soft-break-at-point nil t)
+        (goto-char 3)
+        (let ((noninteractive nil)) (execute-kbd-macro (kbd "C-f")))
+        (should (eq (char-after) ?\n))
+        ;; Redisplay runs after command-loop adjustment of point.
+        (run-hook-with-args 'pre-redisplay-functions (selected-window))
+        (should (equal (substring-no-properties (get-char-property (point) 'display)) "↵"))
+        (search-forward "two")
+        (backward-char 3)
+        (let ((noninteractive nil)) (execute-kbd-macro (kbd "C-b")))
+        (should (eq (char-after) ?\n))
+        (run-hook-with-args 'pre-redisplay-functions (selected-window))
+        (should (equal (substring-no-properties (get-char-property (point) 'display)) "↵"))))))
+
 ;;; Fallback-mode tests (always run)
 
 (ert-deftest render/heading ()        (markdown-modern-render-test--assert-heading nil))
@@ -117,6 +245,12 @@ fallback is used."
 (ert-deftest render/link ()           (markdown-modern-render-test--assert-link nil))
 (ert-deftest render/code-block ()     (markdown-modern-render-test--assert-code-block nil))
 (ert-deftest render/table ()          (markdown-modern-render-test--assert-table nil))
+(ert-deftest render/soft-breaks ()    (markdown-modern-render-test--assert-soft-breaks nil))
+(ert-deftest render/break-boundaries () (markdown-modern-render-test--assert-break-boundaries nil))
+(ert-deftest render/container-soft-breaks () (markdown-modern-render-test--assert-container-soft-breaks nil))
+(ert-deftest render/soft-break-editing () (markdown-modern-render-test--assert-soft-break-editing nil))
+(ert-deftest render/soft-breaks-after-blocks () (markdown-modern-render-test--assert-prose-after-blocks nil))
+(ert-deftest render/soft-break-navigation () (markdown-modern-render-test--assert-soft-break-navigation nil))
 ;; Strikethrough is only parsed on the tree-sitter path; see ts/render-* in
 ;; markdown-modern-ts-test.el.
 

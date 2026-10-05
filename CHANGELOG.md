@@ -5,6 +5,13 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Ordinary paragraph newlines now render as spaces with both parsers, so
+  source-wrapped prose flows to the window width. Explicit hard breaks and
+  block boundaries stay visible. A subtle `↵` marks a source newline only
+  when the cursor is on it, without changing the file's text.
+
 ## [1.1.0] - 2026-10-05
 
 ### Added

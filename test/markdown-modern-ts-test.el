@@ -141,6 +141,12 @@
 (markdown-modern-ts-test--deftest ts/render-link          (markdown-modern-render-test--assert-link t))
 (markdown-modern-ts-test--deftest ts/render-code-block    (markdown-modern-render-test--assert-code-block t))
 (markdown-modern-ts-test--deftest ts/render-table         (markdown-modern-render-test--assert-table t))
+(markdown-modern-ts-test--deftest ts/render-soft-breaks    (markdown-modern-render-test--assert-soft-breaks t))
+(markdown-modern-ts-test--deftest ts/render-break-boundaries (markdown-modern-render-test--assert-break-boundaries t))
+(markdown-modern-ts-test--deftest ts/render-container-soft-breaks (markdown-modern-render-test--assert-container-soft-breaks t))
+(markdown-modern-ts-test--deftest ts/render-soft-break-editing (markdown-modern-render-test--assert-soft-break-editing t))
+(markdown-modern-ts-test--deftest ts/render-soft-breaks-after-blocks (markdown-modern-render-test--assert-prose-after-blocks t))
+(markdown-modern-ts-test--deftest ts/render-soft-break-navigation (markdown-modern-render-test--assert-soft-break-navigation t))
 
 ;;; Line-leading markers revealed at point
 
