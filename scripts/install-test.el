@@ -8,6 +8,8 @@
        (user-emacs-directory (file-name-as-directory install-dir))
        (package-user-dir (expand-file-name "elpa" install-dir))
        (custom-file (expand-file-name "custom.el" install-dir))
+       (package-archives nil)
+       (package-native-compile nil)
        (package-directory-list nil))
   (unwind-protect
       (progn
@@ -17,6 +19,11 @@
           ("vc"
            (require 'package-vc)
            (package-vc-install `(markdown-modern :url ,source :lisp-dir "lisp")))
+          ("use-package"
+           (require 'use-package)
+           (eval `(use-package markdown-modern
+                    :vc (:url ,source :lisp-dir "lisp" :rev :newest)
+                    :mode ("\\.md\\'" . markdown-modern-mode))))
           (_ (error "Unknown installation method: %s" method)))
         (require 'markdown-modern)
         (with-temp-buffer

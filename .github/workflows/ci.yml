@@ -48,4 +48,6 @@ jobs:
       - name: Compile, lint, test and install the tarball
         run: make ci
       - name: Check installation from a fresh Git checkout
-        run: emacs -Q --batch -l scripts/install-test.el vc "$PWD"
+        run: |
+          emacs -Q --batch -l scripts/install-test.el vc "$PWD"
+          emacs -Q --batch -l scripts/install-test.el use-package "$PWD"

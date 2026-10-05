@@ -1,5 +1,7 @@
 # markdown-modern
 
+[![CI](https://github.com/rjprins/markdown-modern/actions/workflows/ci.yml/badge.svg)](https://github.com/rjprins/markdown-modern/actions/workflows/ci.yml)
+
 Modern visual styling for Markdown buffers in Emacs.
 
 ![markdown-modern rendering a Markdown buffer inline](images/screenshot.png)
@@ -45,24 +47,35 @@ Rendering is driven by `jit-lock`, so only the visible region is rendered — op
 
 markdown-modern is not on MELPA; install it directly from this repository.
 
-### With `package-vc-install` (Emacs 29+, recommended)
+### With `package-vc-install` (Emacs 30.1+, recommended)
 
-```
-M-x package-vc-install RET https://github.com/rjprins/markdown-modern RET
-```
-
-Or in your init file:
+Evaluate this in Emacs, or add it to your init file:
 
 ```elisp
-(package-vc-install "https://github.com/rjprins/markdown-modern")
+(package-vc-install
+ '(markdown-modern
+   :url "https://github.com/rjprins/markdown-modern"
+   :lisp-dir "lisp"))
 ```
 
 With `use-package` (Emacs 30+):
 
 ```elisp
 (use-package markdown-modern
-  :vc (:url "https://github.com/rjprins/markdown-modern"))
+  :vc (:url "https://github.com/rjprins/markdown-modern"
+       :lisp-dir "lisp")
+  :mode ("\\.md\\'" . markdown-modern-mode))
 ```
+
+`use-package` selects the last release by default. Add `:rev :newest` inside
+`:vc` to follow the latest commits. To update an existing VC installation,
+run `M-x package-vc-upgrade` and select `markdown-modern`.
+
+### From a release tarball
+
+Download `markdown-modern-VERSION.tar` from the
+[GitHub releases](https://github.com/rjprins/markdown-modern/releases).
+Run `M-x package-install-file` and select the downloaded file.
 
 ### Manual
 
@@ -80,6 +93,28 @@ Enable markdown-modern for markdown files by adding to your init file:
 ```
 
 Or activate manually with `M-x markdown-modern-mode` in any markdown buffer.
+
+### Tree-sitter setup
+
+The regex parser works without extra libraries. To use tree-sitter, install
+both Markdown grammars. Your Emacs build must include tree-sitter support.
+
+```elisp
+(require 'markdown-modern)
+(setq treesit-language-source-alist
+      (append markdown-modern-ts--grammar-sources
+              treesit-language-source-alist))
+```
+
+Run `M-x treesit-install-language-grammar` once for `markdown` and once for
+`markdown-inline`. Then add this to your init file and reopen the buffer:
+
+```elisp
+(setq-default markdown-modern-ts--use-tree-sitter t)
+```
+
+The switch above is the current internal opt-in setting. If a grammar cannot
+be installed, leave it at `nil` to use the regex parser.
 
 ### Quick Start
 
@@ -234,8 +269,9 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
 
 ```elisp
 (use-package markdown-modern
-  :vc (:url "https://github.com/rjprins/markdown-modern")
-  :mode ("\\.md\\'" "\\.markdown\\'")
+  :vc (:url "https://github.com/rjprins/markdown-modern"
+       :lisp-dir "lisp")
+  :mode ("\\.\\(md\\|markdown\\)\\'" . markdown-modern-mode)
   :custom
   ;; Constrain the reading width (off by default):
   (markdown-modern-manage-text-width t)
@@ -288,6 +324,45 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
 - Setext-style headings (underlines) are not supported
 - Math rendering requires external tools for SVG output
 - Some complex nested structures may not render perfectly
+
+## Development
+
+Run these commands from the repository root:
+
+```sh
+make test          # Run all eight suites
+make test-count    # Count tests by suite
+make check-syntax  # Fail on byte-compilation warnings
+make lint          # Install package-lint locally, then check all libraries
+make test-package  # Build, install and load the release tarball
+make ci            # Run the complete set of checks
+make bench         # Measure rendering speed
+```
+
+Lint tools are installed under `.build/`. Tarballs go in `dist/`. Run
+`make clean` to remove compiled libraries and tarballs.
+
+CI checks Emacs 30.1 and 31.1 with and without the Markdown grammars. It runs
+on pushes, pull requests, manual requests and the first day of each month.
+Tests that need grammars are skipped in jobs that check the regex fallback.
+
+### Screenshot
+
+Run `emacs -Q -L lisp -l scripts/screenshot.el` in a graphical session to
+render `images/demo.md` and replace `images/screenshot.png`. Review the image
+before committing it.
+
+### MELPA recipe
+
+Run `make melpa` to build `recipes/markdown-modern` with MELPA's
+`package-build` tool. Run `MELPA_CHANNEL=stable make melpa` to check the
+latest release tag. The recipe uses the default file selection, which
+includes `lisp/*.el` and excludes tests.
+
+To submit it, copy the recipe into a MELPA checkout, run
+`make recipes/markdown-modern`, and open a pull request there. Follow the
+[MELPA contribution guide](https://github.com/melpa/melpa/blob/master/CONTRIBUTING.org).
+The package is not listed on MELPA until that review is complete.
 
 ## License
 

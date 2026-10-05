@@ -11,7 +11,7 @@ PACKAGE_FILE = dist/markdown-modern-$(VERSION).tar
 
 .PHONY: all compile test test-export test-cmd test-regex test-integration \
         test-verbose test-count test-package bench check-syntax checkdoc lint \
-        package clean ci help
+        package melpa clean ci help
 
 # Default target
 all: compile
@@ -120,6 +120,10 @@ package:
 test-package: package
 	@$(EMACS) -Q --batch -l scripts/install-test.el tar "$(PACKAGE_FILE)"
 
+# Build the recipe using MELPA's package-build tool
+melpa:
+	@$(BATCH) -l scripts/melpa.el
+
 #─────────────────────────────────────────────────────────────────────────────
 # Cleanup
 #─────────────────────────────────────────────────────────────────────────────
@@ -172,6 +176,7 @@ help:
 	@echo ""
 	@echo "Other targets:"
 	@echo "  package          - Build distributable package"
+	@echo "  melpa            - Build the MELPA recipe locally"
 	@echo "  ci               - Run full CI pipeline"
 	@echo "  help             - Show this help"
 	@echo ""
