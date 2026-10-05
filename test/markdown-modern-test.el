@@ -1,4 +1,4 @@
-;;; markdown-modern-test.el --- Test runner for markdown-modern -*- lexical-binding: t; -*-
+;;; markdown-modern-test.el --- Test runner for markdown-modern -*- lexical-binding: t; no-byte-compile: t; -*-
 
 ;; Copyright (C) 2026 markdown-modern contributors
 

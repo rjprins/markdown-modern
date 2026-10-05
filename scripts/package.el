@@ -1,4 +1,4 @@
-;;; package.el --- Build the package tarball -*- lexical-binding: t; -*-
+;;; package.el --- Build the package tarball -*- lexical-binding: t; no-byte-compile: t; -*-
 
 (require 'package)
 

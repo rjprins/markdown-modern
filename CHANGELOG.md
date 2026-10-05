@@ -5,8 +5,15 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-05
+
 ### Added
 
+- CI checks Emacs 30.1 and 31.1 with both parser paths on pushes, pull requests
+  and a monthly schedule. Fresh Git and tarball installs are checked too.
+- `make test-package` checks the release tarball in a temporary Emacs setup.
+- `make melpa` builds the recipe with MELPA's `package-build` tool.
+- Tree-sitter setup instructions and a script to refresh the README screenshot.
 - Reveal-at-point now covers line-leading markers: a list bullet, an ordered
   marker, or a blockquote marker under or adjacent to point shows its raw
   source (`- `, `1. `, `> `) for editing, then re-renders on leave.
@@ -22,6 +29,10 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- Release tarballs get their version and dependencies from the package header.
+  They include the package descriptor, license, changelog and README images.
+- Package lint runs on all libraries and fails the build on errors. Its tools
+  are installed under `.build/` rather than in the user's Emacs setup.
 - Tables no longer have a background colour; only the grid lines are tinted
   (grey foreground). The `markdown-modern-table`, `-table-header` and
   `-table-border` faces lost their `:background`.
@@ -49,6 +60,11 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- All test commands now cover the eight suites, including the 17 LaTeX tests.
+- The Mermaid image-cache test also runs on headless builds without SVG support.
+- Git installs on Emacs 30 no longer try to byte-compile development helpers.
+- Byte compilation no longer warns about obsolete `when-let` and `if-let`
+  forms on Emacs 31.
 - Rendering and reveal-at-point work again on Emacs 31 with the tree-sitter
   parser. Emacs 31 changed `treesit-node-at` so that, given a language symbol,
   it falls back to the buffer's first parser regardless of language; here that

@@ -1,4 +1,4 @@
-;;; markdown-modern-regex-test.el --- Regex pattern tests for markdown-modern -*- lexical-binding: t; -*-
+;;; markdown-modern-regex-test.el --- Regex pattern tests for markdown-modern -*- lexical-binding: t; no-byte-compile: t; -*-
 
 ;; Copyright (C) 2026 markdown-modern contributors
 

@@ -1,4 +1,4 @@
-;;; melpa.el --- Build the MELPA recipe locally -*- lexical-binding: t; -*-
+;;; melpa.el --- Build the MELPA recipe locally -*- lexical-binding: t; no-byte-compile: t; -*-
 
 (setq user-emacs-directory (expand-file-name ".build/emacs/")
       custom-file (expand-file-name "custom.el" user-emacs-directory))

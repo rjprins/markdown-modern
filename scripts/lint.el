@@ -1,4 +1,4 @@
-;;; lint.el --- Run package-lint in an isolated directory -*- lexical-binding: t; -*-
+;;; lint.el --- Run package-lint in an isolated directory -*- lexical-binding: t; no-byte-compile: t; -*-
 
 (setq user-emacs-directory (expand-file-name ".build/emacs/")
       custom-file (expand-file-name "custom.el" user-emacs-directory))

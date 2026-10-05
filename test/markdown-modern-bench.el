@@ -1,4 +1,4 @@
-;;; markdown-modern-bench.el --- Rendering benchmarks -*- lexical-binding: t; -*-
+;;; markdown-modern-bench.el --- Rendering benchmarks -*- lexical-binding: t; no-byte-compile: t; -*-
 
 ;; This file is part of markdown-modern.
 

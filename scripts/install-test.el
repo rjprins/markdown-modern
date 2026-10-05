@@ -1,4 +1,4 @@
-;;; install-test.el --- Check a fresh package installation -*- lexical-binding: t; -*-
+;;; install-test.el --- Check a fresh package installation -*- lexical-binding: t; no-byte-compile: t; -*-
 
 (require 'package)
 
@@ -22,14 +22,19 @@
           ("use-package"
            (require 'use-package)
            (eval `(use-package markdown-modern
-                    :vc (:url ,source :lisp-dir "lisp" :rev :newest)
+                    :vc (:url ,source :lisp-dir "lisp")
                     :mode ("\\.md\\'" . markdown-modern-mode))))
           (_ (error "Unknown installation method: %s" method)))
-        (require 'markdown-modern)
         (with-temp-buffer
           (insert "# Fresh install\n\nSome **bold** text.\n")
           (let ((source-text (buffer-string)))
-            (markdown-modern-mode)
+            (if (equal method "use-package")
+                (progn
+                  (setq buffer-file-name
+                        (expand-file-name "fresh-install.md" install-dir))
+                  (set-auto-mode))
+              (require 'markdown-modern)
+              (markdown-modern-mode))
             (markdown-modern--jit-fontify (point-min) (point-max))
             (unless (and (eq major-mode 'markdown-modern-mode)
                          (overlays-in (point-min) (point-max))

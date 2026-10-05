@@ -1,4 +1,4 @@
-;;; markdown-modern-jit-test.el --- Tests for jit-lock rendering and reveal -*- lexical-binding: t; -*-
+;;; markdown-modern-jit-test.el --- Tests for jit-lock rendering and reveal -*- lexical-binding: t; no-byte-compile: t; -*-
 
 ;; This file is part of markdown-modern.
 

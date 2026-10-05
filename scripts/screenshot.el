@@ -1,4 +1,4 @@
-;;; screenshot.el --- Render the README screenshot -*- lexical-binding: t; -*-
+;;; screenshot.el --- Render the README screenshot -*- lexical-binding: t; no-byte-compile: t; -*-
 
 (unless (display-graphic-p)
   (error "Run this script in a graphical Emacs session"))
