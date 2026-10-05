@@ -6,8 +6,8 @@
   pull requests and a monthly schedule.
 - [x] Fix packaging and quality checks. Build a versioned, installable tarball
   and fail when compilation or package lint reports a problem.
-- [ ] Publish a release. Update the version and changelog, then publish the
-  tested package on GitHub.
+- [x] Publish a release. Version and changelog updated. The tested package is
+  available as [1.1.0](https://github.com/rjprins/markdown-modern/releases/tag/1.1.0).
 - [x] Improve installation and visibility. Test fresh installs, document
   tree-sitter setup, refresh the screenshot and build the MELPA recipe.
 
