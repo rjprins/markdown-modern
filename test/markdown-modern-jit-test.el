@@ -1,4 +1,4 @@
-;;; markdown-modern-jit-test.el --- Tests for jit-lock rendering and reveal -*- lexical-binding: t; -*-
+;;; markdown-modern-jit-test.el --- Tests for jit-lock rendering and reveal -*- lexical-binding: t; no-byte-compile: t; -*-
 
 ;; This file is part of markdown-modern.
 
@@ -128,13 +128,20 @@ but the styling face overlay (bold) must remain."
   "Rendering the same SVG twice reuses the cached image object."
   (markdown-modern-jit-test--with-buffer "xxxxx\n"
     (let ((svg "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
+          (image-calls 0)
           img1 img2)
-      (markdown-modern-render--display-mermaid-svg 1 2 svg "k")
-      (setq img1 (overlay-get (car (markdown-modern-jit-test--markdown-modern-overlays 1 2)) 'display))
-      (markdown-modern-render--display-mermaid-svg 1 2 svg "k")
-      (setq img2 (overlay-get (car (markdown-modern-jit-test--markdown-modern-overlays 1 2)) 'display))
-      (should img1)
-      (should (eq img1 img2)))))
+      ;; Check caching even on builds without image support.
+      (cl-letf (((symbol-function 'create-image)
+                 (lambda (&rest args)
+                   (cl-incf image-calls)
+                   (cons 'image args))))
+        (markdown-modern-render--display-mermaid-svg 1 2 svg "k")
+        (setq img1 (overlay-get (car (markdown-modern-jit-test--markdown-modern-overlays 1 2)) 'display))
+        (markdown-modern-render--display-mermaid-svg 1 2 svg "k")
+        (setq img2 (overlay-get (car (markdown-modern-jit-test--markdown-modern-overlays 1 2)) 'display))
+        (should img1)
+        (should (eq img1 img2))
+        (should (= image-calls 1))))))
 
 ;;; Inline markup inside headings (tree-sitter path)
 

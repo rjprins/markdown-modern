@@ -5,9 +5,13 @@ BATCH = $(EMACS) -Q -batch -L lisp -L test
 
 EL_FILES = $(wildcard lisp/*.el)
 ELC_FILES = $(EL_FILES:.el=.elc)
-TEST_FILES = $(wildcard test/*-test.el)
+TEST_BATCH = $(BATCH) -l markdown-modern-test
+VERSION = $(shell sed -n 's/^;; Version: //p' lisp/markdown-modern.el)
+PACKAGE_FILE = dist/markdown-modern-$(VERSION).tar
 
-.PHONY: all compile test test-export test-cmd test-regex test-integration bench clean lint package help
+.PHONY: all compile test test-export test-cmd test-regex test-integration \
+        test-verbose test-count test-package bench check-syntax checkdoc lint \
+        package melpa clean ci help
 
 # Default target
 all: compile
@@ -29,16 +33,7 @@ lisp/%.elc: lisp/%.el
 # Run all tests
 test:
 	@echo "Running all markdown-modern tests..."
-	@$(BATCH) \
-		-l markdown-modern \
-		-l markdown-modern-export-test \
-		-l markdown-modern-commands-test \
-		-l markdown-modern-regex-test \
-		-l markdown-modern-integration-test \
-		-l markdown-modern-jit-test \
-		-l markdown-modern-render-test \
-		-l markdown-modern-ts-test \
-		-f ert-run-tests-batch-and-exit
+	@$(TEST_BATCH) -f markdown-modern-run-tests-batch-and-exit
 
 # Run only export tests
 test-export:
@@ -83,28 +78,12 @@ bench:
 # Run tests with verbose output
 test-verbose:
 	@echo "Running all tests (verbose)..."
-	@$(BATCH) \
-		-l markdown-modern \
-		-l markdown-modern-export-test \
-		-l markdown-modern-commands-test \
-		-l markdown-modern-regex-test \
-		-l markdown-modern-integration-test \
-		--eval "(ert-run-tests-batch \"^\\\\(export\\\\|cmd\\\\|regex\\\\|integration\\\\)/\")"
+	@$(TEST_BATCH) -f markdown-modern-run-tests-batch-and-exit
 
 # Count tests
 test-count:
 	@echo "Counting tests..."
-	@$(BATCH) \
-		-l markdown-modern \
-		-l markdown-modern-export-test \
-		-l markdown-modern-commands-test \
-		-l markdown-modern-regex-test \
-		-l markdown-modern-integration-test \
-		--eval "(let ((count 0)) \
-			(mapatoms (lambda (s) (when (and (ert-test-boundp s) \
-				(string-match-p \"^\\\\(export\\\\|cmd\\\\|regex\\\\|integration\\\\)/\" (symbol-name s))) \
-				(setq count (1+ count))))) \
-			(message \"Total test count: %d\" count))"
+	@$(TEST_BATCH) -f markdown-modern-test-stats
 
 #─────────────────────────────────────────────────────────────────────────────
 # Quality Checks
@@ -123,17 +102,10 @@ checkdoc:
 		$(BATCH) --eval "(checkdoc-file \"$$f\")" || true; \
 	done
 
-# Run package-lint (if available)
+# Install package-lint in .build/elpa and fail on lint errors
 lint:
 	@echo "Running package-lint..."
-	@$(BATCH) \
-		--eval "(require 'package)" \
-		--eval "(package-initialize)" \
-		--eval "(unless (package-installed-p 'package-lint) \
-			(package-refresh-contents) \
-			(package-install 'package-lint))" \
-		--eval "(require 'package-lint)" \
-		-f package-lint-batch-and-exit $(EL_FILES) || echo "(package-lint not available)"
+	@$(BATCH) -l scripts/lint.el $(EL_FILES)
 
 #─────────────────────────────────────────────────────────────────────────────
 # Packaging
@@ -142,12 +114,15 @@ lint:
 # Build distributable package
 package:
 	@echo "Building package..."
-	@mkdir -p dist
-	@tar -cvf dist/markdown-modern.tar \
-		--transform 's,^lisp/,markdown-modern-1.0.0/,' \
-		--transform 's,^README,markdown-modern-1.0.0/README,' \
-		lisp/*.el README.md
-	@echo "Package created: dist/markdown-modern.tar"
+	@$(BATCH) -l scripts/package.el
+
+# Install the tarball in a temporary package directory
+test-package: package
+	@$(EMACS) -Q --batch -l scripts/install-test.el tar "$(PACKAGE_FILE)"
+
+# Build the recipe using MELPA's package-build tool
+melpa:
+	@$(BATCH) -l scripts/melpa.el
 
 #─────────────────────────────────────────────────────────────────────────────
 # Cleanup
@@ -163,8 +138,13 @@ clean:
 # CI Support
 #─────────────────────────────────────────────────────────────────────────────
 
-# CI pipeline: compile, lint, test
-ci: clean compile test
+# Run the checks in order, including under make -j
+ci:
+	@$(MAKE) clean
+	@$(MAKE) check-syntax
+	@$(MAKE) lint
+	@$(MAKE) test
+	@$(MAKE) test-package
 	@echo "CI checks passed!"
 
 #─────────────────────────────────────────────────────────────────────────────
@@ -187,6 +167,7 @@ help:
 	@echo "  test-integration - Run integration tests only"
 	@echo "  test-verbose     - Run tests with verbose output"
 	@echo "  test-count       - Count total tests"
+	@echo "  test-package     - Install and load the package tarball"
 	@echo ""
 	@echo "Quality targets:"
 	@echo "  check-syntax     - Check for compilation warnings"
@@ -195,6 +176,7 @@ help:
 	@echo ""
 	@echo "Other targets:"
 	@echo "  package          - Build distributable package"
+	@echo "  melpa            - Build the MELPA recipe locally"
 	@echo "  ci               - Run full CI pipeline"
 	@echo "  help             - Show this help"
 	@echo ""

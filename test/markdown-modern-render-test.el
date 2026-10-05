@@ -1,4 +1,4 @@
-;;; markdown-modern-render-test.el --- Overlay-output tests -*- lexical-binding: t; -*-
+;;; markdown-modern-render-test.el --- Overlay-output tests -*- lexical-binding: t; no-byte-compile: t; -*-
 
 ;; This file is part of markdown-modern.
 

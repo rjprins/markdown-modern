@@ -1,3 +1,16 @@
+# Maintenance pass
+
+- [x] Fix test runners. `make test`, `make test-verbose`, `make test-count`
+  and the interactive runner must cover all eight test suites.
+- [x] Add CI. Check Emacs 30.1 and 31.1 with both parser paths on pushes,
+  pull requests and a monthly schedule.
+- [x] Fix packaging and quality checks. Build a versioned, installable tarball
+  and fail when compilation or package lint reports a problem.
+- [ ] Publish a release. Update the version and changelog, then publish the
+  tested package on GitHub.
+- [x] Improve installation and visibility. Test fresh installs, document
+  tree-sitter setup, refresh the screenshot and build the MELPA recipe.
+
 # Possible enhancements
 
 Ideas not yet implemented. Each notes the motivation and the rough approach /
@@ -60,12 +73,12 @@ Done:
 
 - Code-block syntax highlighting wired up (1.0.1).
 - Reveal line-leading markers (bullets, ordered, blockquote) and heading `#`
-  markers at the heading's size (Unreleased — see CHANGELOG).
+  markers at the heading's size (1.1.0).
 - Task checkboxes as interactive widgets: no reveal; `SPC` toggles,
-  `Backspace`/`Delete` removes the checkbox (Unreleased — see CHANGELOG).
+  `Backspace`/`Delete` removes the checkbox (1.1.0).
 - Keep tables rendered while editing — implemented as row-level reveal with the
   active row drawn as an editable, pixel-aligned grid row (valign-style), plus
-  fit-to-window table sizing so tables never wrap (Unreleased — see CHANGELOG).
+  fit-to-window table sizing so tables never wrap (1.1.0).
   Possible follow-ups: cell-level (rather than row-level) reveal, rendering
   inline markup inside cells, and giving an over-long active cell a horizontal
   scroll affordance instead of letting that one row extend past the window.

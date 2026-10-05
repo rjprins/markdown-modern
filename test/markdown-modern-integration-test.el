@@ -1,4 +1,4 @@
-;;; markdown-modern-integration-test.el --- Integration tests for markdown-modern -*- lexical-binding: t; -*-
+;;; markdown-modern-integration-test.el --- Integration tests for markdown-modern -*- lexical-binding: t; no-byte-compile: t; -*-
 
 ;; Copyright (C) 2026 markdown-modern contributors
 

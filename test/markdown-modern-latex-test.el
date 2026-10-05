@@ -1,4 +1,4 @@
-;;; markdown-modern-latex-test.el --- Tests for LaTeX-to-Unicode conversion -*- lexical-binding: t; -*-
+;;; markdown-modern-latex-test.el --- Tests for LaTeX-to-Unicode conversion -*- lexical-binding: t; no-byte-compile: t; -*-
 
 (require 'ert)
 (require 'markdown-modern-render)
