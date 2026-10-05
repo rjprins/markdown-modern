@@ -16,8 +16,7 @@
           ("tar" (package-install-file (expand-file-name source)))
           ("vc"
            (require 'package-vc)
-           (package-vc-install `(markdown-modern :url ,source :lisp-dir "lisp")
-                               :newest))
+           (package-vc-install `(markdown-modern :url ,source :lisp-dir "lisp")))
           (_ (error "Unknown installation method: %s" method)))
         (require 'markdown-modern)
         (with-temp-buffer
