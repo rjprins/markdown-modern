@@ -30,7 +30,6 @@
 (require 'markdown-modern-mermaid)
 
 ;; Variables defined in markdown-modern-ts.el
-(defvar markdown-modern-ts--use-tree-sitter)
 
 ;; Variables defined in markdown-modern.el
 (defvar markdown-modern--rendering-enabled)
@@ -46,7 +45,6 @@
 
 ;; Functions defined in markdown-modern-ts.el
 (declare-function markdown-modern-ts--elements-in-region "markdown-modern-ts")
-(declare-function markdown-modern-ts--fallback-parse-region "markdown-modern-ts")
 (declare-function markdown-modern-ts--inline-elements-in "markdown-modern-ts")
 (declare-function markdown-modern-ts--literal-inline-at-p "markdown-modern-ts")
 (declare-function markdown-modern-ts--children "markdown-modern-ts")
@@ -202,9 +200,7 @@
           (inhibit-read-only t))
       (with-silent-modifications
         (markdown-modern-render--clear-region start end)
-        (let ((elements (if markdown-modern-ts--use-tree-sitter
-                           (markdown-modern-ts--elements-in-region start end)
-                         (markdown-modern-ts--fallback-parse-region start end))))
+        (let ((elements (markdown-modern-ts--elements-in-region start end)))
           (dolist (elem elements)
             (markdown-modern-render--render-element elem)))))))
 
@@ -258,8 +254,6 @@ even when the surrounding inline markup is revealed."
       ('list-item (markdown-modern-render--list-item elem))
       ('hr (markdown-modern-render--hr elem))
       ('table (markdown-modern-render--table elem))
-      ('table-row (markdown-modern-render--table-row-standalone elem))
-      ('table-separator (markdown-modern-render--table-separator elem))
       ;; Extended elements
       ('footnote-ref (markdown-modern-render--footnote-ref elem))
       ('math (markdown-modern-render--math elem))
@@ -279,14 +273,11 @@ even when the surrounding inline markup is revealed."
     (dolist (inline-elem inlines)
       (ignore-errors
         (markdown-modern-render--render-element inline-elem)))
-    (markdown-modern-render--soft-breaks
-     start end inlines
-     (plist-get (markdown-modern-node-properties elem) :literal-regions))))
+    (markdown-modern-render--soft-breaks start end inlines)))
 
-(defun markdown-modern-render--soft-breaks (start end inlines literal-regions)
+(defun markdown-modern-render--soft-breaks (start end inlines)
   "Display ordinary paragraph newlines in START..END as spaces.
 INLINES identifies literal spans whose newlines must not be treated as prose.
-LITERAL-REGIONS supplies additional literal ranges from the fallback parser.
 Keep source text intact, and preserve the final newline and explicit Markdown
 hard breaks (two trailing spaces or an unescaped backslash)."
   (save-excursion
@@ -318,9 +309,6 @@ hard breaks (two trailing spaces or an unescaped backslash)."
                          (eq (char-before newline-start) ?\s)
                          (eq (char-before (1- newline-start)) ?\s))
                     (markdown-modern-ts--literal-inline-at-p newline)
-                    (cl-some (lambda (range)
-                               (and (<= (car range) newline) (< newline (cdr range))))
-                             literal-regions)
                     (cl-some (lambda (el)
                                (and (memq (markdown-modern-node-type el)
                                           '(code-span image autolink))
@@ -383,8 +371,7 @@ When called for redisplay of WINDOW, update only the selected window."
           ;; Render inline markup inside the heading (code spans, emphasis,
           ;; links).  Under tree-sitter these are not returned as separate
           ;; block elements, so the heading must descend into them itself,
-          ;; the way paragraphs do.  In the regex fallback this is a no-op
-          ;; (no inline parser) and the spans are emitted independently.
+          ;; the way paragraphs do.
           (dolist (inline (markdown-modern-ts--inline-elements-in content-start end))
             (ignore-errors (markdown-modern-render--render-element inline))))))))
 
@@ -1585,40 +1572,6 @@ push the box past the window width and wrap it."
           (overlay-put ov 'face 'markdown-modern-table-header)
           (overlay-put ov 'markdown-modern-type 'table-header)
           (overlay-put ov 'priority -5))))))
-
-(defun markdown-modern-render--table-row-standalone (elem)
-  "Render a standalone table row element ELEM from fallback parser."
-  (let ((start (markdown-modern-node-start elem))
-        (end (markdown-modern-node-end elem)))
-    (save-excursion
-      (goto-char start)
-      ;; Apply table background - include newline for :extend to work
-      (let* ((eol (line-end-position))
-             (end-with-nl (min (1+ eol) (point-max)))
-             (ov (markdown-modern-render--get-overlay start end-with-nl)))
-        (overlay-put ov 'face 'markdown-modern-table)
-        (overlay-put ov 'markdown-modern-type 'table-row)
-        (overlay-put ov 'priority -10))
-      ;; Transform | characters to box-drawing
-      (while (re-search-forward "|" end t)
-        (let ((ov (markdown-modern-render--get-overlay (1- (point)) (point))))
-          (overlay-put ov 'display
-                       (propertize "│" 'face 'markdown-modern-table-border))
-          (overlay-put ov 'markdown-modern-type 'table-border))))))
-
-(defun markdown-modern-render--table-separator (elem)
-  "Render table separator element ELEM as a horizontal line."
-  (let ((start (markdown-modern-node-start elem))
-        (end (markdown-modern-node-end elem)))
-    (save-excursion
-      (goto-char start)
-      ;; Count cells by counting | characters
-      (let* ((row-text (buffer-substring-no-properties start end))
-             (cell-count (1- (length (split-string row-text "|" t))))
-             (line-str (concat "├" (mapconcat (lambda (_) "────────") (number-sequence 1 cell-count) "┼") "┤")))
-        (let ((ov (markdown-modern-render--get-overlay start end)))
-          (overlay-put ov 'display (propertize line-str 'face 'markdown-modern-table-border))
-          (overlay-put ov 'markdown-modern-type 'table-separator))))))
 
 ;;; Extended Element Rendering
 

@@ -266,21 +266,47 @@ def hello():
 Markdown markers inside backticks (underscores, asterisks, brackets, etc.)
 must not be surfaced as emphasis, strong, link, or image nodes, even though
 the inline grammar still parses them as such inside the code_span."
-  (skip-unless (and (treesit-language-available-p 'markdown)
-                    (treesit-language-available-p 'markdown-inline)))
   (with-temp-buffer
     (insert "`foo_bar_baz` and `**not bold**` and `[t](u)`")
-    (let ((markdown-modern-ts--use-tree-sitter t))
-      (markdown-modern-ts--init)
-      (let ((types (mapcar #'markdown-modern-node-type
-                           (markdown-modern-ts--inline-elements-in
-                            (point-min) (point-max)))))
-        (should (member 'code-span types))
-        (should-not (member 'emphasis types))
-        (should-not (member 'strong types))
-        (should-not (member 'link types))))))
+    (markdown-modern-ts--init)
+    (let ((types (mapcar #'markdown-modern-node-type
+                         (markdown-modern-ts--inline-elements-in
+                          (point-min) (point-max)))))
+      (should (member 'code-span types))
+      (should-not (member 'emphasis types))
+      (should-not (member 'strong types))
+      (should-not (member 'link types)))))
 
 ;;; Performance Smoke Test
+
+(ert-deftest integration/code-edit-keeps-source-parsers ()
+  "Opening and finishing or aborting the code editor preserves source parsing."
+  (dolist (finish '(markdown-modern-code-edit-finish markdown-modern-code-edit-abort))
+    (save-window-excursion
+      (with-temp-buffer
+        (insert "```python\nx\n```\n")
+        (markdown-modern-mode)
+        (goto-char 12)
+        (let ((source (current-buffer)) edit)
+          (unwind-protect
+              (progn
+                (markdown-modern-edit-code-block)
+                (setq edit (current-buffer))
+                (should (derived-mode-p 'python-mode))
+                (with-current-buffer source
+                  (should (markdown-modern--fenced-code-block-at 12)))
+                (goto-char (point-min))
+                (insert "y")
+                (funcall finish)
+                (with-current-buffer source
+                  (should (markdown-modern--fenced-code-block-at 12))
+                  (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                                 (if (eq finish 'markdown-modern-code-edit-finish)
+                                     "```python\nyx\n```\n" "```python\nx\n```\n")))
+                  (text-mode)
+                  (should-not (treesit-parser-list))))
+            (when (buffer-live-p edit)
+              (ignore-errors (kill-buffer edit)))))))))
 
 (ert-deftest integration/large-document-performance ()
   "Large document exports in reasonable time."

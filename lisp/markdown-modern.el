@@ -484,70 +484,61 @@ single source of truth shared between point-motion reveal and jit-lock.")
 
 (defun markdown-modern--setup-buffer ()
   "Set up the current buffer for markdown-modern-mode."
-  (condition-case err
-      (progn
-        ;; Disable font-lock and remove any face properties left by
-        ;; a previous major mode (e.g. markdown-mode)
-        (font-lock-mode -1)
-        (with-silent-modifications
-          (remove-text-properties (point-min) (point-max) '(face nil)))
+  (markdown-modern-ts--init)
+  ;; Disable font-lock and remove any face properties left by
+  ;; a previous major mode (e.g. markdown-mode)
+  (font-lock-mode -1)
+  (with-silent-modifications
+    (remove-text-properties (point-min) (point-max) '(face nil)))
 
-        ;; Ensure tree-sitter is available
-        (markdown-modern-ts--ensure-grammar)
+  ;; NB: do not force `display-line-numbers-mode' (or other UI minor
+  ;; modes) here -- respect the user's global configuration.
 
-        ;; Initialize parser
-        (markdown-modern-ts--init)
+  ;; Set up left indentation using line-prefix
+  (let ((indent-str (propertize (make-string markdown-modern-left-margin ?\s)
+                                'face 'default)))
+    (setq-local line-prefix indent-str)
+    (setq-local wrap-prefix indent-str))
 
-        ;; NB: do not force `display-line-numbers-mode' (or other UI minor
-        ;; modes) here -- respect the user's global configuration.
+  ;; Constrain reading width only when explicitly opted in -- otherwise
+  ;; leave `fill-column' and line wrapping to the user's configuration.
+  (when (and markdown-modern-manage-text-width markdown-modern-text-width)
+    (setq-local fill-column markdown-modern-text-width)
+    (visual-line-mode 1)
+    ;; Use visual-fill-column if available for proper width limiting
+    (if (fboundp 'visual-fill-column-mode)
+        (progn
+          (setq-local visual-fill-column-width markdown-modern-text-width)
+          (setq-local visual-fill-column-center-text nil)
+          (visual-fill-column-mode 1))
+      ;; Fallback: use window margins to constrain width
+      (markdown-modern--apply-text-width)
+      (add-hook 'window-size-change-functions #'markdown-modern--on-window-size-change)))
 
-        ;; Set up left indentation using line-prefix
-        (let ((indent-str (propertize (make-string markdown-modern-left-margin ?\s)
-                                      'face 'default)))
-          (setq-local line-prefix indent-str)
-          (setq-local wrap-prefix indent-str))
+  ;; Optional visual modes (enabled by default; configurable).
+  (when markdown-modern-visual-line
+    (visual-line-mode 1))
+  (when markdown-modern-variable-pitch
+    (variable-pitch-mode 1))
 
-        ;; Constrain reading width only when explicitly opted in -- otherwise
-        ;; leave `fill-column' and line wrapping to the user's configuration.
-        (when (and markdown-modern-manage-text-width markdown-modern-text-width)
-          (setq-local fill-column markdown-modern-text-width)
-          (visual-line-mode 1)
-          ;; Use visual-fill-column if available for proper width limiting
-          (if (fboundp 'visual-fill-column-mode)
-              (progn
-                (setq-local visual-fill-column-width markdown-modern-text-width)
-                (setq-local visual-fill-column-center-text nil)
-                (visual-fill-column-mode 1))
-            ;; Fallback: use window margins to constrain width
-            (markdown-modern--apply-text-width)
-            (add-hook 'window-size-change-functions #'markdown-modern--on-window-size-change)))
+  ;; Initialize rendering
+  (markdown-modern-render--init)
 
-        ;; Optional visual modes (enabled by default; configurable).
-        (when markdown-modern-visual-line
-          (visual-line-mode 1))
-        (when markdown-modern-variable-pitch
-          (variable-pitch-mode 1))
+  ;; Set up hooks.  Rendering itself is driven by jit-lock, which renders
+  ;; only the visible region (and re-renders on scroll/edit).  The
+  ;; post-command hook reveals the markup of the element under point, and
+  ;; the after-change hook invalidates the edited block for jit-lock.
+  (jit-lock-register #'markdown-modern--jit-fontify)
+  (add-hook 'post-command-hook #'markdown-modern--update-reveal nil t)
+  ;; Command-loop point adjustment runs after post-command-hook.  Update
+  ;; the newline marker again at redisplay so backward motion sees it.
+  (add-hook 'pre-redisplay-functions #'markdown-modern-render--update-soft-break-at-point nil t)
+  (add-hook 'after-change-functions #'markdown-modern--after-change nil t)
+  ;; Clean up when switching to another major mode
+  (add-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer nil t)
 
-        ;; Initialize rendering
-        (markdown-modern-render--init)
-
-        ;; Set up hooks.  Rendering itself is driven by jit-lock, which renders
-        ;; only the visible region (and re-renders on scroll/edit).  The
-        ;; post-command hook reveals the markup of the element under point, and
-        ;; the after-change hook invalidates the edited block for jit-lock.
-        (jit-lock-register #'markdown-modern--jit-fontify)
-        (add-hook 'post-command-hook #'markdown-modern--update-reveal nil t)
-        ;; Command-loop point adjustment runs after post-command-hook.  Update
-        ;; the newline marker again at redisplay so backward motion sees it.
-        (add-hook 'pre-redisplay-functions #'markdown-modern-render--update-soft-break-at-point nil t)
-        (add-hook 'after-change-functions #'markdown-modern--after-change nil t)
-        ;; Clean up when switching to another major mode
-        (add-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer nil t)
-
-        ;; Set up imenu
-        (setq-local imenu-create-index-function #'markdown-modern-imenu-create-index))
-    (error
-     (message "markdown-modern: Setup error (%s)" (error-message-string err)))))
+  ;; Set up imenu
+  (setq-local imenu-create-index-function #'markdown-modern-imenu-create-index))
 
 (defun markdown-modern--apply-text-width ()
   "Apply text width constraint using window margins."
@@ -600,7 +591,8 @@ single source of truth shared between point-motion reveal and jit-lock.")
     (set-window-margins (get-buffer-window) nil nil))
 
   ;; Clear overlays
-  (markdown-modern-render--clear-all))
+  (markdown-modern-render--clear-all)
+  (markdown-modern-ts--cleanup))
 
 ;;;###autoload
 (define-derived-mode markdown-modern-mode text-mode "MdM"
@@ -688,53 +680,31 @@ does not impose `visual-line-mode' on a buffer that was not using it."
 ;;; Fenced Code Block Helpers
 
 (defun markdown-modern--fenced-code-block-at (pos)
-  "Return (START . END) if POS is inside a fenced code block, nil otherwise.
-Scans from buffer start, matching opening/closing fence pairs via regex."
-  (save-match-data
-    (save-excursion
-      (goto-char (point-min))
-      (let ((fence-re "^[ \t]*\\(```\\|~~~\\)"))
-        (catch 'found
-          (while (re-search-forward fence-re nil t)
-            (let ((open-start (line-beginning-position))
-                  (fence-char (match-string 1)))
-              (forward-line 1)
-              (let ((close-re (concat "^[ \t]*" (regexp-quote fence-char) "[ \t]*$")))
-                (if (re-search-forward close-re nil t)
-                    (let ((close-end (line-end-position)))
-                      ;; Include trailing newline if present
-                      (when (< close-end (point-max))
-                        (setq close-end (1+ close-end)))
-                      (when (and (>= pos open-start) (<= pos close-end))
-                        (throw 'found (cons open-start close-end))))
-                  ;; No closing fence found, skip to end
-                  (goto-char (point-max))))))
-          nil)))))
+  "Return (START . END) if POS is inside a fenced code block, nil otherwise."
+  (when-let* ((block (markdown-modern-ts--containing-block pos)))
+    (when (eq (markdown-modern-node-type block) 'code-block)
+      (cons (markdown-modern-node-start block)
+            (markdown-modern-node-end block)))))
 
 (defun markdown-modern--fenced-code-block-content-at (pos)
   "Return plist describing the fenced code block at POS, or nil.
 Plist keys: :block-start :block-end :content-start :content-end :language."
-  (when-let* ((block (markdown-modern--fenced-code-block-at pos)))
-    (save-match-data
-      (save-excursion
-        (goto-char (car block))
-        (when (looking-at "^[ \t]*\\(```\\|~~~\\)\\([a-zA-Z0-9_+-]*\\)?[ \t]*\r?$")
-          (let* ((language (match-string-no-properties 2))
-                 (content-start (1+ (line-end-position)))
-                 (content-end (save-excursion
-                                (goto-char (cdr block))
-                                (if (re-search-backward
-                                     "^[ \t]*\\(```\\|~~~\\)[ \t]*\r?$"
-                                     content-start t)
-                                    (match-beginning 0)
-                                  (cdr block)))))
-            (list :block-start (car block)
-                  :block-end (cdr block)
-                  :content-start content-start
-                  :content-end content-end
-                  :language (if (and language (not (string-empty-p language)))
-                                language
-                              nil))))))))
+  (when-let* ((block (markdown-modern-ts--containing-block pos)))
+    (when (eq (markdown-modern-node-type block) 'code-block)
+      (let* ((node (markdown-modern-node-treesit-node block))
+             (content (car (treesit-filter-child
+                            node (lambda (child)
+                                   (equal (treesit-node-type child) "code_fence_content")))))
+             (content-start (if content (treesit-node-start content)
+                              (save-excursion
+                                (goto-char (markdown-modern-node-start block))
+                                (forward-line 1)
+                                (point)))))
+        (list :block-start (markdown-modern-node-start block)
+              :block-end (markdown-modern-node-end block)
+              :content-start content-start
+              :content-end (if content (treesit-node-end content) content-start)
+              :language (markdown-modern-node-language block))))))
 
 ;;; JIT Rendering and Reveal-at-Point
 ;;
@@ -766,43 +736,11 @@ must NOT be stripped the way other revealed markup is."
           (min end (line-end-position)))))
 
 (defun markdown-modern--extend-region-to-blocks (start end)
-  "Expand START..END outward to whole containing-block bounds, clamped to buffer.
-Ensures jit-lock never renders a partial table, fenced block, or list.
-Uses tree-sitter `markdown-modern-ts--containing-block-bounds' when available,
-otherwise a regex paragraph/fence heuristic."
-  (if markdown-modern-ts--use-tree-sitter
-      (let ((b (markdown-modern-ts--containing-block-bounds start end)))
-        (cons (max (point-min) (min start (car b)))
-              (min (point-max) (max end (cdr b)))))
-    (markdown-modern--fallback-extend-region start end)))
-
-(defun markdown-modern--fallback-extend-region (start end)
-  "Regex fallback for `markdown-modern--extend-region-to-blocks' over START..END.
-Expands to the enclosing fenced code block and the surrounding
-blank-line-delimited paragraph window."
-  (save-excursion
-    ;; If START or END is inside a fenced code block, cover the whole fence.
-    (let ((fb (or (markdown-modern--fenced-code-block-at start)
-                  (markdown-modern--fenced-code-block-at end))))
-      (when fb
-        (setq start (min start (car fb))
-              end (max end (cdr fb)))))
-    (let (rstart rend)
-      ;; Backward to the first content line of the paragraph.
-      (goto-char start)
-      (forward-line 0)
-      (while (and (not (bobp)) (not (looking-at-p "^[ \t]*$")))
-        (forward-line -1))
-      (when (looking-at-p "^[ \t]*$") (forward-line 1))
-      (setq rstart (point))
-      ;; Forward to the blank line (or eob) after the paragraph.
-      (goto-char end)
-      (forward-line 0)
-      (while (and (not (eobp)) (not (looking-at-p "^[ \t]*$")))
-        (forward-line 1))
-      (setq rend (point))
-      (cons (max (point-min) (min rstart start))
-            (min (point-max) (max rend end))))))
+  "Expand START..END outward to whole containing-block bounds.
+Clamp to the buffer and keep tables, fenced blocks and lists intact."
+  (let ((bounds (markdown-modern-ts--containing-block-bounds start end)))
+    (cons (max (point-min) (min start (car bounds)))
+          (min (point-max) (max end (cdr bounds))))))
 
 (defun markdown-modern--jit-fontify (start end)
   "Render markdown-modern overlays for the block(s) spanning START..END.
@@ -883,19 +821,6 @@ Tree-sitter implementation."
            hit))))
    (list pos (1- pos))))
 
-(defun markdown-modern--marker-at-fallback (pos)
-  "Return (START . END) of a list/blockquote marker at or adjacent to POS.
-Regex-fallback implementation."
-  (save-excursion
-    (goto-char pos)
-    (beginning-of-line)
-    (when (looking-at
-           "[ \t]*\\(>+[ \t]?\\|[-*+][ \t]+\\|[0-9]+[.)][ \t]+\\)")
-      (let ((ms (match-beginning 1)) (me (match-end 1)))
-        ;; On or just after the list bullet / blockquote marker.
-        (when (and (>= pos ms) (<= pos me))
-          (cons ms me))))))
-
 (defun markdown-modern--task-line-p (pos)
   "Return non-nil if the line containing POS is a task list item."
   (save-excursion
@@ -909,9 +834,7 @@ Task list items are excluded entirely: a rendered checkbox is an interactive
 toggle/remove widget, not markup to reveal, so neither the checkbox nor the
 leading bullet of a task line is revealed at point."
   (unless (markdown-modern--task-line-p pos)
-    (if markdown-modern-ts--use-tree-sitter
-        (markdown-modern--marker-at-ts pos)
-      (markdown-modern--marker-at-fallback pos))))
+    (markdown-modern--marker-at-ts pos)))
 
 (defun markdown-modern--markup-element-at (pos)
   "Return (START . END) of the smallest markup element containing POS.
@@ -920,11 +843,9 @@ marker (list bullet, blockquote marker) under or adjacent to POS takes priority;
 then inline markup (emphasis, code span, link, ...); then a block-level element
 \(heading, code block, table, ...) revealed whole.  Task checkboxes are not
 revealed; they are interactive widgets (see `markdown-modern--marker-at').
-Works with both the tree-sitter and regex-fallback parsers."
+Uses the Markdown block and inline Tree-sitter grammars."
   (or (markdown-modern--marker-at pos)
-      (if markdown-modern-ts--use-tree-sitter
-          (markdown-modern--markup-element-at-ts pos)
-        (markdown-modern--markup-element-at-fallback pos))))
+      (markdown-modern--markup-element-at-ts pos)))
 
 (defun markdown-modern--markup-element-at-ts (pos)
   "Tree-sitter implementation of `markdown-modern--markup-element-at' for POS."
@@ -944,33 +865,6 @@ Works with both the tree-sitter and regex-fallback parsers."
        ((memq btype markdown-modern--reveal-block-types)
         (cons bstart bend))
        (t nil)))))
-
-(defun markdown-modern--markup-element-at-fallback (pos)
-  "Regex-fallback implementation of `markdown-modern--markup-element-at' for POS.
-Parses the block window around POS and returns the smallest markup element
-\(inline or block) containing POS, boundary-inclusive."
-  (let* ((b (markdown-modern--fallback-extend-region pos pos))
-         (els (ignore-errors
-                (markdown-modern-ts--fallback-parse-region (car b) (cdr b))))
-         (best nil)
-         (best-size nil)
-         (best-type nil))
-    (dolist (el els)
-      (let ((type (markdown-modern-node-type el))
-            (s (markdown-modern-node-start el))
-            (e (markdown-modern-node-end el)))
-        (when (and s e (>= pos s) (<= pos e)
-                   (or (memq type markdown-modern--reveal-inline-types)
-                       (memq type markdown-modern--reveal-block-types)))
-          (let ((size (- e s)))
-            (when (or (null best-size) (< size best-size))
-              (setq best (cons s e)
-                    best-size size
-                    best-type type))))))
-    ;; Tables reveal at row granularity (see `markdown-modern--markup-element-at-ts').
-    (when (and best (eq best-type 'table))
-      (setq best (markdown-modern--table-row-at pos (car best) (cdr best))))
-    best))
 
 (defun markdown-modern--update-reveal ()
   "Reveal the markup of the element at point and re-hide the previous one.

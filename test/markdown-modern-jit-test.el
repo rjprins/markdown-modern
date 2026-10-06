@@ -6,8 +6,7 @@
 
 ;; Tests for the jit-lock fontify entry point, block-level region extension,
 ;; reveal-at-point element detection, the reveal guard, and the mermaid image
-;; cache.  These exercise the regex-fallback parser (the default), so they run
-;; without the markdown tree-sitter grammar installed.
+;; cache. Both Markdown grammars are required.
 
 ;;; Code:
 
@@ -15,13 +14,13 @@
 (require 'markdown-modern)
 
 (defmacro markdown-modern-jit-test--with-buffer (text &rest body)
-  "Insert TEXT in a temp buffer in regex-fallback mode and run BODY."
+  "Insert TEXT in a temp buffer with Markdown parsers and run BODY."
   (declare (indent 1))
   `(with-temp-buffer
-     (setq-local markdown-modern-ts--use-tree-sitter nil)
      (setq-local markdown-modern--rendering-enabled t)
      (markdown-modern-render--init)
      (insert ,text)
+     (markdown-modern-ts--init)
      (goto-char (point-min))
      ,@body))
 
@@ -69,7 +68,7 @@
                          (search-backward "```")
                          (match-end 0)))))))
 
-;;; Reveal-at-point granularity (fallback parser)
+;;; Reveal-at-point granularity
 
 (ert-deftest jit/markup-element-at-heading ()
   "Point on a heading reveals the whole heading block."
@@ -147,15 +146,11 @@ but the styling face overlay (bold) must remain."
 
 (ert-deftest jit/heading-renders-inline-code-span ()
   "Inline code spans inside a heading are rendered (backticks hidden).
-This is the tree-sitter path: the regex fallback emits the span separately,
-but under tree-sitter the heading must descend into its own inline markup."
-  (skip-unless (and (treesit-language-available-p 'markdown)
-                    (treesit-language-available-p 'markdown-inline)))
+The heading renderer must descend into its own inline markup."
   (with-temp-buffer
     (setq-local markdown-modern--rendering-enabled t)
     (markdown-modern-render--init)
     (insert "## A `code` and `more` heading\n")
-    (setq-local markdown-modern-ts--use-tree-sitter t)
     (markdown-modern-ts--init)
     (markdown-modern--jit-fontify (point-min) (point-max))
     (let ((delims 0) (contents 0))

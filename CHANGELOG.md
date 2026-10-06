@@ -5,9 +5,27 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `M-x markdown-modern-install-grammars` installs missing `markdown` and
+  `markdown-inline` grammars. Setup errors identify missing grammars or
+  Tree-sitter support, and opening a buffer does not download anything.
+- A README comparison explains this fork's changes from mark-graf.
+
+### Changed
+
+- Buffer editing and rendering now require Tree-sitter and both Markdown
+  grammars. The regex fallback and internal opt-in switch were removed.
+  Remove `markdown-modern-ts--use-tree-sitter` from existing configurations.
+  Built-in HTML export keeps its separate text conversion.
+- CI and test runners use Tree-sitter throughout, including code-span,
+  math and fence-boundary regression coverage.
+
 ### Fixed
 
-- Ordinary paragraph newlines now render as spaces with both parsers, so
+- Code-block editing keeps the source buffer's parsers alive and tracks edit
+  boundaries as text grows, so abort restores the original content.
+- Ordinary paragraph newlines now render as spaces, so
   source-wrapped prose flows to the window width. Explicit hard breaks and
   block boundaries stay visible. A subtle `↵` marks a source newline only
   when the cursor is on it, without changing the file's text.

@@ -43,19 +43,15 @@
 
 ;;; Internal Variables
 
-(defvar-local markdown-modern-ts--use-tree-sitter nil
-  "Whether tree-sitter is being used for parsing.
-Set to t before loading markdown-modern to enable tree-sitter
-\(requires markdown grammar to be installed).")
-
 (defvar-local markdown-modern-ts--parser nil
   "Tree-sitter parser for markdown.")
 
 (defvar-local markdown-modern-ts--inline-parser nil
   "Tree-sitter parser for markdown-inline.")
 
-(defvar-local markdown-modern-ts--parse-cache nil
-  "Cache of parsed regions.")
+(defvar-local markdown-modern-ts--parser-owner nil
+  "Buffer that created and owns these parsers.
+Indirect buffers can inherit parser references from their source buffer.")
 
 ;;; Grammar Management
 
@@ -69,52 +65,56 @@ Set to t before loading markdown-modern to enable tree-sitter
   "Tree-sitter grammar sources for markdown.")
 
 (defun markdown-modern-ts--ensure-grammar ()
-  "Ensure markdown tree-sitter grammar is available."
-  (when markdown-modern-ts--use-tree-sitter
-    (condition-case err
-        (unless (treesit-language-available-p 'markdown)
-          (if (yes-or-no-p "Markdown tree-sitter grammar not found.  Install it? ")
-              (markdown-modern-ts--install-grammar)
-            (markdown-modern-ts--enable-fallback-mode)))
-      (error
-       (message "markdown-modern: Grammar check failed (%s), using fallback" (error-message-string err))
-       (markdown-modern-ts--enable-fallback-mode)))))
+  "Require Tree-sitter support and both Markdown grammars."
+  (unless (treesit-available-p)
+    (user-error "Use an Emacs build with Tree-sitter support for markdown-modern"))
+  (let ((missing (seq-remove #'treesit-language-available-p
+                             '(markdown markdown-inline))))
+    (when missing
+      (user-error "Missing Markdown grammars: %s; run M-x markdown-modern-install-grammars"
+                  (mapconcat #'symbol-name missing ", ")))))
 
-(defun markdown-modern-ts--install-grammar ()
-  "Install markdown tree-sitter grammar."
+;;;###autoload
+(defun markdown-modern-install-grammars ()
+  "Install any missing Markdown Tree-sitter grammars.
+Requires an Emacs build with Tree-sitter support, Git and a C compiler."
+  (interactive)
+  (unless (treesit-available-p)
+    (user-error "Use an Emacs build with Tree-sitter support for markdown-modern"))
   (condition-case err
-      (let ((treesit-language-source-alist markdown-modern-ts--grammar-sources))
-        (message "Installing markdown grammar...")
-        (treesit-install-language-grammar 'markdown)
-        (message "Installing markdown-inline grammar...")
-        (treesit-install-language-grammar 'markdown-inline)
-        (message "Grammars installed successfully."))
+      (let ((treesit-language-source-alist
+             (append markdown-modern-ts--grammar-sources treesit-language-source-alist)))
+        (dolist (language '(markdown markdown-inline))
+          (unless (treesit-language-available-p language)
+            (treesit-install-language-grammar language))
+          (unless (treesit-language-available-p language)
+            (error "Grammar unavailable after installation: %s" language)))
+        (message "Markdown grammars are ready"))
     (error
-     (message "markdown-modern: Grammar installation failed (%s), using fallback" (error-message-string err))
-     (markdown-modern-ts--enable-fallback-mode))))
-
-(defun markdown-modern-ts--enable-fallback-mode ()
-  "Enable regex-based parsing fallback when tree-sitter unavailable."
-  (setq markdown-modern-ts--use-tree-sitter nil)
-  (message "markdown-modern: Using fallback regex parser (limited functionality)"))
+     (user-error "Cannot install Markdown grammars: %s" (error-message-string err)))))
 
 ;;; Parser Initialization
 
 (defun markdown-modern-ts--init ()
   "Initialize tree-sitter parsers for the current buffer."
-  (when markdown-modern-ts--use-tree-sitter
-    (condition-case err
-        (progn
-          (when (treesit-language-available-p 'markdown)
-            (setq markdown-modern-ts--parser
-                  (treesit-parser-create 'markdown)))
-          (when (treesit-language-available-p 'markdown-inline)
-            (setq markdown-modern-ts--inline-parser
-                  (treesit-parser-create 'markdown-inline)))
-          (setq markdown-modern-ts--parse-cache (make-hash-table :test 'equal)))
-      (error
-       (message "markdown-modern: Tree-sitter init failed (%s), using fallback" (error-message-string err))
-       (markdown-modern-ts--enable-fallback-mode)))))
+  (markdown-modern-ts--ensure-grammar)
+  (markdown-modern-ts--cleanup)
+  (setq markdown-modern-ts--parser-owner (current-buffer))
+  (condition-case err
+      (setq markdown-modern-ts--parser (treesit-parser-create 'markdown nil t)
+            markdown-modern-ts--inline-parser (treesit-parser-create 'markdown-inline nil t))
+    (error
+     (markdown-modern-ts--cleanup)
+     (user-error "Cannot initialize Markdown parsers: %s" (error-message-string err)))))
+
+(defun markdown-modern-ts--cleanup ()
+  "Delete the current buffer's Markdown Modern parsers."
+  (when (eq markdown-modern-ts--parser-owner (current-buffer))
+    (dolist (parser (list markdown-modern-ts--parser markdown-modern-ts--inline-parser))
+      (when parser (treesit-parser-delete parser))))
+  (setq markdown-modern-ts--parser nil
+        markdown-modern-ts--inline-parser nil
+        markdown-modern-ts--parser-owner nil))
 
 ;;; Node Type Mapping
 
@@ -143,6 +143,7 @@ Set to t before loading markdown-modern to enable tree-sitter
     ("strong_emphasis" . strong)
     ("strikethrough" . strikethrough)
     ("code_span" . code-span)
+    ("latex_block" . math)
     ("inline_link" . link)
     ("full_reference_link" . link-ref)
     ("collapsed_reference_link" . link-ref-collapsed)
@@ -182,15 +183,11 @@ Set to t before loading markdown-modern to enable tree-sitter
 ;;; Queries
 
 (defconst markdown-modern-ts--heading-query
-  (treesit-query-compile
-   'markdown
-   '((atx_heading) @heading))
+  '((atx_heading) @heading)
   "Query for finding headings.")
 
 (defconst markdown-modern-ts--block-query
-  (treesit-query-compile
-   'markdown
-   '([(atx_heading)
+  '([(atx_heading)
       (paragraph)
       (fenced_code_block)
       (indented_code_block)
@@ -198,7 +195,7 @@ Set to t before loading markdown-modern to enable tree-sitter
       (list)
       (thematic_break)
       (pipe_table)
-      (html_block)] @block))
+      (html_block)] @block)
   "Query for finding block elements.")
 
 ;;; Node Access Functions
@@ -225,7 +222,10 @@ Set to t before loading markdown-modern to enable tree-sitter
   "Create a markdown-modern-node from tree-sitter node TS-NODE."
   (when ts-node
     (let* ((type-str (treesit-node-type ts-node))
-           (type (markdown-modern-ts--map-node-type type-str))
+           (type (if (and (equal type-str "latex_block")
+                          (string-prefix-p "$$" (treesit-node-text ts-node)))
+                     'math-block
+                   (markdown-modern-ts--map-node-type type-str)))
            (start (treesit-node-start ts-node))
            (end (treesit-node-end ts-node)))
       (make-markdown-modern-node
@@ -314,7 +314,11 @@ Optional START and END limit the range."
 
 (defun markdown-modern-ts--containing-block (pos)
   "Get the block element containing position POS."
-  (when-let* ((node (markdown-modern-ts--node-at pos)))
+  ;; `treesit-node-at' can return a parentless block_continuation at a
+  ;; newline inside a code fence.  A named node covering the character
+  ;; keeps the enclosing block accessible, including on blank content lines.
+  (when-let* ((parser markdown-modern-ts--parser)
+              (node (treesit-node-on pos (min (1+ pos) (point-max)) parser t)))
     ;; Walk up to find block-level element
     (let ((current node))
       (while (and current
@@ -367,8 +371,7 @@ Optional START and END limit the range."
 (defun markdown-modern-ts--inline-elements-in (start end)
   "Get inline elements within range START to END."
   (when markdown-modern-ts--inline-parser
-    (let ((elements '())
-          (_text (buffer-substring-no-properties start end)))
+    (let ((elements '()))
       ;; Parse the text range for inline elements
       (treesit-parser-set-included-ranges
        markdown-modern-ts--inline-parser
@@ -385,11 +388,10 @@ Optional START and END limit the range."
         (type (treesit-node-type node)))
     (when (member type '("emphasis" "strong_emphasis" "strikethrough"
                         "code_span" "inline_link" "full_reference_link"
-                        "image" "uri_autolink" "email_autolink"))
+                        "image" "uri_autolink" "email_autolink" "latex_block"))
       (push node result))
-    ;; Recurse into children, but not inside inline code. Markdown content inside
-    ;; a code span must stay literal, including underscores and asterisks.
-    (unless (string= type "code_span")
+    ;; Code and math contents stay literal, including Markdown delimiters.
+    (unless (member type '("code_span" "latex_block"))
       (dotimes (i (treesit-node-child-count node))
         (setq result (append result
                              (markdown-modern-ts--collect-inline-nodes
@@ -397,471 +399,14 @@ Optional START and END limit the range."
     result))
 
 (defun markdown-modern-ts--literal-inline-at-p (pos)
-  "Return non-nil if POS is inside literal inline code or an HTML tag."
-  (when (and markdown-modern-ts--use-tree-sitter markdown-modern-ts--inline-parser)
+  "Return non-nil if POS is inside inline code, math or an HTML tag."
+  (when markdown-modern-ts--inline-parser
     (let ((node (treesit-node-at pos markdown-modern-ts--inline-parser)))
       (while (and node
-                  (not (member (treesit-node-type node) '("code_span" "html_tag"))))
+                  (not (member (treesit-node-type node)
+                               '("code_span" "latex_block" "html_tag"))))
         (setq node (treesit-node-parent node)))
       node)))
-
-;;; Fallback Regex-based Parsing
-
-(defconst markdown-modern-ts--heading-regex
-  "^\\(#\\{1,6\\}\\) +\\(.*\\)"
-  "Regex for ATX headings.")
-
-(defconst markdown-modern-ts--emphasis-regex
-  "\\(?:^\\|[^\\*_]\\)\\(\\*\\([^\\*\n\r]+\\)\\*\\|_\\([^_\n\r]+\\)_\\)"
-  "Regex for emphasis (italic).  Only matches within a single line.")
-
-(defconst markdown-modern-ts--strong-regex
-  "\\(?:^\\|[^\\*_]\\)\\(\\*\\*\\([^\\*\n\r]+\\)\\*\\*\\|__\\([^_\n\r]+\\)__\\)"
-  "Regex for strong (bold).  Only matches within a single line.")
-
-(defconst markdown-modern-ts--code-span-regex
-  "`\\([^`\n\r]+\\)`"
-  "Regex for inline code.  Only matches within a single line.")
-
-(defconst markdown-modern-ts--image-regex
-  "!\\[\\([^]]*\\)\\](\\([^)]+\\))"
-  "Regex for inline images.")
-
-(defconst markdown-modern-ts--link-regex
-  "\\[\\([^]]+\\)\\](\\([^)]+\\))"
-  "Regex for inline links.")
-
-(defconst markdown-modern-ts--code-block-regex
-  "^[ \t]?[ \t]?[ \t]?\\(?:```\\|~~~\\)\\([a-zA-Z0-9_+-]*\\)?[ \t]*\r?$"
-  "Regex for fenced code block start/end.
-Group 1 captures the language (empty for a bare fence).
-Allows up to 3 spaces indent per CommonMark spec.
-Handles Windows CRLF line endings with \\r?.")
-
-(defconst markdown-modern-ts--html-block-start-regex
-  (concat "</?"
-          (regexp-opt '("address" "article" "aside" "base" "basefont" "blockquote"
-                        "body" "caption" "center" "col" "colgroup" "dd" "details"
-                        "dialog" "dir" "div" "dl" "dt" "fieldset" "figcaption"
-                        "figure" "footer" "form" "frame" "frameset" "h1" "h2" "h3"
-                        "h4" "h5" "h6" "head" "header" "hr" "html" "iframe" "legend"
-                        "li" "link" "main" "menu" "menuitem" "nav" "noframes" "ol"
-                        "optgroup" "option" "p" "param" "search" "section" "summary"
-                        "table" "tbody" "td" "tfoot" "th" "thead" "title" "tr" "track" "ul"))
-          "\\(?:[ \t>]\\|/>\\|$\\)")
-  "Start of a blank-line-terminated HTML block, per CommonMark section 4.6.")
-
-(defun markdown-modern-ts--fallback-literal-inline-regions (start end)
-  "Find literal inline code and HTML ranges within paragraph START..END."
-  (let (regions)
-    (save-excursion
-      (goto-char start)
-      (while (re-search-forward "`+\\|<[/!?[:alpha:]][^>]*>" end t)
-        (let ((s (match-beginning 0)) (e (match-end 0)))
-          (if (eq (char-after s) ?`)
-              (let ((length (- e s)) close)
-                (save-excursion
-                  (while (and (not close) (re-search-forward "`+" end t))
-                    (when (= (- (match-end 0) (match-beginning 0)) length)
-                      (setq close (match-end 0)))))
-                (when close
-                  (push (cons s close) regions)
-                  (goto-char close)))
-            (push (cons s e) regions)))))
-    regions))
-
-(defun markdown-modern-ts--fallback-paragraphs (start end elements)
-  "Find prose paragraphs in START..END around parsed block ELEMENTS.
-List items start new paragraphs; indented and quoted continuation lines stay
-in the same paragraph.  Literal blocks and blank lines end paragraphs."
-  (let ((blocks (sort (seq-filter
-                       (lambda (el)
-                         (memq (markdown-modern-node-type el)
-                               '(heading hr code-block table math-block)))
-                       elements)
-                      (lambda (a b) (< (markdown-modern-node-start a)
-                                       (markdown-modern-node-start b)))))
-        (literal-regions
-         (sort (mapcar (lambda (el) (cons (markdown-modern-node-start el)
-                                          (markdown-modern-node-end el)))
-                       (seq-filter (lambda (el)
-                                     (memq (markdown-modern-node-type el) '(code-span image)))
-                                   elements))
-               (lambda (a b) (< (car a) (car b)))))
-        paragraphs paragraph-start paragraph-end quote-depth literal fence)
-    (cl-labels
-        ((finish ()
-           (when paragraph-start
-             (while (and literal-regions (<= (cdar literal-regions) paragraph-start))
-               (setq literal-regions (cdr literal-regions)))
-             (push (make-markdown-modern-node
-                    :type 'paragraph :start paragraph-start :end paragraph-end
-                    :properties
-                    (list :literal-regions
-                          (append (markdown-modern-ts--fallback-literal-inline-regions
-                                   paragraph-start paragraph-end)
-                                  (cl-loop for range in literal-regions
-                                           while (< (car range) paragraph-end)
-                                           collect range))))
-                   paragraphs))
-           (setq paragraph-start nil)))
-      (save-excursion
-        (goto-char start)
-        (while (< (point) end)
-          (let* ((bol (point))
-                 (eol (min end (line-end-position)))
-                 (depth 0)
-                 item content content-indent)
-            (setq content-indent (skip-chars-forward " \t" eol))
-            (while (and (< (point) eol) (looking-at ">[ \t]?"))
-              (cl-incf depth)
-              (goto-char (match-end 0))
-              (setq content-indent (skip-chars-forward " \t" eol)))
-            (when (looking-at "\\(?:[-*+]\\|[0-9]+[.)]\\)[ \t]+")
-              (setq item t)
-              (goto-char (min eol (match-end 0))))
-            (setq content (point))
-            ;; Advance through ordered block ranges instead of rescanning all
-            ;; blocks on each line of a large rendered region.
-            (while (and blocks (<= (markdown-modern-node-end (car blocks)) bol))
-              (setq blocks (cdr blocks)))
-            (cond
-             (fence
-              (finish)
-              (when (looking-at-p fence) (setq fence nil)))
-             ((stringp literal)
-              (finish)
-              (when (re-search-forward literal eol t) (setq literal nil)))
-             ((or (= content eol) (looking-at-p "\r?$")
-                  (and blocks (<= (markdown-modern-node-start (car blocks)) bol)))
-              (finish)
-              (setq literal nil))
-             ((looking-at "\\(`\\{3,\\}\\|~\\{3,\\}\\)")
-              (finish)
-              (setq fence (format "%c\\{%d,\\}[ \t]*\r?$"
-                                  (char-after content)
-                                  (length (match-string 1)))))
-             ;; These block boundaries do not consume following prose.
-             ((looking-at-p "\\(?:[=-]+[ \t]*\r?$\\|#\\{1,6\\}[ \t]+\\|\\[[^]\n]+\\]:\\)")
-              (finish))
-             ;; Indented code ends on dedent.
-             ((and (not paragraph-start) (not item) (>= content-indent 4))
-              (finish))
-             ;; Raw HTML and comments may contain blank lines.  Other HTML
-             ;; blocks end at a blank line, rather than at their closing tag.
-             ((or literal
-                  (cond
-                   ((looking-at-p "<\\(?:script\\|style\\|pre\\|textarea\\)\\(?:[ \t>]\\|$\\)")
-                    (setq literal "</\\(?:script\\|style\\|pre\\|textarea\\)>"))
-                   ((looking-at-p "<!--") (setq literal "-->"))
-                   ((looking-at-p "<[?]") (setq literal "[?]>"))
-                   ((looking-at-p "<!\\[CDATA\\[") (setq literal "\\]\\]>"))
-                   ((looking-at-p "<![[:alpha:]]") (setq literal ">"))
-                   ((or (looking-at-p markdown-modern-ts--html-block-start-regex)
-                        (and (not paragraph-start)
-                             (looking-at-p "</?[[:alpha:]][[:alnum:]-]*\\(?:[ \t]+[^>\n]*\\)?/?>[ \t]*\r?$")))
-                    (setq literal t))))
-              (finish)
-              (when (and (stringp literal) (re-search-forward literal eol t))
-                (setq literal nil)))
-             (t
-              ;; An unprefixed line can lazily continue a quoted paragraph.
-              (when (and paragraph-start (= depth 0) (> quote-depth 0) (not item))
-                (setq depth quote-depth))
-              (when (or item (not (equal depth quote-depth))) (finish))
-              (unless paragraph-start (setq paragraph-start content))
-              (setq paragraph-end (min end (1+ (line-end-position)))
-                    quote-depth depth)))
-            (goto-char bol)
-            (forward-line 1)))
-        (finish)))
-    (nreverse paragraphs)))
-
-(defun markdown-modern-ts--fallback-parse-region (start end)
-  "Parse region from START to END using regex fallback."
-  (condition-case err
-      (let ((elements '())
-            (code-block-regions '())    ; Track code block regions to exclude
-            (code-span-regions '())     ; Track inline code spans to exclude
-            (blockquote-regions '()))   ; Track blockquote regions to exclude
-        (save-excursion
-      ;; FIRST: Find all fenced code blocks to know what regions to skip
-      ;; Search for closing fence beyond region boundary if needed
-      ;; Note: Use \r? for Windows CRLF
-      ;; Important: closing fence must match opening fence type AND indentation
-      (goto-char start)
-      (while (and (< (point) end)
-                  (re-search-forward "^\\([ \t]*\\)\\(```\\|~~~\\)\\([a-zA-Z0-9_+-]*\\)?[ \t]*\r?$" end t))
-        (let* ((block-start (match-beginning 0))
-               (_indent (match-string 1))     ; Capture the indentation
-               (fence-char (match-string 2))  ; "```" or "~~~"
-               (lang (match-string 3))
-               ;; Build regex requiring SAME fence character for closing
-               ;; Allow any leading whitespace (indented code blocks in lists)
-               (closing-regex (concat "^[ \t]*" (regexp-quote fence-char) "[ \t]*\r?$"))
-               ;; Limit search to reasonable distance (500 lines max)
-               (search-limit (save-excursion (forward-line 500) (point))))
-          ;; Search for closing fence with same character and compatible indentation
-          (when (re-search-forward closing-regex search-limit t)
-            (let ((block-end (match-end 0)))
-              (push (cons block-start block-end) code-block-regions)
-              (push (make-markdown-modern-node
-                     :type 'code-block
-                     :start block-start
-                     :end block-end
-                     :properties (list :language lang))
-                    elements)))))
-
-      ;; SECOND: Find all blockquotes to know what regions to skip for inline elements
-      (goto-char start)
-      (while (and (< (point) end)
-                  (re-search-forward "^\\(>+\\)[ \t]?" end t))
-        (let ((quote-start (match-beginning 0))
-              (quote-end (line-end-position)))
-          ;; Extend to include consecutive blockquote lines
-          (save-excursion
-            (forward-line 1)
-            (while (and (< (point) end)
-                        (looking-at "^>"))
-              (setq quote-end (line-end-position))
-              (forward-line 1)))
-          (push (cons quote-start (min quote-end end)) blockquote-regions)
-          (goto-char (min quote-end end))))
-
-      ;; Helpers for skipping regions where inline markup should not be parsed.
-      ;; `in-literal-region-p' treats the position right after a closing backtick
-      ;; as *outside* the span — emphasis adjacent to it can use that backtick
-      ;; as its required non-`*_' prefix character.
-      (cl-labels ((in-code-block-p (pos)
-                    (cl-some (lambda (region)
-                               (and (>= pos (car region))
-                                    (<= pos (cdr region))))
-                             code-block-regions))
-                  (in-special-block-p (pos)
-                    (or (cl-some (lambda (region)
-                                   (and (>= pos (car region))
-                                        (<= pos (cdr region))))
-                                 code-block-regions)
-                        (cl-some (lambda (region)
-                                   (and (>= pos (car region))
-                                        (<= pos (cdr region))))
-                                 blockquote-regions)))
-                  (in-literal-region-p (pos)
-                    (or (cl-some (lambda (region)
-                                   (and (>= pos (car region))
-                                        (< pos (cdr region))))
-                                 code-block-regions)
-                        (cl-some (lambda (region)
-                                   (and (>= pos (car region))
-                                        (< pos (cdr region))))
-                                 code-span-regions))))
-
-        ;; Find inline code spans before other inline markup so emphasis, links,
-        ;; and math markers inside backticks are treated as literal text.
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward markdown-modern-ts--code-span-regex end t))
-          (unless (in-special-block-p (match-beginning 0))
-            (let ((span-start (match-beginning 0))
-                  (span-end (min (match-end 0) end)))
-              (push (cons span-start span-end) code-span-regions)
-              (push (make-markdown-modern-node
-                     :type 'code-span
-                     :start span-start
-                     :end span-end)
-                    elements))))
-
-        ;; Find headings (not in code blocks)
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward markdown-modern-ts--heading-regex end t))
-          (unless (in-code-block-p (match-beginning 0))
-            (push (make-markdown-modern-node
-                   :type 'heading
-                   :start (match-beginning 0)
-                   :end (min (match-end 0) end)
-                   :level (length (match-string 1)))
-                  elements)))
-
-        ;; Find horizontal rules (not in code blocks)
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward "^\\(---+\\|\\*\\*\\*+\\|___+\\)[ \t]*$" end t))
-          (unless (in-code-block-p (match-beginning 0))
-            (push (make-markdown-modern-node
-                   :type 'hr
-                   :start (match-beginning 0)
-                   :end (min (match-end 0) end))
-                  elements)))
-
-        ;; Find blockquotes (not in code blocks) - group consecutive lines
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward "^\\(>+\\)[ \t]?" end t))
-          (unless (in-code-block-p (match-beginning 0))
-            (let ((quote-start (match-beginning 0))
-                  (level (length (match-string 1)))
-                  (quote-end (line-end-position)))
-              ;; Extend to include consecutive blockquote lines
-              (save-excursion
-                (forward-line 1)
-                (while (and (< (point) end)
-                            (looking-at "^>"))
-                  (setq quote-end (line-end-position))
-                  (forward-line 1)))
-              (push (make-markdown-modern-node
-                     :type 'blockquote
-                     :start quote-start
-                     :end (min quote-end end)
-                     :level level)
-                    elements)
-              ;; Skip to end of this blockquote
-              (goto-char (min quote-end end)))))
-
-        ;; Find unordered list items (not in code blocks)
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward "^\\([ \t]*\\)\\([-*+]\\)[ \t]+" end t))
-          (unless (in-code-block-p (match-beginning 0))
-            (let ((item-start (match-beginning 0))
-                  (indent (length (match-string 1))))
-              (push (make-markdown-modern-node
-                     :type 'list-item
-                     :start item-start
-                     :end (min (line-end-position) end)
-                     :level (/ indent 2)
-                     :properties (list :ordered nil))
-                    elements))))
-
-        ;; Find ordered list items (not in code blocks)
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward "^\\([ \t]*\\)\\([0-9]+\\)[.)][ \t]+" end t))
-          (unless (in-code-block-p (match-beginning 0))
-            (let ((item-start (match-beginning 0))
-                  (indent (length (match-string 1)))
-                  (num (string-to-number (match-string 2))))
-              (push (make-markdown-modern-node
-                     :type 'list-item
-                     :start item-start
-                     :end (min (line-end-position) end)
-                     :level (/ indent 2)
-                     :properties (list :ordered t :number num))
-                    elements))))
-
-        ;; Find tables - group consecutive table rows into single table element
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward "^|.+|[ \t]*$" end t))
-          (unless (in-code-block-p (match-beginning 0))
-            (let ((table-start (match-beginning 0))
-                  (table-end (match-end 0)))
-              ;; Extend to include all consecutive table rows
-              (save-excursion
-                (forward-line 1)
-                (while (and (< (point) end)
-                            (looking-at "^|.+|[ \t]*$"))
-                  (setq table-end (match-end 0))
-                  (forward-line 1)))
-              (push (make-markdown-modern-node
-                     :type 'table
-                     :start table-start
-                     :end (min table-end end))
-                    elements)
-              ;; Skip to end of this table
-              (goto-char (min table-end end)))))
-
-        ;; Find display math blocks ($$...$$) - two-pass like code blocks
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward "^\\$\\$[ \t]*\r?$" end t))
-          (let ((block-start (match-beginning 0)))
-            (unless (in-code-block-p block-start)
-              (if (re-search-forward "^\\$\\$[ \t]*\r?$" end t)
-                  (let ((block-end (match-end 0)))
-                    (push (make-markdown-modern-node
-                           :type 'math-block
-                           :start block-start
-                           :end (min block-end end))
-                          elements))
-                ;; No closing $$, skip
-                (goto-char end)))))
-
-        ;; Find inline math ($...$) - not in code blocks/spans, not display math
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward "\\$\\([^$\n]+\\)\\$" end t))
-          (let ((pos (match-beginning 0))
-                (mend (match-end 0)))
-            (unless (or (in-literal-region-p pos)
-                        (and (> pos (point-min))
-                             (eq (char-before pos) ?$))
-                        (and (< mend (point-max))
-                             (eq (char-after mend) ?$)))
-              (push (make-markdown-modern-node
-                     :type 'math
-                     :start pos
-                     :end (min mend end))
-                    elements))))
-
-        ;; Find inline elements - outside code blocks and code spans
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward markdown-modern-ts--strong-regex end t))
-          (let ((pos (match-beginning 1)))
-            (unless (in-literal-region-p pos)
-              (push (make-markdown-modern-node
-                     :type 'strong
-                     :start pos
-                     :end (min (match-end 1) end))
-                    elements))))
-
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward markdown-modern-ts--emphasis-regex end t))
-          (let ((pos (match-beginning 1)))
-            (unless (in-literal-region-p pos)
-              (push (make-markdown-modern-node
-                     :type 'emphasis
-                     :start pos
-                     :end (min (match-end 1) end))
-                    elements))))
-
-        ;; Find images (before links so links can skip image positions)
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward markdown-modern-ts--image-regex end t))
-          (let ((pos (match-beginning 0)))
-            (unless (in-literal-region-p pos)
-              (push (make-markdown-modern-node
-                     :type 'image
-                     :start pos
-                     :end (min (match-end 0) end)
-                     :properties (list :alt (match-string 1)
-                                       :url (match-string 2)))
-                    elements))))
-
-        (goto-char start)
-        (while (and (< (point) end)
-                    (re-search-forward markdown-modern-ts--link-regex end t))
-          (let ((pos (match-beginning 0)))
-            (unless (or (in-literal-region-p pos)
-                        ;; Skip if preceded by ! (that's an image, not a link)
-                        (and (> pos (point-min))
-                             (eq (char-before pos) ?!)))
-              (push (make-markdown-modern-node
-                     :type 'link
-                     :start pos
-                     :end (min (match-end 0) end)
-                     :properties (list :text (match-string 1)
-                                       :url (match-string 2)))
-                    elements))))))
-      (setq elements (nreverse elements))
-      (nconc elements
-             (markdown-modern-ts--fallback-paragraphs start end elements)))
-    (error
-     (message "markdown-modern: Parse error: %s" (error-message-string err))
-     nil)))
 
 (provide 'markdown-modern-ts)
 ;;; markdown-modern-ts.el ends here

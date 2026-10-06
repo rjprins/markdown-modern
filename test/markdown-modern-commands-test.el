@@ -10,6 +10,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'markdown-modern)
 (require 'markdown-modern-commands)
 (require 'markdown-modern-elements)
 (require 'markdown-modern-render)
@@ -31,6 +32,7 @@ BODY contains the commands to execute."
               (content (replace-regexp-in-string "|" "" init-str)))
          (insert content)
          (goto-char (1+ (or cursor-pos 0))))
+       (markdown-modern-ts--init)
        ;; Execute body
        ,@body
        ;; Check expected state
@@ -58,6 +60,7 @@ Use [ and ] to mark region boundaries in INITIAL."
            (set-mark (1+ region-start))
            (goto-char (1+ region-end))
            (activate-mark)))
+       (markdown-modern-ts--init)
        ;; Execute body
        ,@body
        ;; Check expected state
@@ -278,6 +281,7 @@ Use [ and ] to mark region boundaries in INITIAL."
   "Navigate to next heading."
   (with-temp-buffer
     (insert "# First\n\ntext\n\n## Second")
+    (markdown-modern-mode)
     (goto-char (point-min))
     (markdown-modern-next-heading)
     (should (looking-at "## Second"))))
@@ -286,6 +290,7 @@ Use [ and ] to mark region boundaries in INITIAL."
   "Navigate to previous heading."
   (with-temp-buffer
     (insert "# First\n\ntext\n\n## Second")
+    (markdown-modern-mode)
     (goto-char (point-max))
     (markdown-modern-prev-heading)
     (should (looking-at "## Second"))
@@ -296,6 +301,7 @@ Use [ and ] to mark region boundaries in INITIAL."
   "Navigate to next heading at same level."
   (with-temp-buffer
     (insert "## A\n\n### Sub\n\n## B")
+    (markdown-modern-mode)
     (goto-char (point-min))
     (markdown-modern-next-heading-same-level)
     (should (looking-at "## B"))))
@@ -304,6 +310,7 @@ Use [ and ] to mark region boundaries in INITIAL."
   "Navigate to parent heading."
   (with-temp-buffer
     (insert "# Parent\n\n## Child\n\n### Grandchild")
+    (markdown-modern-mode)
     (goto-char (point-max))
     (beginning-of-line)
     (markdown-modern-up-heading)

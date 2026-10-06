@@ -717,10 +717,10 @@ revealed lines (by parsing raw markdown syntax at point)."
   "Source buffer for code edit indirect buffer.")
 
 (defvar-local markdown-modern-code-edit--block-bounds nil
-  "Cons (START . END) of the full code block in the source buffer.")
+  "Cons of start and end markers for the full code block.")
 
 (defvar-local markdown-modern-code-edit--content-bounds nil
-  "Cons (START . END) of the content region in the source buffer.")
+  "Cons of start and end markers for the code content region.")
 
 (defvar-local markdown-modern-code-edit--original-content nil
   "Original content of the code block, for abort/revert.")
@@ -778,8 +778,10 @@ with the language's major mode."
               (funcall mode))))
         ;; Set buffer-local state
         (setq markdown-modern-code-edit--source-buffer source-buf)
-        (setq markdown-modern-code-edit--block-bounds (cons block-start block-end))
-        (setq markdown-modern-code-edit--content-bounds (cons content-start content-end))
+        (setq markdown-modern-code-edit--block-bounds
+              (cons (copy-marker block-start) (copy-marker block-end t)))
+        (setq markdown-modern-code-edit--content-bounds
+              (cons (copy-marker content-start) (copy-marker content-end t)))
         (setq markdown-modern-code-edit--original-content original)
         ;; Enable the minor mode
         (markdown-modern-code-edit-mode 1)
@@ -811,7 +813,8 @@ Re-renders the code block region."
       ;; Re-render the block region
       (when (and (boundp 'markdown-modern--rendering-enabled)
                  markdown-modern--rendering-enabled)
-        (markdown-modern-render--render-region (car block-bounds) (cdr block-bounds))))
+        (markdown-modern-render--render-region
+         (marker-position (car block-bounds)) (marker-position (cdr block-bounds)))))
     ;; Kill the edit buffer (remove hook first to avoid double-cleanup)
     (with-current-buffer edit-buf
       (remove-hook 'kill-buffer-hook #'markdown-modern-code-edit--on-kill t))
@@ -845,7 +848,8 @@ Re-renders the code block region."
       ;; Re-render the block region
       (when (and (boundp 'markdown-modern--rendering-enabled)
                  markdown-modern--rendering-enabled)
-        (markdown-modern-render--render-region (car block-bounds) (cdr block-bounds))))
+        (markdown-modern-render--render-region
+         (marker-position (car block-bounds)) (marker-position (cdr block-bounds)))))
     ;; Kill the edit buffer
     (with-current-buffer edit-buf
       (remove-hook 'kill-buffer-hook #'markdown-modern-code-edit--on-kill t))
@@ -863,7 +867,7 @@ Cleans up source buffer state and re-renders the code block."
         (when (and (boundp 'markdown-modern--rendering-enabled)
                    markdown-modern--rendering-enabled)
           (markdown-modern-render--render-region
-           (car block-bounds) (cdr block-bounds)))))))
+           (marker-position (car block-bounds)) (marker-position (cdr block-bounds))))))))
 
 (provide 'markdown-modern-commands)
 ;;; markdown-modern-commands.el ends here

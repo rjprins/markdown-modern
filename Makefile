@@ -9,7 +9,7 @@ TEST_BATCH = $(BATCH) -l markdown-modern-test
 VERSION = $(shell sed -n 's/^;; Version: //p' lisp/markdown-modern.el)
 PACKAGE_FILE = dist/markdown-modern-$(VERSION).tar
 
-.PHONY: all compile test test-export test-cmd test-regex test-integration \
+.PHONY: all compile test test-export test-cmd test-ts test-setup test-integration \
         test-verbose test-count test-package bench check-syntax checkdoc lint \
         package melpa clean ci help
 
@@ -51,13 +51,14 @@ test-cmd:
 		-l markdown-modern-commands-test \
 		--eval "(ert-run-tests-batch-and-exit \"^cmd/\")"
 
-# Run only regex tests
-test-regex:
-	@echo "Running regex tests..."
+# Run only parser and setup tests
+test-ts:
+	@echo "Running parser and setup tests..."
 	@$(BATCH) \
 		-l markdown-modern \
-		-l markdown-modern-regex-test \
-		--eval "(ert-run-tests-batch-and-exit \"^regex/\")"
+		-l markdown-modern-ts-test \
+		-l markdown-modern-setup-test \
+		--eval '(ert-run-tests-batch-and-exit (quote (or "^ts/" "^setup/")))'
 
 # Run only integration tests
 test-integration:
@@ -66,6 +67,10 @@ test-integration:
 		-l markdown-modern \
 		-l markdown-modern-integration-test \
 		--eval "(ert-run-tests-batch-and-exit \"^integration/\")"
+
+# Load the package without grammars in a fresh process
+test-setup:
+	@$(BATCH) -l scripts/setup-test.el
 
 # Rendering benchmark (not a pass/fail test)
 bench:
@@ -141,6 +146,7 @@ clean:
 # Run the checks in order, including under make -j
 ci:
 	@$(MAKE) clean
+	@$(MAKE) test-setup
 	@$(MAKE) check-syntax
 	@$(MAKE) lint
 	@$(MAKE) test
@@ -163,7 +169,8 @@ help:
 	@echo "  test             - Run all tests"
 	@echo "  test-export      - Run export tests only"
 	@echo "  test-cmd         - Run command tests only"
-	@echo "  test-regex       - Run regex tests only"
+	@echo "  test-ts          - Run parser and setup tests only"
+	@echo "  test-setup       - Load and report setup errors without grammars"
 	@echo "  test-integration - Run integration tests only"
 	@echo "  test-verbose     - Run tests with verbose output"
 	@echo "  test-count       - Count total tests"

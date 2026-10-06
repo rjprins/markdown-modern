@@ -4,32 +4,24 @@
 
 ;;; Commentary:
 
-;; Exercises the tree-sitter parsing path: element detection mirroring the
-;; regex-fallback coverage, plus a re-run of the renderer overlay assertions
-;; (from markdown-modern-render-test) under tree-sitter.  Every test is
-;; `skip-unless' the markdown grammars are installed, so the suite still passes
-;; in environments without them.
+;; Tests for Markdown block and inline parsing. Both grammars are required.
 
 ;;; Code:
 
 (require 'ert)
 (require 'cl-lib)
 (require 'markdown-modern)
-(require 'markdown-modern-render-test)
 
 (defmacro markdown-modern-ts-test--deftest (name &rest body)
-  "Define ERT test NAME guarded on the markdown tree-sitter grammars."
+  "Define a Markdown parser ERT test NAME."
   (declare (indent 1))
   `(ert-deftest ,name ()
-     (skip-unless (and (treesit-language-available-p 'markdown)
-                       (treesit-language-available-p 'markdown-inline)))
      ,@body))
 
 (defmacro markdown-modern-ts-test--with (text &rest body)
   "Insert TEXT in a temp buffer with tree-sitter parsers, then run BODY."
   (declare (indent 1))
   `(with-temp-buffer
-     (setq-local markdown-modern-ts--use-tree-sitter t)
      (insert ,text)
      (markdown-modern-ts--init)
      ,@body))
@@ -60,7 +52,7 @@
       (should (eq (treesit-node-parser node) markdown-modern-ts--parser))
       (should (equal (treesit-node-type node) "atx_h1_marker")))))
 
-;;; Element detection (mirrors regex coverage on the tree-sitter path)
+;;; Element detection
 
 (markdown-modern-ts-test--deftest ts/heading-detected
   (markdown-modern-ts-test--with "## A heading\n\nbody\n"
@@ -111,6 +103,30 @@
 
 ;;; Block-bounds expansion
 
+(markdown-modern-ts-test--deftest ts/code-content-boundaries
+  (dolist (text '("````python\nx\n```\ny\n`````\nafter\n"
+                  "~~~python\nx\n```\ny\n~~~~\nafter\n"
+                  "```python\nx\n```\nafter\n"
+                  "```python\nx\n"))
+    (markdown-modern-ts-test--with text
+      (goto-char (point-min))
+      (search-forward "x")
+      (let ((info (markdown-modern--fenced-code-block-content-at (point))))
+        (should info)
+        (should (equal (plist-get info :language) "python"))
+        (should (string-prefix-p "x\n" (buffer-substring-no-properties
+                                        (plist-get info :content-start)
+                                        (plist-get info :content-end)))))
+      (when (search-forward "after" nil t)
+        (should-not (markdown-modern--fenced-code-block-at (point)))))))
+
+(markdown-modern-ts-test--deftest ts/heading-context-excludes-code
+  (markdown-modern-ts-test--with "## Real heading\n\n```\n## Literal heading\n```\n"
+    (goto-char 5)
+    (should (= 2 (markdown-modern-heading-level-at-point)))
+    (search-forward "Literal")
+    (should-not (markdown-modern-heading-level-at-point))))
+
 (markdown-modern-ts-test--deftest ts/containing-block-bounds-covers-table
   (markdown-modern-ts-test--with "before\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\nafter\n"
     (goto-char (point-min))
@@ -131,24 +147,38 @@
       ;; asterisks inside it.
       (should (= 1 (cl-count 'emphasis types))))))
 
-;;; Renderer overlay output, re-run under tree-sitter
-
-(markdown-modern-ts-test--deftest ts/render-heading       (markdown-modern-render-test--assert-heading t))
-(markdown-modern-ts-test--deftest ts/render-strong        (markdown-modern-render-test--assert-strong t))
-(markdown-modern-ts-test--deftest ts/render-emphasis      (markdown-modern-render-test--assert-emphasis t))
-(markdown-modern-ts-test--deftest ts/render-code-span     (markdown-modern-render-test--assert-code-span t))
-(markdown-modern-ts-test--deftest ts/render-strikethrough (markdown-modern-render-test--assert-strikethrough t))
-(markdown-modern-ts-test--deftest ts/render-link          (markdown-modern-render-test--assert-link t))
-(markdown-modern-ts-test--deftest ts/render-code-block    (markdown-modern-render-test--assert-code-block t))
-(markdown-modern-ts-test--deftest ts/render-table         (markdown-modern-render-test--assert-table t))
-(markdown-modern-ts-test--deftest ts/render-soft-breaks    (markdown-modern-render-test--assert-soft-breaks t))
-(markdown-modern-ts-test--deftest ts/render-break-boundaries (markdown-modern-render-test--assert-break-boundaries t))
-(markdown-modern-ts-test--deftest ts/render-container-soft-breaks (markdown-modern-render-test--assert-container-soft-breaks t))
-(markdown-modern-ts-test--deftest ts/render-soft-break-editing (markdown-modern-render-test--assert-soft-break-editing t))
-(markdown-modern-ts-test--deftest ts/render-soft-breaks-after-blocks (markdown-modern-render-test--assert-prose-after-blocks t))
-(markdown-modern-ts-test--deftest ts/render-soft-break-navigation (markdown-modern-render-test--assert-soft-break-navigation t))
-
 ;;; Line-leading markers revealed at point
+
+(markdown-modern-ts-test--deftest ts/snake-case-stays-literal
+  (markdown-modern-ts-test--with "plain_no_code_x and foo__bar__baz and _real_\n"
+    (should (equal (markdown-modern-ts-test--inline-types) '(emphasis)))))
+
+(markdown-modern-ts-test--deftest ts/code-spans-suppress-crossing-markup
+  (dolist (text '("x_y and `p_q` done" "x*y and `p*q` done" "`a_b` mid `c_d`"))
+    (markdown-modern-ts-test--with text
+      (should-not (memq 'emphasis (markdown-modern-ts-test--inline-types))))))
+
+(markdown-modern-ts-test--deftest ts/code-span-markup-is-literal
+  (dolist (text '("`this_has_underscores`" "`a*b*c`" "`__dunder__`"
+                  "`a**b**c`" "`[x](y)`" "`$x$`" "`![a](b)`"))
+    (markdown-modern-ts-test--with text
+      (should (equal (markdown-modern-ts-test--inline-types) '(code-span))))))
+
+(markdown-modern-ts-test--deftest ts/fence-variants-preserve-language
+  (dolist (text '("```python\nx\n```\n" "~~~ruby\nx\n~~~\n"
+                  "   ```objective-c\nx\n   ```\n"))
+    (markdown-modern-ts-test--with text
+      (let ((block (cl-find 'code-block
+                            (markdown-modern-ts--elements-in-region (point-min) (point-max))
+                            :key #'markdown-modern-node-type)))
+        (should block)
+        (should (member (markdown-modern-node-language block)
+                        '("python" "ruby" "objective-c")))))))
+
+(markdown-modern-ts-test--deftest ts/math-detection
+  (markdown-modern-ts-test--with "$x$\n\n$$\nx^2\n$$\n"
+    (should (equal (markdown-modern-ts-test--inline-types) '(math math-block)))))
+
 
 (markdown-modern-ts-test--deftest ts/marker-reveal-bullet
   (markdown-modern-ts-test--with "- item\n"

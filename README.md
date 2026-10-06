@@ -13,13 +13,44 @@ markdown-modern renders Markdown inline — headings, emphasis, code, tables, im
 
 markdown-modern is a fork of [mark-graf](https://github.com/hyperZphere/mark-graf) by Marc Ansset.
 
+## How this fork differs from mark-graf
+
+The main changes are in editing, rendering and parser setup:
+
+- **One editing model.** Reveal just the markup under the cursor while keeping
+  its styling and nearby content rendered. This replaces mark-graf's line,
+  block and hybrid modes and its source/rendered toggles.
+- **Rendering follows the viewport.** `jit-lock` renders visible regions and
+  invalidates edited blocks, keeping large files responsive.
+- **Tables stay rendered while editing.** Only the active row becomes editable,
+  with its borders aligned to the surrounding grid. Columns fit the window and
+  long cells wrap inside the table.
+- **Task checkboxes act as widgets.** `SPC` toggles the checkbox under the cursor;
+  `Backspace` or `Delete` removes it and leaves a plain list item.
+- **Paragraphs follow Markdown's soft-break behavior.** Ordinary source newlines
+  display as spaces without changing the file. Explicit hard breaks stay visible;
+  a subtle `↵` reveals a source newline when the cursor is on it.
+- **Tree-sitter is required.** Both Markdown grammars drive buffer parsing.
+  There is no regex parser fallback or opt-in switch. A dedicated command installs
+  missing grammars and setup errors explain what is needed.
+
+The core inline rendering, Mermaid renderer, math conversion and export commands
+come from mark-graf. Built-in HTML export still uses its own text conversion;
+the Tree-sitter requirement applies to editing and rendering Markdown buffers.
+
+Commands, faces and settings use the `markdown-modern-` prefix. When migrating
+an init file, use `markdown-modern-mode` and the settings below. The old
+`mark-graf-edit-style`, `mark-graf-update-delay` and view-toggle commands no longer
+apply. This fork also maintains checks for Emacs 30.1 and 31.1 and fresh package
+installations.
+
 ## Features
 
 **markdown-modern's own rendering and editing:**
 
 - **Inline rendering** — headings, bold, italic, inline code, links and images shown in place, via text properties and overlays
 - **Reveal-at-point editing** — the element under the cursor shows its raw markup (styling preserved) for editing, and re-renders when you move away; a single view mode, no source/rendered toggle
-- **Viewport-driven** — built on `jit-lock`, so rendering cost is independent of file size (see [Performance](#performance))
+- **Viewport-driven** — built on `jit-lock`, so routine rendering follows the visible region (see [Performance](#performance))
 - **GFM constructs** — tables, task lists, fenced code blocks, strikethrough, blockquotes, lists, horizontal rules
 - **Mermaid diagrams** — rendered inline by a built-in, pure-Elisp SVG renderer (no Node or external CLI)
 - **LaTeX math** — inline and display math via a built-in LaTeX → Unicode converter
@@ -36,11 +67,18 @@ Keybindings mirror markdown-mode's `C-c C-s …` conventions for familiarity —
 
 ## Performance
 
-Rendering is driven by `jit-lock`, so only the visible region is rendered — open and scroll cost is **independent of file size**, not proportional to it. On a 25,000-line (~600 KB) Markdown file, rendering a screenful takes about **3 ms** with the tree-sitter parser, and reveal-at-point is sub-millisecond. Run `make bench` to measure on your machine.
+Rendering is driven by `jit-lock`, which requests visible regions as you open,
+scroll and edit. After the initial parse, rendering a screenful takes about
+**4 ms** across synthetic files of 500 to 25,000 lines (~600 KB at the largest
+size), and reveal-at-point is sub-millisecond. The initial Tree-sitter parse and
+a full-buffer render still grow with file size. Run `make bench` to measure on
+your machine.
 
 ## Requirements
 
 - Emacs 30.1 or later
+- An Emacs build with Tree-sitter support
+- The `markdown` and `markdown-inline` grammars (see [setup](#tree-sitter-setup))
 
 ### Optional Dependencies
 
@@ -49,6 +87,10 @@ Rendering is driven by `jit-lock`, so only the visible region is rendered — op
 ## Installation
 
 markdown-modern is not on MELPA; install it directly from this repository.
+
+This README describes the current development version. The Tree-sitter requirement
+and soft-break behavior are unreleased; release 1.1.0 still has the older parser
+setup. The examples below install the latest development code.
 
 ### With `package-vc-install` (Emacs 30.1+, recommended)
 
@@ -66,12 +108,13 @@ With `use-package` (Emacs 30+):
 ```elisp
 (use-package markdown-modern
   :vc (:url "https://github.com/rjprins/markdown-modern"
-       :lisp-dir "lisp")
+       :lisp-dir "lisp"
+       :rev :newest)
   :mode ("\\.md\\'" . markdown-modern-mode))
 ```
 
-`use-package` selects the last release by default. Add `:rev :newest` inside
-`:vc` to follow the latest commits. To update an existing VC installation,
+`package-vc-install` follows the latest commits by default. The `:rev :newest`
+setting makes `use-package` do the same. To update an existing VC installation,
 run `M-x package-vc-upgrade` and select `markdown-modern`.
 
 ### From a release tarball
@@ -99,25 +142,24 @@ Or activate manually with `M-x markdown-modern-mode` in any markdown buffer.
 
 ### Tree-sitter setup
 
-The regex parser works without extra libraries. To use tree-sitter, install
-both Markdown grammars. Your Emacs build must include tree-sitter support.
+After installing the package, run `M-x markdown-modern-install-grammars` once.
+It installs missing `markdown` and `markdown-inline` grammars and keeps any
+already installed ones. The installer needs Git and a C compiler, and your
+Emacs build must include Tree-sitter support.
 
 ```elisp
 (require 'markdown-modern)
-(setq treesit-language-source-alist
-      (append markdown-modern-ts--grammar-sources
-              treesit-language-source-alist))
+(markdown-modern-install-grammars)
 ```
 
-Run `M-x treesit-install-language-grammar` once for `markdown` and once for
-`markdown-inline`. Then add this to your init file and reopen the buffer:
+Then open a Markdown buffer or run `M-x markdown-modern-mode` again. Tree-sitter
+is used automatically. Prebuilt grammars supplied by your system also work if
+Emacs can find them.
 
-```elisp
-(setq-default markdown-modern-ts--use-tree-sitter t)
-```
-
-The switch above is the current internal opt-in setting. If a grammar cannot
-be installed, leave it at `nil` to use the regex parser.
+Opening a buffer never downloads grammars. If one is missing, mode activation
+stops with a message naming the grammar and the installer command. If Emacs
+lacks Tree-sitter support, use an Emacs build that includes it. Remove any old
+`markdown-modern-ts--use-tree-sitter` setting from your init file.
 
 ### Quick Start
 
@@ -332,11 +374,14 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
 
 - Setext-style headings (underlines) are not supported
 - Math rendering requires external tools for SVG output
+- Display math must stay within one paragraph; blank lines inside `$$` blocks
+  are not recognized by the Markdown grammar.
 - Some complex nested structures may not render perfectly
 
 ## Development
 
-Run these commands from the repository root:
+Install both Markdown grammars first; parser tests require them. Then run these
+commands from the repository root:
 
 ```sh
 make test          # Run all eight suites
@@ -351,9 +396,10 @@ make bench         # Measure rendering speed
 Lint tools are installed under `.build/`. Tarballs go in `dist/`. Run
 `make clean` to remove compiled libraries and tarballs.
 
-CI checks Emacs 30.1 and 31.1 with and without the Markdown grammars. It runs
+CI checks Emacs 30.1 and 31.1. Each job first checks loading and the setup error
+without grammars, then installs both grammars and runs all suites without parser
+skips. Setup tests also cover an Emacs build without Tree-sitter support. CI runs
 on pushes, pull requests, manual requests and the first day of each month.
-Tests that need grammars are skipped in jobs that check the regex fallback.
 
 ### Screenshot
 

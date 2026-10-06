@@ -7,8 +7,8 @@
 ;; Main test runner for markdown-modern.
 ;; Loads all test modules and provides test execution functions.
 ;;
-;; Covers commands, export, integration, jit-lock, LaTeX conversion, regex
-;; parsing, rendering and tree-sitter parsing.
+;; Covers commands, export, integration, jit-lock, LaTeX conversion,
+;; rendering, parser setup and tree-sitter parsing.
 ;;
 ;; Run tests:
 ;;   M-x markdown-modern-run-all-tests
@@ -26,11 +26,12 @@
 
 ;; Load markdown-modern
 (require 'markdown-modern)
+(markdown-modern-ts--ensure-grammar)
 
 ;; Load test modules
 (require 'markdown-modern-export-test)
 (require 'markdown-modern-commands-test)
-(require 'markdown-modern-regex-test)
+(require 'markdown-modern-setup-test)
 (require 'markdown-modern-integration-test)
 (require 'markdown-modern-jit-test)
 (require 'markdown-modern-latex-test)
@@ -38,7 +39,7 @@
 (require 'markdown-modern-ts-test)
 
 (defconst markdown-modern-test-selector
-  "^\\(export\\|cmd\\|regex\\|integration\\|jit\\|latex\\|render\\|ts\\)/"
+  "^\\(export\\|cmd\\|setup\\|integration\\|jit\\|latex\\|render\\|ts\\)/"
   "ERT selector for all markdown-modern test suites.")
 
 ;;; Test Runner Functions
@@ -58,11 +59,6 @@
   (interactive)
   (ert-run-tests-interactively "^cmd/"))
 
-(defun markdown-modern-run-regex-tests ()
-  "Run only regex tests."
-  (interactive)
-  (ert-run-tests-interactively "^regex/"))
-
 (defun markdown-modern-run-integration-tests ()
   "Run only integration tests."
   (interactive)
@@ -80,7 +76,7 @@
   "Display test statistics."
   (interactive)
   (let ((tests (ert-select-tests markdown-modern-test-selector t)))
-    (dolist (suite '(cmd export integration jit latex regex render ts))
+    (dolist (suite '(cmd export integration jit latex setup render ts))
       (message "%s: %d" suite
                (length (ert-select-tests (format "^%s/" suite) t))))
     (message "Total test count: %d" (length tests))))

@@ -69,16 +69,9 @@
 
 (defun markdown-modern-heading-level-at-point ()
   "Return the heading level at point, or nil if not in a heading."
-  (or
-   ;; Try tree-sitter first
-   (when-let* ((elem (ignore-errors (markdown-modern-ts--element-at (point)))))
-     (when (eq (markdown-modern-node-type elem) 'heading)
-       (markdown-modern-node-level elem)))
-   ;; Fallback to regex
-   (save-excursion
-     (beginning-of-line)
-     (when (looking-at "^\\(#\\{1,6\\}\\) ")
-       (length (match-string 1))))))
+  (when-let* ((elem (markdown-modern-ts--containing-block (point))))
+    (when (eq (markdown-modern-node-type elem) 'heading)
+      (markdown-modern-node-level elem))))
 
 (defun markdown-modern-current-heading ()
   "Return the nearest heading above point."

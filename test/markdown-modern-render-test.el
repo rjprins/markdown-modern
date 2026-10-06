@@ -6,9 +6,7 @@
 
 ;; Tests that the element renderers produce the expected overlays: markers and
 ;; delimiters hidden (display ""), content carrying the right face.  The
-;; assertions are parametrized by parser so the tree-sitter test file can reuse
-;; them (see markdown-modern-ts-test.el); the tests here run them in the
-;; regex-fallback mode that `make test' uses by default.
+;; tests exercise the required Tree-sitter parser.
 
 ;;; Code:
 
@@ -16,17 +14,14 @@
 (require 'cl-lib)
 (require 'markdown-modern)
 
-(defmacro markdown-modern-render-test--with (text tree-sitter &rest body)
-  "Render TEXT in a temp buffer and run BODY.
-TREE-SITTER non-nil selects the tree-sitter parser, otherwise the regex
-fallback is used."
-  (declare (indent 2))
+(defmacro markdown-modern-render-test--with (text &rest body)
+  "Render TEXT in a temp buffer with Tree-sitter and run BODY."
+  (declare (indent 1))
   `(with-temp-buffer
-     (setq-local markdown-modern-ts--use-tree-sitter ,tree-sitter)
      (setq-local markdown-modern--rendering-enabled t)
      (markdown-modern-render--init)
      (insert ,text)
-     (when ,tree-sitter (markdown-modern-ts--init))
+     (markdown-modern-ts--init)
      (markdown-modern--jit-fontify (point-min) (point-max))
      ,@body))
 
@@ -40,10 +35,10 @@ fallback is used."
   (cl-count-if (lambda (ov) (eq (overlay-get ov 'markdown-modern-type) type))
                (overlays-in (point-min) (point-max))))
 
-;;; Parametrized assertions (TS = use tree-sitter)
+;;; Renderer assertions
 
-(defun markdown-modern-render-test--assert-heading (ts)
-  (markdown-modern-render-test--with "## A heading\n" ts
+(defun markdown-modern-render-test--assert-heading ()
+  (markdown-modern-render-test--with "## A heading\n"
     (let ((marker (markdown-modern-render-test--ov 'heading-marker))
           (content (markdown-modern-render-test--ov 'heading-content)))
       (should marker)
@@ -51,8 +46,8 @@ fallback is used."
       (should content)
       (should (eq (overlay-get content 'face) 'markdown-modern-heading-2)))))
 
-(defun markdown-modern-render-test--assert-strong (ts)
-  (markdown-modern-render-test--with "x **bold** y\n" ts
+(defun markdown-modern-render-test--assert-strong ()
+  (markdown-modern-render-test--with "x **bold** y\n"
     (let ((delim (markdown-modern-render-test--ov 'strong-delim))
           (content (markdown-modern-render-test--ov 'strong-content)))
       (should delim)
@@ -60,8 +55,8 @@ fallback is used."
       (should content)
       (should (eq (overlay-get content 'face) 'markdown-modern-bold)))))
 
-(defun markdown-modern-render-test--assert-emphasis (ts)
-  (markdown-modern-render-test--with "x *em* y\n" ts
+(defun markdown-modern-render-test--assert-emphasis ()
+  (markdown-modern-render-test--with "x *em* y\n"
     (let ((delim (markdown-modern-render-test--ov 'emphasis-delim))
           (content (markdown-modern-render-test--ov 'emphasis-content)))
       (should delim)
@@ -69,8 +64,8 @@ fallback is used."
       (should content)
       (should (eq (overlay-get content 'face) 'markdown-modern-italic)))))
 
-(defun markdown-modern-render-test--assert-code-span (ts)
-  (markdown-modern-render-test--with "x `code` y\n" ts
+(defun markdown-modern-render-test--assert-code-span ()
+  (markdown-modern-render-test--with "x `code` y\n"
     (let ((delim (markdown-modern-render-test--ov 'code-delim))
           (content (markdown-modern-render-test--ov 'code-content)))
       (should delim)
@@ -78,8 +73,8 @@ fallback is used."
       (should content)
       (should (eq (overlay-get content 'face) 'markdown-modern-inline-code)))))
 
-(defun markdown-modern-render-test--assert-strikethrough (ts)
-  (markdown-modern-render-test--with "x ~~no~~ y\n" ts
+(defun markdown-modern-render-test--assert-strikethrough ()
+  (markdown-modern-render-test--with "x ~~no~~ y\n"
     (let ((delim (markdown-modern-render-test--ov 'strike-delim))
           (content (markdown-modern-render-test--ov 'strike-content)))
       (should delim)
@@ -87,8 +82,8 @@ fallback is used."
       (should content)
       (should (eq (overlay-get content 'face) 'markdown-modern-strikethrough)))))
 
-(defun markdown-modern-render-test--assert-link (ts)
-  (markdown-modern-render-test--with "see [text](http://x.com) ok\n" ts
+(defun markdown-modern-render-test--assert-link ()
+  (markdown-modern-render-test--with "see [text](http://x.com) ok\n"
     (let ((text (markdown-modern-render-test--ov 'link-text))
           (delim (markdown-modern-render-test--ov 'link-delim)))
       (should text)
@@ -96,26 +91,26 @@ fallback is used."
       (should delim)
       (should (equal (overlay-get delim 'display) "")))))   ; (url) hidden
 
-(defun markdown-modern-render-test--assert-code-block (ts)
-  (markdown-modern-render-test--with "```python\nprint(1)\n```\n" ts
+(defun markdown-modern-render-test--assert-code-block ()
+  (markdown-modern-render-test--with "```python\nprint(1)\n```\n"
     ;; The opening/closing fences are hidden.
     (should (> (markdown-modern-render-test--count 'code-fence) 0))))
 
-(defun markdown-modern-render-test--assert-table (ts)
-  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" ts
+(defun markdown-modern-render-test--assert-table ()
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n"
     (let ((tbl (markdown-modern-render-test--ov 'table)))
       (should tbl)
       ;; The table row is replaced by a rendered display string.
       (should (stringp (overlay-get tbl 'display))))))
 
-(defun markdown-modern-render-test--assert-soft-breaks (ts)
-  "Ordinary newlines flow as spaces with parser TS, without changing source."
+(defun markdown-modern-render-test--assert-soft-breaks ()
+  "Ordinary newlines flow as spaces, without changing source."
   (dolist (text '("required by\nthis project.\n"
                   "required by \n  this project.\n"
                   "required by\r\nthis project.\r\n"
                   "escaped\\\\\nbackslash\n"
                   "one\n    continuation\n"))
-    (markdown-modern-render-test--with text ts
+    (markdown-modern-render-test--with text
       (goto-char (point-min))
       (search-forward "\n")
       (should (equal (get-char-property (1- (point)) 'display) " "))
@@ -124,8 +119,8 @@ fallback is used."
       ;; The final newline is a block boundary, not a soft break.
       (should-not (get-char-property (1- (point-max)) 'display)))))
 
-(defun markdown-modern-render-test--assert-break-boundaries (ts)
-  "Paragraph boundaries and explicit hard breaks stay visible with parser TS."
+(defun markdown-modern-render-test--assert-break-boundaries ()
+  "Paragraph boundaries and explicit hard breaks stay visible."
   (dolist (text '("one\n\ntwo\n" "one\n \t\ntwo\n"
                   "one  \ntwo\n" "one\\\ntwo\n"
                   "one  \r\ntwo\r\n" "one\\\r\ntwo\r\n"
@@ -143,18 +138,18 @@ fallback is used."
                   "text `one\ntwo` end\n"
                   "```text\none\n\ntwo\nthree\n"
                   "[ref]: https://example.com\nbody\n"))
-    (markdown-modern-render-test--with text ts
+    (markdown-modern-render-test--with text
       (goto-char (point-min))
       (while (search-forward "\n" nil t)
         (should-not (equal (get-char-property (1- (point)) 'display) " "))))))
 
-(defun markdown-modern-render-test--assert-container-soft-breaks (ts)
-  "Continuation lines flow within lists and quotes with parser TS."
+(defun markdown-modern-render-test--assert-container-soft-breaks ()
+  "Continuation lines flow within lists and quotes."
   (dolist (text '("- one\n  two\n- three\n"
                   "1. one\n   two\n2. three\n"
                   "> one\n> two\n\n> three\n"
                   "> one\ntwo\n"))
-    (markdown-modern-render-test--with text ts
+    (markdown-modern-render-test--with text
       (goto-char (point-min))
       (search-forward "one\n")
       (should (equal (get-char-property (1- (point)) 'display) " "))
@@ -164,24 +159,24 @@ fallback is used."
       (search-forward "two\n")
       (should-not (get-char-property (1- (point)) 'display)))))
 
-(defun markdown-modern-render-test--assert-prose-after-blocks (ts)
-  "Prose after a block still flows with parser TS."
+(defun markdown-modern-render-test--assert-prose-after-blocks ()
+  "Prose after a block still flows."
   (dolist (text '("Title\n===\none\ntwo\n"
                   "[ref]: https://example.com\none\ntwo\n"
                   "```text\ncode\n\n```\none\ntwo\n"
                   "    code\none\ntwo\n"
                   "<script>\ncode\n</script>\none\ntwo\n"
                   "<https://example.com>\none\ntwo\n"))
-    (markdown-modern-render-test--with text ts
+    (markdown-modern-render-test--with text
       (goto-char (point-min))
       (search-forward "one\n")
       (should (equal (get-char-property (1- (point)) 'display) " ")))))
 
-(defun markdown-modern-render-test--assert-soft-break-editing (ts)
-  "A flowed newline remains discoverable and editable with parser TS."
+(defun markdown-modern-render-test--assert-soft-break-editing ()
+  "A flowed newline remains discoverable and editable."
   (dolist (text '("one\ntwo\n" "> one\n> two\n" "one \n  two\n"
                   "*one\ntwo*\n" "[one\ntwo](https://example.com)\n"))
-    (markdown-modern-render-test--with text ts
+    (markdown-modern-render-test--with text
       (goto-char (point-min))
       (search-forward "\n")
       (backward-char)
@@ -198,13 +193,13 @@ fallback is used."
         (search-forward "two")
         (markdown-modern--update-reveal)
         (should (equal (get-char-property newline 'display) " ")))))
-  (markdown-modern-render-test--with "one\ntwo\n" ts
+  (markdown-modern-render-test--with "one\ntwo\n"
     (goto-char 5)
     (delete-backward-char 1)
     (markdown-modern--jit-fontify (point-min) (point-max))
     (should (equal (buffer-substring-no-properties (point-min) (point-max)) "onetwo\n"))
     (should (= 0 (markdown-modern-render-test--count 'soft-break))))
-  (markdown-modern-render-test--with "one\ntwo\n" ts
+  (markdown-modern-render-test--with "one\ntwo\n"
     (goto-char 4)
     (insert "  ")
     (markdown-modern--jit-fontify (point-min) (point-max))
@@ -215,10 +210,10 @@ fallback is used."
     (markdown-modern--jit-fontify (point-min) (point-max))
     (should (equal (get-char-property 5 'display) " "))))
 
-(defun markdown-modern-render-test--assert-soft-break-navigation (ts)
-  "Keyboard point adjustment still reaches source newlines with parser TS."
+(defun markdown-modern-render-test--assert-soft-break-navigation ()
+  "Keyboard point adjustment still reaches source newlines."
   (dolist (text '("one \n  two\n" "one\n  two\n" "one\r\ntwo\r\n"))
-    (markdown-modern-render-test--with text ts
+    (markdown-modern-render-test--with text
       (save-window-excursion
         (switch-to-buffer (current-buffer))
         (add-hook 'post-command-hook #'markdown-modern--update-reveal nil t)
@@ -236,28 +231,34 @@ fallback is used."
         (run-hook-with-args 'pre-redisplay-functions (selected-window))
         (should (equal (substring-no-properties (get-char-property (point) 'display)) "↵"))))))
 
-;;; Fallback-mode tests (always run)
+;;; Rendering tests
 
-(ert-deftest render/heading ()        (markdown-modern-render-test--assert-heading nil))
-(ert-deftest render/strong ()         (markdown-modern-render-test--assert-strong nil))
-(ert-deftest render/emphasis ()       (markdown-modern-render-test--assert-emphasis nil))
-(ert-deftest render/code-span ()      (markdown-modern-render-test--assert-code-span nil))
-(ert-deftest render/link ()           (markdown-modern-render-test--assert-link nil))
-(ert-deftest render/code-block ()     (markdown-modern-render-test--assert-code-block nil))
-(ert-deftest render/table ()          (markdown-modern-render-test--assert-table nil))
-(ert-deftest render/soft-breaks ()    (markdown-modern-render-test--assert-soft-breaks nil))
-(ert-deftest render/break-boundaries () (markdown-modern-render-test--assert-break-boundaries nil))
-(ert-deftest render/container-soft-breaks () (markdown-modern-render-test--assert-container-soft-breaks nil))
-(ert-deftest render/soft-break-editing () (markdown-modern-render-test--assert-soft-break-editing nil))
-(ert-deftest render/soft-breaks-after-blocks () (markdown-modern-render-test--assert-prose-after-blocks nil))
-(ert-deftest render/soft-break-navigation () (markdown-modern-render-test--assert-soft-break-navigation nil))
-;; Strikethrough is only parsed on the tree-sitter path; see ts/render-* in
-;; markdown-modern-ts-test.el.
+(ert-deftest render/math-survives-parser-migration ()
+  "Both inline and display math still render through the required parser."
+  (markdown-modern-render-test--with "$\\alpha$\n\n$$\nx^2\n$$\n"
+    (should (markdown-modern-render-test--ov 'math-content))
+    (should (markdown-modern-render-test--ov 'math-block-content))
+    (should-not (markdown-modern-render-test--ov 'soft-break))))
+
+(ert-deftest render/heading ()        (markdown-modern-render-test--assert-heading))
+(ert-deftest render/strong ()         (markdown-modern-render-test--assert-strong))
+(ert-deftest render/emphasis ()       (markdown-modern-render-test--assert-emphasis))
+(ert-deftest render/code-span ()      (markdown-modern-render-test--assert-code-span))
+(ert-deftest render/link ()           (markdown-modern-render-test--assert-link))
+(ert-deftest render/code-block ()     (markdown-modern-render-test--assert-code-block))
+(ert-deftest render/table ()          (markdown-modern-render-test--assert-table))
+(ert-deftest render/soft-breaks ()    (markdown-modern-render-test--assert-soft-breaks))
+(ert-deftest render/break-boundaries () (markdown-modern-render-test--assert-break-boundaries))
+(ert-deftest render/container-soft-breaks () (markdown-modern-render-test--assert-container-soft-breaks))
+(ert-deftest render/soft-break-editing () (markdown-modern-render-test--assert-soft-break-editing))
+(ert-deftest render/soft-breaks-after-blocks () (markdown-modern-render-test--assert-prose-after-blocks))
+(ert-deftest render/soft-break-navigation () (markdown-modern-render-test--assert-soft-break-navigation))
+(ert-deftest render/strikethrough () (markdown-modern-render-test--assert-strikethrough))
 
 (ert-deftest render/code-block-syntax-highlight ()
   "A code block gets per-token syntax faces when highlighting is enabled."
   (skip-unless (fboundp 'python-mode))
-  (markdown-modern-render-test--with "```python\ndef greet():\n    return 1\n```\n" nil
+  (markdown-modern-render-test--with "```python\ndef greet():\n    return 1\n```\n"
     (let ((n 0))
       (dolist (ov (overlays-in (point-min) (point-max)))
         (when (eq (overlay-get ov 'markdown-modern-type) 'code-highlight)
@@ -266,7 +267,7 @@ fallback is used."
 
 (ert-deftest render/heading-marker-keeps-size ()
   "A revealed heading marker carries the heading face, not the default."
-  (markdown-modern-render-test--with "## Heading\n" nil
+  (markdown-modern-render-test--with "## Heading\n"
     (setq markdown-modern--revealed-region (markdown-modern--markup-element-at 4))
     (markdown-modern--jit-fontify (point-min) (point-max))
     (let ((faces nil) (display nil))
@@ -278,30 +279,30 @@ fallback is used."
       (should-not display))))
 
 (ert-deftest render/marker-reveal-bullet ()
-  "Point on a list bullet reveals the source marker (fallback)."
-  (markdown-modern-render-test--with "- an item\n" nil
+  "Point on a list bullet reveals the source marker."
+  (markdown-modern-render-test--with "- an item\n"
     (let ((r (markdown-modern--markup-element-at 1)))
       (should r)
       (should (= (char-after (car r)) ?-)))))
 
 (ert-deftest render/checkbox-not-revealed ()
-  "A task checkbox is a widget, so point on it reveals no markup (fallback).
+  "A task checkbox is a widget, so point on it reveals no markup.
 Neither the checkbox nor the task line's leading bullet is revealed."
-  (markdown-modern-render-test--with "- [x] done\n" nil
+  (markdown-modern-render-test--with "- [x] done\n"
     (should-not (markdown-modern--markup-element-at 1))   ; the -
     (should-not (markdown-modern--markup-element-at 3))   ; the [
     (should-not (markdown-modern--markup-element-at 4)))) ; the x
 
 (ert-deftest render/checkbox-space-toggles ()
   "SPC on a rendered checkbox toggles it instead of inserting a space."
-  (markdown-modern-render-test--with "- [ ] task\n" nil
+  (markdown-modern-render-test--with "- [ ] task\n"
     (goto-char 3)                        ; on the checkbox glyph
     (markdown-modern-space-or-toggle-checkbox 1)
     (should (equal (buffer-string) "- [x] task\n"))))
 
 (ert-deftest render/checkbox-space-inserts-off-checkbox ()
   "SPC inserts a space normally when point is not on a checkbox."
-  (markdown-modern-render-test--with "- [ ] task\n" nil
+  (markdown-modern-render-test--with "- [ ] task\n"
     (goto-char 9)                        ; the s of task
     (let ((last-command-event ?\s))
       (markdown-modern-space-or-toggle-checkbox 1))
@@ -309,21 +310,21 @@ Neither the checkbox nor the task line's leading bullet is revealed."
 
 (ert-deftest render/checkbox-delete-backward-removes-checkbox ()
   "Backspace on a checkbox removes the whole checkbox, leaving a plain item."
-  (markdown-modern-render-test--with "- [x] done\n" nil
+  (markdown-modern-render-test--with "- [x] done\n"
     (goto-char 3)                        ; on the checkbox glyph
     (markdown-modern-checkbox-delete-backward 1)
     (should (equal (buffer-string) "- done\n"))))
 
 (ert-deftest render/checkbox-delete-forward-removes-checkbox ()
   "Delete on a checkbox removes the whole checkbox, leaving a plain item."
-  (markdown-modern-render-test--with "- [x] done\n" nil
+  (markdown-modern-render-test--with "- [x] done\n"
     (goto-char 5)                        ; within the checkbox glyph
     (markdown-modern-checkbox-delete-forward 1)
     (should (equal (buffer-string) "- done\n"))))
 
 (ert-deftest render/checkbox-delete-backward-normal-off-checkbox ()
   "Backspace off a checkbox deletes one character backward as usual."
-  (markdown-modern-render-test--with "- [x] done\n" nil
+  (markdown-modern-render-test--with "- [x] done\n"
     (goto-char 9)                        ; before the n of done
     (markdown-modern-checkbox-delete-backward 1)
     (should (equal (buffer-string) "- [x] dne\n"))))
@@ -332,7 +333,7 @@ Neither the checkbox nor the task line's leading bullet is revealed."
 
 (ert-deftest render/table-reveal-narrows-to-row ()
   "Point inside a table reveals just the current row, not the whole block."
-  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n"
     (let ((r (markdown-modern--markup-element-at 23)))   ; the 1 on the data row
       (should r)
       (should (markdown-modern--table-row-region-p r))
@@ -341,7 +342,7 @@ Neither the checkbox nor the task line's leading bullet is revealed."
 
 (ert-deftest render/non-table-block-not-narrowed ()
   "Revealing a non-table block still returns the whole multi-line block."
-  (markdown-modern-render-test--with "```\nx\n```\n" nil
+  (markdown-modern-render-test--with "```\nx\n```\n"
     (let ((r (markdown-modern--markup-element-at 5)))    ; the x inside the fence
       (should r)
       (should-not (markdown-modern--table-row-region-p r))
@@ -350,7 +351,7 @@ Neither the checkbox nor the task line's leading bullet is revealed."
 
 (ert-deftest render/table-row-reveal-keeps-box ()
   "Revealing a row keeps the other rows boxed and draws the active row editable."
-  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n"
     (setq markdown-modern--revealed-region (markdown-modern--markup-element-at 23))
     (markdown-modern--jit-fontify (point-min) (point-max))
     ;; The active row is rendered as an editable grid row, not a box string.
@@ -362,7 +363,7 @@ Neither the checkbox nor the task line's leading bullet is revealed."
   "Horizontal grid lines are independent overlays that survive reveal.
 They carry a `before-string'/`after-string' and no `display', so the generic
 reveal-at-point logic leaves them intact while a neighbouring row is edited."
-  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n"
     (let ((line (markdown-modern-render-test--ov 'table-grid-line)))
       (should line)
       (should-not (overlay-get line 'display))
@@ -386,7 +387,7 @@ reveal-at-point logic leaves them intact while a neighbouring row is edited."
 Padding with real spaces (a virtual `before-string'), rather than pixel
 `:align-to', keeps columns aligned to the box at any `text-scale' zoom, where
 `window-font-width' is unreliable."
-  (markdown-modern-render-test--with "| name | x |\n|---|---|\n| a | b |\n" nil
+  (markdown-modern-render-test--with "| name | x |\n|---|---|\n| a | b |\n"
     (goto-char (point-min))
     (forward-line 2)
     (setq markdown-modern--revealed-region
@@ -459,7 +460,7 @@ of a multi-line cell regardless of overlay overrides, so the table instead
 inherits the margin uniformly (first and continuation lines alike) to stay
 aligned.  Pinning it to \"\" would un-indent only the first line and skew the
 wrapped lines."
-  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n" nil
+  (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n"
     (let ((ov (markdown-modern-render-test--ov 'table)))
       (should ov)
       (should (null (overlay-get ov 'line-prefix)))
@@ -470,7 +471,7 @@ wrapped lines."
 Both fences render as blank lines (display \"\" over the fence text only), so the
 rendered block has the same number of lines as its raw source -- otherwise the
 text below would shift when the fence is revealed at point."
-  (markdown-modern-render-test--with "```python\nprint(1)\n```\nafter\n" nil
+  (markdown-modern-render-test--with "```python\nprint(1)\n```\nafter\n"
     (let ((swallowed 0) (fences 0))
       (dolist (ov (overlays-in (point-min) (point-max)))
         (when (eq (overlay-get ov 'markdown-modern-type) 'code-fence)
@@ -487,7 +488,7 @@ Nothing must `display' over the cell's interior text -- if it did, point inside
 it (e.g. on a space typed between words) would draw the cursor at the cell's
 edge instead of next to the text.  Padding is virtual `before-string' before the
 closing pipe.  Only the pipe glyphs (`│') may carry a `display'."
-  (markdown-modern-render-test--with "| name | x |\n|---|---|\n| a | b |\n" nil
+  (markdown-modern-render-test--with "| name | x |\n|---|---|\n| a | b |\n"
     (goto-char (point-min))
     (forward-line 2)                    ; the "| a | b |" data row
     (setq markdown-modern--revealed-region

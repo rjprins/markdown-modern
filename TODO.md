@@ -16,7 +16,6 @@
 Track future work in [GitHub Issues](https://github.com/rjprins/markdown-modern/issues).
 Tracked items are possibilities, not delivery commitments.
 
-- [Consider removing the regex fallback (#4)](https://github.com/rjprins/markdown-modern/issues/4)
 - [Add ordered-list renumbering (#5)](https://github.com/rjprins/markdown-modern/issues/5)
 - [Reveal rendered math at point for editing (#6)](https://github.com/rjprins/markdown-modern/issues/6)
 - [Audit reveal support for display-rendered elements (#7)](https://github.com/rjprins/markdown-modern/issues/7)
@@ -26,6 +25,8 @@ Tracked items are possibilities, not delivery commitments.
 
 # Completed enhancements
 
+- Require Tree-sitter for buffer parsing and provide a command to install
+  missing grammars ([#4](https://github.com/rjprins/markdown-modern/issues/4), unreleased).
 - Reflow ordinary paragraph source newlines as spaces while preserving explicit
   hard breaks and block boundaries.
 - Code-block syntax highlighting wired up (1.0.1).

@@ -1,10 +1,14 @@
 ;;; install-test.el --- Check a fresh package installation -*- lexical-binding: t; no-byte-compile: t; -*-
 
 (require 'package)
+(require 'treesit)
 
 (let* ((method (pop command-line-args-left))
        (source (pop command-line-args-left))
        (install-dir (make-temp-file "markdown-modern-install-" t))
+       (treesit-extra-load-path
+        (cons (expand-file-name "tree-sitter" user-emacs-directory)
+              treesit-extra-load-path))
        (user-emacs-directory (file-name-as-directory install-dir))
        (package-user-dir (expand-file-name "elpa" install-dir))
        (custom-file (expand-file-name "custom.el" install-dir))
@@ -22,7 +26,7 @@
           ("use-package"
            (require 'use-package)
            (eval `(use-package markdown-modern
-                    :vc (:url ,source :lisp-dir "lisp")
+                    :vc (:url ,source :lisp-dir "lisp" :rev :newest)
                     :mode ("\\.md\\'" . markdown-modern-mode))))
           (_ (error "Unknown installation method: %s" method)))
         (with-temp-buffer

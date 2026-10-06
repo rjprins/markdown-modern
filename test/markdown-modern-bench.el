@@ -11,8 +11,7 @@
 ;; or:  emacs -Q -batch -L lisp -L test -l markdown-modern-bench \
 ;;            --eval '(markdown-modern-bench)'
 ;;
-;; It generates synthetic Markdown of increasing size and reports, for each
-;; parser:
+;; It generates synthetic Markdown of increasing size and reports:
 ;;   viewport(ms) - time to fontify a ~60-line window (what jit-lock runs on
 ;;                  open/scroll).  This is the number that matters in practice
 ;;                  and should stay ~flat as the file grows.
@@ -57,15 +56,14 @@ def f_%d(x):
   (mapconcat #'markdown-modern-bench--section
              (number-sequence 1 sections) ""))
 
-(defun markdown-modern-bench--prep (text ts)
-  "Return a fresh buffer containing TEXT, parser ready (TS non-nil = tree-sitter)."
+(defun markdown-modern-bench--prep (text)
+  "Return a fresh buffer containing TEXT with parsers ready."
   (let ((buf (generate-new-buffer " *mm-bench*")))
     (with-current-buffer buf
-      (setq-local markdown-modern-ts--use-tree-sitter ts)
       (setq-local markdown-modern--rendering-enabled t)
       (markdown-modern-render--init)
       (insert text)
-      (when ts (markdown-modern-ts--init)))
+      (markdown-modern-ts--init))
     buf))
 
 (defun markdown-modern-bench--viewport ()
@@ -77,9 +75,9 @@ def f_%d(x):
       (forward-line 60)
       (cons start (point)))))
 
-(defun markdown-modern-bench--one (sections ts)
-  "Benchmark a SECTIONS-section doc with parser TS; return a result plist."
-  (let ((buf (markdown-modern-bench--prep (markdown-modern-bench--doc sections) ts)))
+(defun markdown-modern-bench--one (sections)
+  "Benchmark a SECTIONS-section doc; return a result plist."
+  (let ((buf (markdown-modern-bench--prep (markdown-modern-bench--doc sections))))
     (unwind-protect
         (with-current-buffer buf
           (let* ((lines (count-lines (point-min) (point-max)))
@@ -104,24 +102,20 @@ def f_%d(x):
 (defun markdown-modern-bench (&optional sizes)
   "Run the rendering benchmark over SIZES (section counts) and print a table."
   (interactive)
+  (markdown-modern-ts--ensure-grammar)
   (let ((sizes (or sizes '(25 125 500 1250))))   ; ~500, 2.5k, 10k, 25k lines
-    (dolist (ts '(nil t))
-      (when (or (not ts)
-                (and (treesit-language-available-p 'markdown)
-                     (treesit-language-available-p 'markdown-inline)))
-        (princ (format "\n=== parser: %s ===\n"
-                       (if ts "tree-sitter" "regex fallback")))
-        (princ (format "%8s %7s | %13s %11s %11s\n"
-                       "lines" "KB" "viewport(ms)" "full(ms)" "reveal(ms)"))
-        (princ (make-string 60 ?-)) (princ "\n")
-        (dolist (n sizes)
-          (let ((r (markdown-modern-bench--one n ts)))
-            (princ (format "%8d %7d | %13.2f %11.0f %11.3f\n"
-                           (plist-get r :lines)
-                           (round (plist-get r :kb))
-                           (* 1000 (plist-get r :view))
-                           (* 1000 (plist-get r :full))
-                           (* 1000 (plist-get r :reveal))))))))
+    (princ "\n=== parser: tree-sitter ===\n")
+    (princ (format "%8s %7s | %13s %11s %11s\n"
+                   "lines" "KB" "viewport(ms)" "full(ms)" "reveal(ms)"))
+    (princ (make-string 60 ?-)) (princ "\n")
+    (dolist (n sizes)
+      (let ((r (markdown-modern-bench--one n)))
+        (princ (format "%8d %7d | %13.2f %11.0f %11.3f\n"
+                       (plist-get r :lines)
+                       (round (plist-get r :kb))
+                       (* 1000 (plist-get r :view))
+                       (* 1000 (plist-get r :full))
+                       (* 1000 (plist-get r :reveal))))))
     (princ "\n")))
 
 (provide 'markdown-modern-bench)
