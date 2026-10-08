@@ -55,12 +55,16 @@ Indirect buffers can inherit parser references from their source buffer.")
 
 ;;; Grammar Management
 
+;; v0.4.1 is the newest release for Tree-sitter ABI 14.  Tree-sitter libraries
+;; older than 0.25, such as the one in GNU's Windows build, need ABI 14.
+;; Emacs 31's markdown-ts-mode installs the same version.  Use a tag, not a
+;; commit: Emacs 30 can only clone tags and branches.
 (defconst markdown-modern-ts--grammar-sources
   '((markdown . ("https://github.com/tree-sitter-grammars/tree-sitter-markdown"
-                 "split_parser"
+                 "v0.4.1"
                  "tree-sitter-markdown/src"))
     (markdown-inline . ("https://github.com/tree-sitter-grammars/tree-sitter-markdown"
-                        "split_parser"
+                        "v0.4.1"
                         "tree-sitter-markdown-inline/src")))
   "Tree-sitter grammar sources for markdown.")
 

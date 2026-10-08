@@ -10,6 +10,9 @@ on [Keep a Changelog](https://keepachangelog.com/).
 - `M-x markdown-modern-install-grammars` installs missing `markdown` and
   `markdown-inline` grammars. Setup errors identify missing grammars or
   Tree-sitter support, and opening a buffer does not download anything.
+- The installer builds version 0.4.1 of both grammars. This version works with
+  Tree-sitter libraries older than 0.25, and Emacs 31's `markdown-ts-mode` uses
+  it too. Monthly and manual CI runs also test the newest upstream grammars.
 - A README comparison explains this fork's changes from mark-graf.
 
 ### Changed

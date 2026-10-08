@@ -147,6 +147,11 @@ It installs missing `markdown` and `markdown-inline` grammars and keeps any
 already installed ones. The installer needs Git and a C compiler, and your
 Emacs build must include Tree-sitter support.
 
+The installer builds version 0.4.1 of both grammars. This version works with
+Tree-sitter libraries older than 0.25. Emacs 31's `markdown-ts-mode` installs
+the same version. Newer grammar versions also work if your Tree-sitter library
+supports them.
+
 ```elisp
 (require 'markdown-modern)
 (markdown-modern-install-grammars)
@@ -400,6 +405,8 @@ CI checks Emacs 30.1 and 31.1. Each job first checks loading and the setup error
 without grammars, then installs both grammars and runs all suites without parser
 skips. Setup tests also cover an Emacs build without Tree-sitter support. CI runs
 on pushes, pull requests, manual requests and the first day of each month.
+Monthly and manual runs also test the newest upstream grammars, so we know when
+it is safe to update the pinned version.
 
 ### Screenshot
 
