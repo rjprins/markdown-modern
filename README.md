@@ -81,6 +81,7 @@ your machine.
 - Emacs 30.1 or later
 - An Emacs build with Tree-sitter support
 - The `markdown` and `markdown-inline` grammars (see [setup](#tree-sitter-setup))
+- Git and a C compiler, to build the grammars
 
 ### Optional Dependencies
 
@@ -90,9 +91,8 @@ your machine.
 
 markdown-modern is not on MELPA; install it directly from this repository.
 
-This README describes the current development version. The Tree-sitter requirement
-and soft-break behavior are unreleased; release 1.1.0 still has the older parser
-setup. The examples below install the latest development code.
+The VC and manual examples below install the latest code from the `main` branch.
+To install a fixed release, use a release tarball.
 
 ### With `package-vc-install` (Emacs 30.1+, recommended)
 
@@ -149,6 +149,11 @@ It installs missing `markdown` and `markdown-inline` grammars and keeps any
 already installed ones. The installer needs Git and a C compiler, and your
 Emacs build must include Tree-sitter support.
 
+On Windows, GNU's Emacs build includes Tree-sitter but no C compiler. Install
+GCC first, for example with MSYS2: run `pacman -S mingw-w64-ucrt-x86_64-gcc`,
+add `C:\msys64\ucrt64\bin` to your `PATH` and restart Emacs. You also need Git,
+for example Git for Windows.
+
 The installer builds version 0.4.1 of both grammars. This version works with
 Tree-sitter libraries older than 0.25. Emacs 31's `markdown-ts-mode` installs
 the same version. Newer grammar versions also work if your Tree-sitter library
@@ -165,7 +170,8 @@ Emacs can find them.
 
 Opening a buffer never downloads grammars. If one is missing, mode activation
 stops with a message naming the grammar and the installer command. If Emacs
-lacks Tree-sitter support, use an Emacs build that includes it. Remove any old
+lacks Tree-sitter support, use an Emacs build that includes it. If you upgrade
+from 1.x, run the installer once and remove any old
 `markdown-modern-ts--use-tree-sitter` setting from your init file.
 
 ### Quick Start

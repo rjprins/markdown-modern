@@ -3,7 +3,10 @@
 All notable changes to markdown-modern are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [2.0.0] - 2026-10-09
+
+This release requires Tree-sitter. After upgrading from 1.x, run
+`M-x markdown-modern-install-grammars` once.
 
 ### Added
 

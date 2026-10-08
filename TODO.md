@@ -26,9 +26,10 @@ Tracked items are possibilities, not delivery commitments.
 # Completed enhancements
 
 - Require Tree-sitter for buffer parsing and provide a command to install
-  missing grammars ([#4](https://github.com/rjprins/markdown-modern/issues/4), unreleased).
+  missing grammars ([#4](https://github.com/rjprins/markdown-modern/issues/4), 2.0.0).
 - Reflow ordinary paragraph source newlines as spaces while preserving explicit
-  hard breaks and block boundaries. A paragraph you edit shows its source lines.
+  hard breaks and block boundaries. A paragraph you edit shows its source lines
+  (2.0.0).
 - Code-block syntax highlighting wired up (1.0.1).
 - Reveal line-leading markers (bullets, ordered, blockquote) and heading `#`
   markers at the heading's size (1.1.0).
