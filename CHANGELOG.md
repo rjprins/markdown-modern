@@ -16,6 +16,7 @@ on [Keep a Changelog](https://keepachangelog.com/).
 - A README comparison explains this fork's changes from mark-graf.
 - `markdown-modern-paragraph-reveal-delay` shows the source lines of the
   paragraph the cursor rests in, after that many seconds.
+- `TAB` in the last cell of a table adds an empty row and moves into it.
 
 ### Changed
 
@@ -28,6 +29,8 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `TAB` and `S-TAB` stop in empty table cells and skip escaped pipes.
+  They also work in a row whose cells are all empty.
 - Code-block editing keeps the source buffer's parsers alive and tracks edit
   boundaries as text grows, so abort restores the original content.
 - Ordinary paragraph newlines now render as spaces, so

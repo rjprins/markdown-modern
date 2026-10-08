@@ -29,6 +29,8 @@
 ;; Functions defined in other markdown-modern files
 (declare-function markdown-modern-in-heading-p "markdown-modern-elements")
 (declare-function markdown-modern-in-table-p "markdown-modern-elements")
+(declare-function markdown-modern--table-row-line-p "markdown-modern-elements")
+(declare-function markdown-modern--table-separator-line-p "markdown-modern-elements")
 (declare-function markdown-modern-in-list-p "markdown-modern-elements")
 (declare-function markdown-modern-table-bounds "markdown-modern-elements")
 (declare-function markdown-modern-table-column-at-point "markdown-modern-elements")
@@ -584,46 +586,95 @@ Elsewhere: cycle global visibility."
    (t
     (markdown-modern-cycle-global-visibility))))
 
+(defun markdown-modern--table-pipes ()
+  "Return the positions of the unescaped `|' characters on the current line."
+  (save-excursion
+    (let ((eol (line-end-position))
+          (pipes nil))
+      (beginning-of-line)
+      (while (search-forward "|" eol t)
+        (let ((pipe (1- (point)))
+              (slashes 0))
+          (save-excursion
+            (goto-char pipe)
+            (while (eq (char-before) ?\\)
+              (cl-incf slashes)
+              (backward-char)))
+          (when (cl-evenp slashes)
+            (push pipe pipes))))
+      (nreverse pipes))))
+
+(defun markdown-modern--table-enter-cell (pipe next-pipe)
+  "Move into the cell between PIPE and NEXT-PIPE.
+Point goes to the start of the cell's text.  In a blank cell it goes after
+the first space, so typed text is padded like the other cells."
+  (let ((end (or next-pipe (line-end-position))))
+    (goto-char (1+ pipe))
+    (skip-chars-forward " \t" end)
+    (when (and (= (point) end) (< (1+ pipe) end))
+      (goto-char (+ pipe 2)))))
+
+(defun markdown-modern--table-first-cell ()
+  "Move into the first cell of the current row."
+  (let ((pipes (markdown-modern--table-pipes)))
+    (markdown-modern--table-enter-cell (car pipes) (cadr pipes))))
+
+(defun markdown-modern--table-next-row (columns)
+  "Move into the first cell of the next table row.
+Skip the separator row.  After the last row, add an empty row with COLUMNS
+cells."
+  (let ((last-line-end (line-end-position)))
+    (forward-line 1)
+    (when (and (> (line-end-position) last-line-end)
+               (markdown-modern--table-separator-line-p))
+      (setq last-line-end (line-end-position))
+      (forward-line 1))
+    (unless (and (> (line-end-position) last-line-end)
+                 (markdown-modern--table-row-line-p))
+      (goto-char last-line-end)
+      (insert "\n|" (apply #'concat (make-list columns "  |"))))
+    (markdown-modern--table-first-cell)))
+
 ;;;###autoload
 (defun markdown-modern-table-next-cell ()
-  "Move to the next table cell."
+  "Move to the next table cell.
+In the last cell of the last row, add an empty row and move into it."
   (interactive)
   (when (markdown-modern-in-table-p)
-    (if (search-forward "|" (line-end-position) t)
-        (if (looking-at "[ \t]*$\\|[ \t]*|")
-            ;; End of row, go to next row
-            (progn
-              (forward-line 1)
-              (when (looking-at "^|[-:|]+|")  ; Skip separator row
-                (forward-line 1))
-              (search-forward "|" (line-end-position) t))
-          (skip-chars-forward " \t"))
-      ;; No more cells on this line
-      (forward-line 1)
-      (when (looking-at "^|[-:|]+|")
-        (forward-line 1))
-      (search-forward "|" (line-end-position) t))))
+    (let* ((pipes (markdown-modern--table-pipes))
+           ;; The next cell opens at the first pipe after point.
+           (next (cl-count-if (lambda (pipe) (< pipe (point))) pipes)))
+      (if (< (1+ next) (length pipes))
+          (markdown-modern--table-enter-cell (nth next pipes) (nth (1+ next) pipes))
+        (markdown-modern--table-next-row (max 1 (1- (length pipes))))))))
 
 ;;;###autoload
 (defun markdown-modern-table-prev-cell ()
   "Move to the previous table cell."
   (interactive)
   (when (markdown-modern-in-table-p)
-    (skip-chars-backward " \t")
-    (if (search-backward "|" (line-beginning-position) t)
-        (progn
-          (search-backward "|" (line-beginning-position) t)
-          (forward-char 1)
-          (skip-chars-forward " \t"))
-      ;; Beginning of row, go to previous row
-      (forward-line -1)
-      (when (looking-at "^|[-:|]+|")  ; Skip separator row
-        (forward-line -1))
-      (end-of-line)
-      (search-backward "|" (line-beginning-position) t)
-      (search-backward "|" (line-beginning-position) t)
-      (forward-char 1)
-      (skip-chars-forward " \t"))))
+    (let* ((pipes (markdown-modern--table-pipes))
+           ;; The current cell opens at pipe CURRENT.
+           (current (1- (cl-count-if (lambda (pipe) (< pipe (point))) pipes))))
+      (if (>= current 1)
+          (markdown-modern--table-enter-cell (nth (1- current) pipes)
+                                             (nth current pipes))
+        (let ((row-start (line-beginning-position))
+              (target nil))
+          (save-excursion
+            (forward-line -1)
+            (when (and (< (point) row-start)
+                       (markdown-modern--table-separator-line-p))
+              (forward-line -1))
+            (when (and (< (point) row-start)
+                       (markdown-modern--table-row-line-p))
+              (let ((row-pipes (markdown-modern--table-pipes)))
+                (when (cdr row-pipes)
+                  (markdown-modern--table-enter-cell
+                   (car (last row-pipes 2)) (car (last row-pipes)))
+                  (setq target (point))))))
+          (when target
+            (goto-char target)))))))
 
 ;;; Visibility Commands
 

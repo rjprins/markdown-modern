@@ -275,6 +275,84 @@ Use [ and ] to mark region boundaries in INITIAL."
       (should (string-match-p "| Header 3" content))
       (should (string-match-p "|---" content)))))
 
+(defun markdown-modern-commands-test--table (text command &optional times)
+  "Run COMMAND TIMES times on TEXT, where @ marks point.
+Return the buffer text with @ at the new point."
+  (with-temp-buffer
+    (insert (replace-regexp-in-string "@" "" text))
+    (goto-char (1+ (string-match "@" text)))
+    (markdown-modern-ts--init)
+    (dotimes (_ (or times 1))
+      (funcall command))
+    (insert "@")
+    (buffer-string)))
+
+(ert-deftest cmd/table-next-cell-visits-empty-cell ()
+  "TAB stops in an empty cell instead of skipping to the next row."
+  (should (equal (markdown-modern-commands-test--table
+                  "| a@ |   | c |\n|---|---|---|\n"
+                  #'markdown-modern-table-next-cell)
+                 "| a | @  | c |\n|---|---|---|\n")))
+
+(ert-deftest cmd/table-next-cell-skips-escaped-pipe ()
+  "An escaped pipe does not start a new cell."
+  (should (equal (markdown-modern-commands-test--table
+                  "| a@ \\| b | c |\n|---|---|\n"
+                  #'markdown-modern-table-next-cell)
+                 "| a \\| b | @c |\n|---|---|\n")))
+
+(ert-deftest cmd/table-next-cell-moves-to-next-row ()
+  "TAB in the last cell of a row moves past the separator to the next row."
+  (should (equal (markdown-modern-commands-test--table
+                  "| a | b@ |\n|---|---|\n| 1 | 2 |\n"
+                  #'markdown-modern-table-next-cell)
+                 "| a | b |\n|---|---|\n| @1 | 2 |\n")))
+
+(ert-deftest cmd/table-tab-adds-row ()
+  "TAB in the last cell of the last row adds an empty row."
+  (should (equal (markdown-modern-commands-test--table
+                  "| a | b |\n|---|---|\n| 1 | 2@ |\n\nafter\n"
+                  #'markdown-modern-tab)
+                 "| a | b |\n|---|---|\n| 1 | 2 |\n| @ |  |\n\nafter\n"))
+  (should (equal (markdown-modern-commands-test--table
+                  "| a | b |\n|---|---|\n| 1 | 2@ |\n"
+                  #'markdown-modern-tab 2)
+                 "| a | b |\n|---|---|\n| 1 | 2 |\n|  | @ |\n")))
+
+(ert-deftest cmd/table-tab-adds-row-at-buffer-end ()
+  "TAB adds a row when the table ends without a final newline."
+  (should (equal (markdown-modern-commands-test--table
+                  "| a |\n|---|\n| 1@ |"
+                  #'markdown-modern-tab)
+                 "| a |\n|---|\n| 1 |\n| @ |")))
+
+(ert-deftest cmd/table-tab-adds-row-after-header ()
+  "TAB in a table with only a header adds the first body row."
+  (should (equal (markdown-modern-commands-test--table
+                  "| a | b@ |\n|---|---|\n"
+                  #'markdown-modern-tab)
+                 "| a | b |\n|---|---|\n| @ |  |\n")))
+
+(ert-deftest cmd/table-prev-cell ()
+  "S-TAB moves to the previous cell, across rows and into empty cells."
+  (should (equal (markdown-modern-commands-test--table
+                  "| a | b |\n|---|---|\n| @1 | 2 |\n"
+                  #'markdown-modern-table-prev-cell)
+                 "| a | @b |\n|---|---|\n| 1 | 2 |\n"))
+  (should (equal (markdown-modern-commands-test--table
+                  "| a |   | c@ |\n|---|---|---|\n"
+                  #'markdown-modern-table-prev-cell)
+                 "| a | @  | c |\n|---|---|---|\n"))
+  (should (equal (markdown-modern-commands-test--table
+                  "| @a | b |\n|---|---|\n"
+                  #'markdown-modern-table-prev-cell)
+                 "| @a | b |\n|---|---|\n"))
+  ;; The grammar does not parse an all-empty body row; S-TAB still works there.
+  (should (equal (markdown-modern-commands-test--table
+                  "| a | b |\n|---|---|\n| 1 | 2 |\n| @  |   |\n"
+                  #'markdown-modern-backtab)
+                 "| a | b |\n|---|---|\n| 1 | @2 |\n|   |   |\n")))
+
 ;;; Navigation Tests
 
 (ert-deftest cmd/next-heading ()

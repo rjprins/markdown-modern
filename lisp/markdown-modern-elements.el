@@ -55,7 +55,9 @@
 
 (defun markdown-modern-in-table-p ()
   "Return non-nil if point is in a table."
-  (memq (markdown-modern-element-at-point) '(table table-header table-row table-cell)))
+  (or (memq (markdown-modern-element-at-point)
+            '(table table-header table-row table-cell))
+      (markdown-modern--table-row-below-separator-p)))
 
 (defun markdown-modern-in-blockquote-p ()
   "Return non-nil if point is in a blockquote."
@@ -123,6 +125,31 @@
      (t nil))))
 
 ;;; Table Utilities
+
+(defun markdown-modern--table-row-line-p ()
+  "Return non-nil if the current line is a table row."
+  (save-excursion
+    (beginning-of-line)
+    (looking-at-p "[ \t]*|")))
+
+(defun markdown-modern--table-separator-line-p ()
+  "Return non-nil if the current line is a table separator row."
+  (save-excursion
+    (beginning-of-line)
+    (looking-at-p "[ \t]*|?[-:| \t]*-[-:| \t]*$")))
+
+(defun markdown-modern--table-row-below-separator-p ()
+  "Return non-nil if the current line is a table row below a separator row.
+The Markdown grammar does not parse a body row whose cells are all empty,
+so this text check finds those rows too."
+  (save-excursion
+    (when (markdown-modern--table-row-line-p)
+      (let ((found nil))
+        (while (and (not found)
+                    (zerop (forward-line -1))
+                    (markdown-modern--table-row-line-p))
+          (setq found (markdown-modern--table-separator-line-p)))
+        found))))
 
 (defun markdown-modern-table-bounds ()
   "Return (START . END) bounds of current table, or nil."

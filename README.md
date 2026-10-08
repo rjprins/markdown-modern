@@ -248,7 +248,7 @@ whose content still doesn't fit wrap onto multiple lines. Raise
 | Key | Command | Description |
 |-----|---------|-------------|
 | `C-c \|` | `markdown-modern-insert-table` | Insert new table |
-| `TAB` | `markdown-modern-table-next-cell` | Next cell |
+| `TAB` | `markdown-modern-table-next-cell` | Next cell; in the last cell, add a row |
 | `S-TAB` | `markdown-modern-table-prev-cell` | Previous cell |
 
 ### Export
