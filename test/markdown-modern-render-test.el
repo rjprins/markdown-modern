@@ -35,6 +35,41 @@
   (cl-count-if (lambda (ov) (eq (overlay-get ov 'markdown-modern-type) type))
                (overlays-in (point-min) (point-max))))
 
+(defun markdown-modern-render-test--move (pos)
+  "Move point to POS and run the post-command update."
+  (goto-char pos)
+  (markdown-modern--update-reveal))
+
+(defun markdown-modern-render-test--edit ()
+  "Edit the text at point, keep it the same, and run the post-command update."
+  (insert "x")
+  (delete-char -1)
+  (markdown-modern--update-reveal)
+  (markdown-modern--jit-fontify (point-min) (point-max)))
+
+(defun markdown-modern-render-test--type (string)
+  "Type STRING at point like a user, redisplaying after each character.
+Only the text that the edit marks for re-rendering is rendered again."
+  (with-silent-modifications
+    (put-text-property (point-min) (point-max) 'fontified t))
+  (dolist (char (string-to-list string))
+    (insert char)
+    (markdown-modern--after-change (1- (point)) (point) 0)
+    (markdown-modern--update-reveal)
+    (let (start)
+      (while (setq start (text-property-any (point-min) (point-max) 'fontified nil))
+        (let ((end (or (next-single-property-change start 'fontified)
+                       (point-max))))
+          (markdown-modern--jit-fontify start end)
+          (with-silent-modifications
+            (put-text-property start end 'fontified t)))))))
+
+(defun markdown-modern-render-test--settle ()
+  "Check that a paragraph update is waiting for idle time, then run it."
+  (should (memq markdown-modern--paragraph-timer timer-idle-list))
+  (cancel-timer markdown-modern--paragraph-timer)
+  (markdown-modern--paragraph-settle))
+
 ;;; Renderer assertions
 
 (defun markdown-modern-render-test--assert-heading ()
@@ -173,7 +208,7 @@
       (should (equal (get-char-property (1- (point)) 'display) " ")))))
 
 (defun markdown-modern-render-test--assert-soft-break-editing ()
-  "A flowed newline remains discoverable and editable."
+  "Editing a paragraph shows its source newlines."
   (dolist (text '("one\ntwo\n" "> one\n> two\n" "one \n  two\n"
                   "*one\ntwo*\n" "[one\ntwo](https://example.com)\n"))
     (markdown-modern-render-test--with text
@@ -181,17 +216,23 @@
       (search-forward "\n")
       (backward-char)
       (let ((newline (point)))
-        (markdown-modern--update-reveal)
-        (should (equal (substring-no-properties (get-char-property newline 'display)) "↵"))
+        ;; Moving into the paragraph keeps it flowed.
+        (markdown-modern-render-test--move newline)
+        (should (equal (get-char-property newline 'display) " "))
+        (markdown-modern-render-test--edit)
+        (should-not (get-char-property newline 'display))
         (when (string-prefix-p "one" text)
           (should-not markdown-modern--revealed-region))
+        ;; A re-render keeps the edited paragraph revealed.
         (markdown-modern--jit-fontify newline (1+ newline))
-        (should (equal (substring-no-properties (get-char-property newline 'display)) "↵"))
-        (forward-char)
-        (markdown-modern--update-reveal)
-        ;; Moving off a quote's prefix restores the paragraph rendering too.
-        (search-forward "two")
-        (markdown-modern--update-reveal)
+        (should-not (get-char-property newline 'display))
+        ;; Moving within the paragraph keeps its newlines.
+        (markdown-modern-render-test--move (+ newline 4))
+        (should-not (get-char-property newline 'display))
+        ;; Leaving the paragraph flows it again, but only after a pause.
+        (markdown-modern-render-test--move (point-max))
+        (should-not (get-char-property newline 'display))
+        (markdown-modern-render-test--settle)
         (should (equal (get-char-property newline 'display) " ")))))
   (markdown-modern-render-test--with "one\ntwo\n"
     (goto-char 5)
@@ -211,25 +252,89 @@
     (should (equal (get-char-property 5 'display) " "))))
 
 (defun markdown-modern-render-test--assert-soft-break-navigation ()
-  "Keyboard point adjustment still reaches source newlines."
+  "Motion keeps a paragraph flowed, and typing shows its source lines."
   (dolist (text '("one \n  two\n" "one\n  two\n" "one\r\ntwo\r\n"))
     (markdown-modern-render-test--with text
       (save-window-excursion
         (switch-to-buffer (current-buffer))
         (add-hook 'post-command-hook #'markdown-modern--update-reveal nil t)
-        (add-hook 'pre-redisplay-functions #'markdown-modern-render--update-soft-break-at-point nil t)
         (goto-char 3)
         (let ((noninteractive nil)) (execute-kbd-macro (kbd "C-f")))
         (should (eq (char-after) ?\n))
-        ;; Redisplay runs after command-loop adjustment of point.
-        (run-hook-with-args 'pre-redisplay-functions (selected-window))
-        (should (equal (substring-no-properties (get-char-property (point) 'display)) "↵"))
+        (should (equal (get-char-property (point) 'display) " "))
+        (let ((noninteractive nil)) (execute-kbd-macro (kbd "x DEL")))
+        (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                       text))
+        (should-not (get-char-property (point) 'display))
+        ;; Inside the revealed paragraph, motion follows the source text.
         (search-forward "two")
         (backward-char 3)
-        (let ((noninteractive nil)) (execute-kbd-macro (kbd "C-b")))
-        (should (eq (char-after) ?\n))
-        (run-hook-with-args 'pre-redisplay-functions (selected-window))
-        (should (equal (substring-no-properties (get-char-property (point) 'display)) "↵"))))))
+        (let ((start (point)))
+          (let ((noninteractive nil)) (execute-kbd-macro (kbd "C-b")))
+          (should (= (point) (1- start))))))))
+
+(defun markdown-modern-render-test--assert-paragraph-reveal ()
+  "Only the edited paragraph shows its source newlines."
+  (markdown-modern-render-test--with "one\ntwo\nthree\n\nfour\nfive\n"
+    (markdown-modern-render-test--move 6)
+    (should (equal (get-char-property 4 'display) " "))
+    (markdown-modern-render-test--edit)
+    (should-not (get-char-property 4 'display))
+    (should-not (get-char-property 8 'display))
+    (should (equal (get-char-property 20 'display) " "))
+    ;; Coming back before the pause keeps the paragraph revealed.
+    (markdown-modern-render-test--move 22)
+    (markdown-modern-render-test--move 10)
+    (markdown-modern-render-test--settle)
+    (should-not (get-char-property 4 'display))
+    ;; After a pause outside it, the paragraph flows again.
+    (markdown-modern-render-test--move 22)
+    (should-not (get-char-property 8 'display))
+    (markdown-modern-render-test--settle)
+    (should (equal (get-char-property 4 'display) " "))
+    (should (equal (get-char-property 8 'display) " "))
+    (should (equal (get-char-property 20 'display) " "))
+    ;; Without an edit, nothing waits for a pause.
+    (markdown-modern-render-test--move 6)
+    (should-not (memq markdown-modern--paragraph-timer timer-idle-list))))
+
+(defun markdown-modern-render-test--assert-paragraph-reveal-delay ()
+  "With a delay, the paragraph where point rests shows its source newlines."
+  (let ((markdown-modern-paragraph-reveal-delay 1))
+    (markdown-modern-render-test--with "one\ntwo\nthree\n\nfour\nfive\n"
+      (markdown-modern-render-test--move 22)
+      (should (equal (get-char-property 20 'display) " "))
+      (markdown-modern-render-test--settle)
+      (should-not (get-char-property 20 'display))
+      (markdown-modern-render-test--move 6)
+      (should-not (get-char-property 20 'display))
+      (should (equal (get-char-property 4 'display) " "))
+      (markdown-modern-render-test--settle)
+      (should (equal (get-char-property 20 'display) " "))
+      (should-not (get-char-property 4 'display))
+      (should-not (get-char-property 8 'display)))))
+
+(defun markdown-modern-render-test--assert-list-after-paragraph ()
+  "A list typed right below a paragraph does not join it."
+  (markdown-modern-render-test--with "one\ntwo\n"
+    (markdown-modern-render-test--move (point-max))
+    (markdown-modern-render-test--type "1. bla\n")
+    (should-not (get-char-property 8 'display))
+    (markdown-modern-render-test--move (point-min))
+    (markdown-modern-render-test--move (point-max))
+    (markdown-modern-render-test--settle)
+    (should (equal (get-char-property 4 'display) " "))
+    (should-not (get-char-property 8 'display))))
+
+(defun markdown-modern-render-test--assert-typing-list-item ()
+  "A list item stays on its own line while it is typed."
+  (markdown-modern-render-test--with "1. bla\n"
+    (markdown-modern-render-test--move (point-max))
+    (dolist (char (string-to-list "2. bla"))
+      (insert char)
+      (markdown-modern--update-reveal)
+      (markdown-modern--jit-fontify (point-min) (point-max))
+      (should-not (equal (get-char-property 7 'display) " ")))))
 
 ;;; Rendering tests
 
@@ -253,6 +358,10 @@
 (ert-deftest render/soft-break-editing () (markdown-modern-render-test--assert-soft-break-editing))
 (ert-deftest render/soft-breaks-after-blocks () (markdown-modern-render-test--assert-prose-after-blocks))
 (ert-deftest render/soft-break-navigation () (markdown-modern-render-test--assert-soft-break-navigation))
+(ert-deftest render/paragraph-reveal () (markdown-modern-render-test--assert-paragraph-reveal))
+(ert-deftest render/paragraph-reveal-delay () (markdown-modern-render-test--assert-paragraph-reveal-delay))
+(ert-deftest render/typing-list-item () (markdown-modern-render-test--assert-typing-list-item))
+(ert-deftest render/list-after-paragraph () (markdown-modern-render-test--assert-list-after-paragraph))
 (ert-deftest render/strikethrough () (markdown-modern-render-test--assert-strikethrough))
 
 (ert-deftest render/code-block-syntax-highlight ()

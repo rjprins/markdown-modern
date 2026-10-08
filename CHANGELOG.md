@@ -14,6 +14,8 @@ on [Keep a Changelog](https://keepachangelog.com/).
   Tree-sitter libraries older than 0.25, and Emacs 31's `markdown-ts-mode` uses
   it too. Monthly and manual CI runs also test the newest upstream grammars.
 - A README comparison explains this fork's changes from mark-graf.
+- `markdown-modern-paragraph-reveal-delay` shows the source lines of the
+  paragraph the cursor rests in, after that many seconds.
 
 ### Changed
 
@@ -30,8 +32,8 @@ on [Keep a Changelog](https://keepachangelog.com/).
   boundaries as text grows, so abort restores the original content.
 - Ordinary paragraph newlines now render as spaces, so
   source-wrapped prose flows to the window width. Explicit hard breaks and
-  block boundaries stay visible. A subtle `↵` marks a source newline only
-  when the cursor is on it, without changing the file's text.
+  block boundaries stay visible. A paragraph you edit shows its source lines,
+  so a new list item stays on its own line. The file's text does not change.
 
 ## [1.1.0] - 2026-10-05
 

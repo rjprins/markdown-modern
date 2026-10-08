@@ -160,6 +160,16 @@ to keep a fixed-pitch buffer."
   :type 'boolean
   :group 'markdown-modern)
 
+(defcustom markdown-modern-paragraph-reveal-delay nil
+  "Seconds point rests in a paragraph before it shows its source lines.
+Paragraphs show their source line breaks as spaces, so prose fills the
+window.  Editing a paragraph shows its source lines right away.  When this is
+a number, a paragraph also shows them once point has rested in it for that
+many seconds.  When nil, only editing shows them."
+  :type '(choice (const :tag "Only when editing" nil)
+                 (number :tag "Seconds"))
+  :group 'markdown-modern)
+
 (defcustom markdown-modern-left-margin 4
   "Left margin width in characters.
 This creates whitespace on the left side of the buffer for better readability."
@@ -393,6 +403,15 @@ Inherits `fixed-pitch' so columns stay aligned under `variable-pitch-mode'."
 (defvar-local markdown-modern--rendering-enabled t
   "Whether rendering is currently enabled in this buffer.")
 
+(defvar-local markdown-modern--chars-tick nil
+  "Value of `buffer-chars-modified-tick' after the last command.")
+
+(defvar markdown-modern--paragraph-timer nil
+  "Idle timer that changes which paragraph shows its source lines.")
+
+(defconst markdown-modern--paragraph-join-delay 0.5
+  "Idle seconds before a paragraph that point left joins its lines again.")
+
 (defvar-local markdown-modern--revealed-region nil
   "Cons (START . END) of the markup element currently revealed at point.
 Nil when point is in plain prose with no markup to reveal.  This is the
@@ -530,9 +549,7 @@ single source of truth shared between point-motion reveal and jit-lock.")
   ;; the after-change hook invalidates the edited block for jit-lock.
   (jit-lock-register #'markdown-modern--jit-fontify)
   (add-hook 'post-command-hook #'markdown-modern--update-reveal nil t)
-  ;; Command-loop point adjustment runs after post-command-hook.  Update
-  ;; the newline marker again at redisplay so backward motion sees it.
-  (add-hook 'pre-redisplay-functions #'markdown-modern-render--update-soft-break-at-point nil t)
+  (setq markdown-modern--chars-tick (buffer-chars-modified-tick))
   (add-hook 'after-change-functions #'markdown-modern--after-change nil t)
   ;; Clean up when switching to another major mode
   (add-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer nil t)
@@ -561,7 +578,6 @@ single source of truth shared between point-motion reveal and jit-lock.")
   ;; Stop jit-lock rendering and remove hooks
   (jit-lock-unregister #'markdown-modern--jit-fontify)
   (remove-hook 'post-command-hook #'markdown-modern--update-reveal t)
-  (remove-hook 'pre-redisplay-functions #'markdown-modern-render--update-soft-break-at-point t)
   (remove-hook 'after-change-functions #'markdown-modern--after-change t)
   (remove-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer t)
   (remove-hook 'window-size-change-functions #'markdown-modern--on-window-size-change)
@@ -765,7 +781,6 @@ the true rendered extent."
         (markdown-modern-render--reveal-markup
          (max bstart (car markdown-modern--revealed-region))
          (min bend (cdr markdown-modern--revealed-region))))
-      (markdown-modern-render--update-soft-break-at-point)
       `(jit-lock-bounds ,bstart . ,bend))))
 
 (defun markdown-modern--inline-element-at (pos start end)
@@ -904,7 +919,49 @@ actually changes."
               (let ((b (markdown-modern--extend-region-to-blocks (car new) (cdr new))))
                 (markdown-modern-render--render-region (car b) (cdr b)))
             (markdown-modern-render--reveal-markup (car new) (cdr new))))))
-    (markdown-modern-render--update-soft-break-at-point)))
+    (markdown-modern--update-paragraph)))
+
+(defun markdown-modern--paragraph-settled-p ()
+  "Return non-nil if the right paragraph shows its source lines for point."
+  (if markdown-modern-paragraph-reveal-delay
+      (markdown-modern-render--same-overlays-p
+       (markdown-modern-render--soft-breaks-around (point))
+       markdown-modern-render--active-soft-breaks)
+    (or (null markdown-modern-render--unfolded)
+        (markdown-modern-render--unfolded-at-p (point)))))
+
+(defun markdown-modern--update-paragraph ()
+  "Choose the paragraph that shows its source lines after a command.
+An edit shows the source lines of the paragraph at point right away.  Motion
+never changes them: an idle timer does that once you pause.  Motion commands
+use the layout on screen, so the layout must not change under them."
+  (let ((tick (buffer-chars-modified-tick)))
+    (cond
+     ((and markdown-modern--chars-tick
+           (/= tick markdown-modern--chars-tick))
+      (markdown-modern-render--unfold-paragraph (point)))
+     ((and (not (markdown-modern--paragraph-settled-p))
+           (not (memq markdown-modern--paragraph-timer timer-idle-list)))
+      (setq markdown-modern--paragraph-timer
+            (run-with-idle-timer (or markdown-modern-paragraph-reveal-delay
+                                     markdown-modern--paragraph-join-delay)
+                                 nil #'markdown-modern--paragraph-idle))))
+    (setq markdown-modern--chars-tick tick)))
+
+(defun markdown-modern--paragraph-settle ()
+  "Show the source lines of the paragraph that point rests in, if any.
+Without `markdown-modern-paragraph-reveal-delay', only the paragraph you
+edited shows its source lines, until point leaves it."
+  (unless (markdown-modern--paragraph-settled-p)
+    (markdown-modern-render--unfold-paragraph
+     (and markdown-modern-paragraph-reveal-delay (point)))))
+
+(defun markdown-modern--paragraph-idle ()
+  "Settle the paragraph that shows its source lines in the selected window."
+  (with-current-buffer (window-buffer)
+    (when (and (derived-mode-p 'markdown-modern-mode)
+               markdown-modern--rendering-enabled)
+      (markdown-modern--paragraph-settle))))
 
 ;;; Core Functions
 
@@ -913,9 +970,15 @@ actually changes."
 This does no rendering itself: it only marks the affected block stale, so the
 heavy work happens lazily in `markdown-modern--jit-fontify' on the next
 redisplay.  Block widening ensures multi-line edits (closing a fence, adding a
-table row) re-render the whole construct, not just the changed line."
+table row) re-render the whole construct, not just the changed line.  The
+block that ends on the line above is included too: an edit can end it, as
+when the edited line becomes a list item."
   (when markdown-modern--rendering-enabled
-    (let ((b (markdown-modern--extend-region-to-blocks (min start end) (max start end))))
+    (let* ((above (save-excursion
+                    (goto-char (min start end))
+                    (forward-line 0)
+                    (max (point-min) (1- (point)))))
+           (b (markdown-modern--extend-region-to-blocks above (max start end))))
       (if (fboundp 'jit-lock-refontify)
           (jit-lock-refontify (car b) (cdr b))
         (with-silent-modifications

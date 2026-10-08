@@ -66,8 +66,11 @@
 (defvar-local markdown-modern-render--rendering-p nil
   "Non-nil when rendering is in progress.")
 
-(defvar-local markdown-modern-render--active-soft-break nil
-  "Soft-break overlay showing a newline marker at point, or nil.")
+(defvar-local markdown-modern-render--active-soft-breaks nil
+  "Soft-break overlays of the unfolded paragraph, shown as source newlines.")
+
+(defvar-local markdown-modern-render--unfolded nil
+  "Marker in the paragraph that shows its source lines, or nil.")
 
 ;;; Display Character Sets
 
@@ -106,7 +109,8 @@
   "Initialize the rendering engine for current buffer."
   (setq markdown-modern-render--overlays '())
   (setq markdown-modern-render--overlay-pool '())
-  (setq markdown-modern-render--active-soft-break nil)
+  (setq markdown-modern-render--active-soft-breaks nil)
+  (setq markdown-modern-render--unfolded nil)
   (markdown-modern-render--setup-display-chars))
 
 (defun markdown-modern-render--setup-display-chars ()
@@ -155,8 +159,8 @@
 
 (defun markdown-modern-render--release-overlay (ov)
   "Release overlay OV back to the pool."
-  (when (eq ov markdown-modern-render--active-soft-break)
-    (setq markdown-modern-render--active-soft-break nil))
+  (setq markdown-modern-render--active-soft-breaks
+        (delq ov markdown-modern-render--active-soft-breaks))
   (when (overlay-buffer ov)
     (overlay-put ov 'display nil)
     (overlay-put ov 'face nil)
@@ -181,7 +185,8 @@
       (delete-overlay ov)))
   (setq markdown-modern-render--overlays nil)
   (setq markdown-modern-render--overlay-pool nil)
-  (setq markdown-modern-render--active-soft-break nil))
+  (setq markdown-modern-render--active-soft-breaks nil)
+  (setq markdown-modern-render--unfolded nil))
 
 ;;; Core Rendering Functions
 
@@ -202,7 +207,9 @@
         (markdown-modern-render--clear-region start end)
         (let ((elements (markdown-modern-ts--elements-in-region start end)))
           (dolist (elem elements)
-            (markdown-modern-render--render-element elem)))))))
+            (markdown-modern-render--render-element elem))))
+      ;; Rendering shows every soft break as a space.
+      (markdown-modern-render--sync-soft-breaks))))
 
 (defun markdown-modern-render--unrender-region (start end)
   "Remove rendering from region START to END."
@@ -224,7 +231,7 @@ even when the surrounding inline markup is revealed."
         (pcase (overlay-get ov 'markdown-modern-type)
           ('soft-break
            ;; Expose any continuation prefix covered by the replacement, but
-           ;; keep the newline itself rendered as a space (or cursor marker).
+           ;; keep the newline itself rendered as a space.
            (move-overlay ov (overlay-start ov) (1+ (overlay-start ov))))
           ('soft-break-whitespace nil)
           (_ (markdown-modern-render--release-overlay ov)))))))
@@ -327,22 +334,81 @@ hard breaks (two trailing spaces or an unescaped backslash)."
             (overlay-put ov 'priority 200)
             (overlay-put ov 'markdown-modern-type 'soft-break)))))))
 
-(defun markdown-modern-render--update-soft-break-at-point (&optional window)
-  "Mark the source newline under point without unfolding its paragraph.
-When called for redisplay of WINDOW, update only the selected window."
-  (when (or (null window) (eq window (selected-window)))
-    (let ((current (and (eq (char-after) ?\n)
-			(cl-find-if
-			 (lambda (ov)
-			   (eq (overlay-get ov 'markdown-modern-type) 'soft-break))
-			 (overlays-at (point))))))
-      (unless (eq current markdown-modern-render--active-soft-break)
-	(when (and markdown-modern-render--active-soft-break
-                   (overlay-buffer markdown-modern-render--active-soft-break))
-          (overlay-put markdown-modern-render--active-soft-break 'display " "))
-	(when current
-          (overlay-put current 'display (propertize "↵" 'face 'shadow 'cursor t)))
-	(setq markdown-modern-render--active-soft-break current)))))
+(defun markdown-modern-render--soft-break-at (newline)
+  "Return the soft-break overlay that starts at NEWLINE, or nil."
+  (cl-find-if (lambda (ov)
+                (and (eq (overlay-get ov 'markdown-modern-type) 'soft-break)
+                     (= (overlay-start ov) newline)))
+              (overlays-at newline)))
+
+(defun markdown-modern-render--soft-breaks-around (pos)
+  "Return the soft-break overlays that join the source line at POS to others.
+These are the newlines of the displayed paragraph that contains POS, in
+buffer order."
+  (save-excursion
+    (let ((above nil)
+          (below nil)
+          ov)
+      (goto-char pos)
+      (beginning-of-line)
+      (while (and (> (point) (point-min))
+                  (setq ov (markdown-modern-render--soft-break-at (1- (point)))))
+        (push ov above)
+        (forward-line -1))
+      (goto-char pos)
+      (end-of-line)
+      (while (and (< (point) (point-max))
+                  (setq ov (markdown-modern-render--soft-break-at (point))))
+        (push ov below)
+        (forward-line 1)
+        (end-of-line))
+      (nconc above (nreverse below)))))
+
+(defun markdown-modern-render--same-overlays-p (a b)
+  "Return non-nil if the overlay lists A and B are the same."
+  (and (= (length a) (length b))
+       (cl-every #'eq a b)))
+
+(defun markdown-modern-render--sync-soft-breaks ()
+  "Show source newlines in the unfolded paragraph, and spaces elsewhere."
+  (let ((breaks (and markdown-modern-render--unfolded
+                     (markdown-modern-render--soft-breaks-around
+                      markdown-modern-render--unfolded))))
+    (unless (markdown-modern-render--same-overlays-p
+             breaks markdown-modern-render--active-soft-breaks)
+      (dolist (ov markdown-modern-render--active-soft-breaks)
+        (when (and (overlay-buffer ov) (not (memq ov breaks)))
+          (overlay-put ov 'display " ")))
+      (dolist (ov breaks)
+        (overlay-put ov 'display nil))
+      (setq markdown-modern-render--active-soft-breaks breaks))))
+
+(defun markdown-modern-render--unfold-paragraph (pos)
+  "Show the source lines of the paragraph at POS, and join all others.
+When POS is nil, join the lines of every paragraph."
+  (cond
+   (pos
+    (unless markdown-modern-render--unfolded
+      (setq markdown-modern-render--unfolded (make-marker)))
+    (set-marker markdown-modern-render--unfolded pos))
+   (markdown-modern-render--unfolded
+    (set-marker markdown-modern-render--unfolded nil)
+    (setq markdown-modern-render--unfolded nil)))
+  (markdown-modern-render--sync-soft-breaks))
+
+(defun markdown-modern-render--unfolded-at-p (pos)
+  "Return non-nil if POS is in the paragraph that shows its source lines."
+  (when markdown-modern-render--unfolded
+    (if markdown-modern-render--active-soft-breaks
+        (markdown-modern-render--same-overlays-p
+         (markdown-modern-render--soft-breaks-around pos)
+         markdown-modern-render--active-soft-breaks)
+      ;; A paragraph of one line has no soft breaks.
+      (save-excursion
+        (goto-char pos)
+        (<= (line-beginning-position)
+            markdown-modern-render--unfolded
+            (line-end-position))))))
 
 ;;; Inline Element Rendering
 
