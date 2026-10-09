@@ -154,6 +154,18 @@ Only the text that the edit marks for re-rendering is rendered again."
       ;; The final newline is a block boundary, not a soft break.
       (should-not (get-char-property (1- (point-max)) 'display)))))
 
+(defun markdown-modern-render-test--assert-unjoined-lines ()
+  "With joining off, paragraphs keep their lines and editing adds no mark."
+  (let ((markdown-modern-join-paragraph-lines nil))
+    (markdown-modern-render-test--with "one\ntwo **bold**\n"
+      (should-not (markdown-modern-render-test--ov 'soft-break))
+      ;; Inline markup still renders.
+      (should (markdown-modern-render-test--ov 'strong-content))
+      (markdown-modern-render-test--move 4)
+      (markdown-modern-render-test--edit)
+      (should-not (get-char-property 4 'display))
+      (should-not (get-char-property 4 'before-string)))))
+
 (defun markdown-modern-render-test--assert-break-boundaries ()
   "Paragraph boundaries and explicit hard breaks stay visible."
   (dolist (text '("one\n\ntwo\n" "one\n \t\ntwo\n"
@@ -219,8 +231,12 @@ Only the text that the edit marks for re-rendering is rendered again."
         ;; Moving into the paragraph keeps it flowed.
         (markdown-modern-render-test--move newline)
         (should (equal (get-char-property newline 'display) " "))
+        (should-not (get-char-property newline 'before-string))
         (markdown-modern-render-test--edit)
         (should-not (get-char-property newline 'display))
+        ;; A mark shows where the source lines will join.
+        (should (equal (get-char-property newline 'before-string)
+                       markdown-modern-render--newline-mark))
         (when (string-prefix-p "one" text)
           (should-not markdown-modern--revealed-region))
         ;; A re-render keeps the edited paragraph revealed.
@@ -233,7 +249,8 @@ Only the text that the edit marks for re-rendering is rendered again."
         (markdown-modern-render-test--move (point-max))
         (should-not (get-char-property newline 'display))
         (markdown-modern-render-test--settle)
-        (should (equal (get-char-property newline 'display) " ")))))
+        (should (equal (get-char-property newline 'display) " "))
+        (should-not (get-char-property newline 'before-string)))))
   (markdown-modern-render-test--with "one\ntwo\n"
     (goto-char 5)
     (delete-backward-char 1)
@@ -353,6 +370,7 @@ Only the text that the edit marks for re-rendering is rendered again."
 (ert-deftest render/code-block ()     (markdown-modern-render-test--assert-code-block))
 (ert-deftest render/table ()          (markdown-modern-render-test--assert-table))
 (ert-deftest render/soft-breaks ()    (markdown-modern-render-test--assert-soft-breaks))
+(ert-deftest render/unjoined-lines () (markdown-modern-render-test--assert-unjoined-lines))
 (ert-deftest render/break-boundaries () (markdown-modern-render-test--assert-break-boundaries))
 (ert-deftest render/container-soft-breaks () (markdown-modern-render-test--assert-container-soft-breaks))
 (ert-deftest render/soft-break-editing () (markdown-modern-render-test--assert-soft-break-editing))

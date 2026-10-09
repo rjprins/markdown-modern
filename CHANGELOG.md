@@ -16,6 +16,8 @@ on [Keep a Changelog](https://keepachangelog.com/).
 - A README comparison explains this fork's changes from mark-graf.
 - `markdown-modern-paragraph-reveal-delay` shows the source lines of the
   paragraph the cursor rests in, after that many seconds.
+- `markdown-modern-join-paragraph-lines` set to `nil` shows paragraphs with
+  their lines as written. It also works as a file-local variable.
 - `TAB` in the last cell of a table adds an empty row and moves into it.
 
 ### Changed
@@ -36,7 +38,8 @@ on [Keep a Changelog](https://keepachangelog.com/).
 - Ordinary paragraph newlines now render as spaces, so
   source-wrapped prose flows to the window width. Explicit hard breaks and
   block boundaries stay visible. A paragraph you edit shows its source lines,
-  so a new list item stays on its own line. The file's text does not change.
+  with a `↵` where they will join, so a new list item stays on its own line.
+  The file's text does not change.
 
 ## [1.1.0] - 2026-10-05
 

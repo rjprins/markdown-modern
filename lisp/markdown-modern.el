@@ -160,12 +160,24 @@ to keep a fixed-pitch buffer."
   :type 'boolean
   :group 'markdown-modern)
 
+(defcustom markdown-modern-join-paragraph-lines t
+  "Whether the source lines of a paragraph display joined.
+Markdown treats a single newline inside a paragraph as a space.  When
+non-nil, such newlines display as spaces, so a paragraph that the file wraps
+at a fixed width flows to the window width.  Explicit hard breaks and blank
+lines stay.  When nil, paragraphs show their lines as written.  After
+changing this, run `markdown-modern-mode' again in open buffers."
+  :type 'boolean
+  :safe #'booleanp
+  :group 'markdown-modern)
+
 (defcustom markdown-modern-paragraph-reveal-delay nil
   "Seconds point rests in a paragraph before it shows its source lines.
-Paragraphs show their source line breaks as spaces, so prose fills the
-window.  Editing a paragraph shows its source lines right away.  When this is
-a number, a paragraph also shows them once point has rested in it for that
-many seconds.  When nil, only editing shows them."
+With `markdown-modern-join-paragraph-lines', paragraphs show their source
+line breaks as spaces, so prose fills the window.  Editing a paragraph shows
+its source lines right away.  When this is a number, a paragraph also shows
+them once point has rested in it for that many seconds.  When nil, only
+editing shows them."
   :type '(choice (const :tag "Only when editing" nil)
                  (number :tag "Seconds"))
   :group 'markdown-modern)

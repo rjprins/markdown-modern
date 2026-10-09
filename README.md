@@ -29,8 +29,9 @@ The main changes are in editing, rendering and parser setup:
   `Backspace` or `Delete` removes it and leaves a plain list item.
 - **Paragraphs follow Markdown's soft-break behavior.** Ordinary source newlines
   display as spaces without changing the file. Explicit hard breaks stay visible.
-  A paragraph you type in shows its real lines, so a new line stays on its own
-  line.
+  A paragraph you type in shows its real lines, with a `↵` where they will join,
+  so a new line stays on its own line. Set
+  `markdown-modern-join-paragraph-lines` to `nil` to show lines as written.
 - **Tree-sitter is required.** Both Markdown grammars drive buffer parsing.
   There is no regex parser fallback or opt-in switch. A dedicated command installs
   missing grammars and setup errors explain what is needed.
@@ -197,12 +198,17 @@ revealed so you can edit it in place, and re-rendered once the cursor leaves:
 Ordinary newlines within a paragraph render as spaces, so prose flows to the
 window width even when the source is wrapped across several lines. The file's
 text stays unchanged. When you type in a paragraph, it shows its source lines,
-so a new line you type stays on its own line. Once you leave the paragraph and
-pause, its lines join again. Moving the cursor does not split or join
+so a new line you type stays on its own line. A `↵` marks each newline that
+will display as a space. Once you leave the paragraph and pause, its lines join
+again. Moving the cursor does not split or join
 paragraphs. To also show the source lines of the paragraph the cursor rests in,
 set `markdown-modern-paragraph-reveal-delay` to a number of seconds. Two
 trailing spaces or an unescaped backslash keep an explicit Markdown hard break.
 Blank lines keep paragraphs separate.
+
+To show every paragraph with its lines as written, set
+`markdown-modern-join-paragraph-lines` to `nil`. You can also set it for one
+file, as a file-local variable.
 
 Task checkboxes are the exception: they are treated as interactive widgets, not
 markup to reveal. Point on a checkbox keeps the rendered `☐`/`☑`; `SPC` toggles
@@ -280,6 +286,7 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
 | `markdown-modern-variable-pitch` | `t` | Enable `variable-pitch-mode` (proportional prose; code/tables stay fixed-pitch) |
 | `markdown-modern-visual-line` | `t` | Enable `visual-line-mode` (soft word-wrap) |
 | `markdown-modern-left-margin` | `4` | Left margin width, in characters |
+| `markdown-modern-join-paragraph-lines` | `t` | Display single newlines in a paragraph as spaces, as Markdown renders them; `nil` = show lines as written |
 | `markdown-modern-paragraph-reveal-delay` | `nil` | Seconds the cursor rests in a paragraph before it shows its source lines; `nil` = only while you edit it |
 
 ### Reading width

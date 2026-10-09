@@ -39,6 +39,7 @@
 (defvar markdown-modern-image-max-height)
 (defvar markdown-modern-left-margin)
 (defvar markdown-modern-code-block-syntax-highlight)
+(defvar markdown-modern-join-paragraph-lines)
 
 ;; Variables defined later in this file
 (defvar markdown-modern-math-block-scale)
@@ -103,6 +104,9 @@
 (defvar markdown-modern-render--blockquote-char ?▌
   "Character for blockquote left border.")
 
+(defvar markdown-modern-render--newline-mark "↵"
+  "String that marks a source newline in the paragraph being edited.")
+
 ;;; Initialization
 
 (defun markdown-modern-render--init ()
@@ -121,19 +125,23 @@
     (setq markdown-modern-render--bullet-chars '(?● ?○ ?■ ?□))
     (setq markdown-modern-render--checkbox-chars '((unchecked . ?☐) (checked . ?☑)))
     (setq markdown-modern-render--hr-char ?─)
-    (setq markdown-modern-render--blockquote-char ?▌))
+    (setq markdown-modern-render--blockquote-char ?▌)
+    (setq markdown-modern-render--newline-mark "↵"))
    ;; Terminal with Unicode
    ((char-displayable-p ?●)
     (setq markdown-modern-render--bullet-chars '(?● ?○ ?◆ ?◇))
     (setq markdown-modern-render--checkbox-chars '((unchecked . ?☐) (checked . ?☑)))
     (setq markdown-modern-render--hr-char ?─)
-    (setq markdown-modern-render--blockquote-char ?│))
+    (setq markdown-modern-render--blockquote-char ?│)
+    (setq markdown-modern-render--newline-mark
+          (if (char-displayable-p ?↵) "↵" "$")))
    ;; Basic ASCII terminal
    (t
     (setq markdown-modern-render--bullet-chars '(?* ?- ?+ ?.))
     (setq markdown-modern-render--checkbox-chars '((unchecked . ?\[) (checked . ?x)))
     (setq markdown-modern-render--hr-char ?-)
-    (setq markdown-modern-render--blockquote-char ?|))))
+    (setq markdown-modern-render--blockquote-char ?|)
+    (setq markdown-modern-render--newline-mark "$"))))
 
 ;;; Overlay Management
 
@@ -280,7 +288,8 @@ even when the surrounding inline markup is revealed."
     (dolist (inline-elem inlines)
       (ignore-errors
         (markdown-modern-render--render-element inline-elem)))
-    (markdown-modern-render--soft-breaks start end inlines)))
+    (when markdown-modern-join-paragraph-lines
+      (markdown-modern-render--soft-breaks start end inlines))))
 
 (defun markdown-modern-render--soft-breaks (start end inlines)
   "Display ordinary paragraph newlines in START..END as spaces.
@@ -370,7 +379,9 @@ buffer order."
        (cl-every #'eq a b)))
 
 (defun markdown-modern-render--sync-soft-breaks ()
-  "Show source newlines in the unfolded paragraph, and spaces elsewhere."
+  "Show source newlines in the unfolded paragraph, and spaces elsewhere.
+Mark each source newline of the unfolded paragraph, with the cursor drawn on
+the mark, so it is clear which lines will join again."
   (let ((breaks (and markdown-modern-render--unfolded
                      (markdown-modern-render--soft-breaks-around
                       markdown-modern-render--unfolded))))
@@ -378,9 +389,14 @@ buffer order."
              breaks markdown-modern-render--active-soft-breaks)
       (dolist (ov markdown-modern-render--active-soft-breaks)
         (when (and (overlay-buffer ov) (not (memq ov breaks)))
-          (overlay-put ov 'display " ")))
+          (overlay-put ov 'display " ")
+          (overlay-put ov 'before-string nil)))
       (dolist (ov breaks)
-        (overlay-put ov 'display nil))
+        (overlay-put ov 'display nil)
+        (overlay-put ov 'before-string
+                     (propertize markdown-modern-render--newline-mark
+                                 'face 'markdown-modern-delimiter
+                                 'cursor t)))
       (setq markdown-modern-render--active-soft-breaks breaks))))
 
 (defun markdown-modern-render--unfold-paragraph (pos)
