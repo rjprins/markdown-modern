@@ -28,6 +28,7 @@
 
 (require 'cl-lib)
 (require 'color)
+(require 'subr-x)
 
 ;;; ============================================================
 ;;; Theme Integration
@@ -163,19 +164,24 @@ Uses average character width of 0.6 * font-size for sans-serif."
 
 (defun markdown-modern-mermaid-render (diagram-code)
   "Render mermaid DIAGRAM-CODE to an SVG string.
-Returns SVG XML string or nil if diagram type is unsupported."
-  (let* ((lines (split-string diagram-code "\n" t "[ \t\r]+"))
+Returns SVG XML string or nil for empty or unsupported diagrams.
+Unsupported constructs retain source instead of showing a partial diagram."
+  (let* ((lines (cl-remove-if
+                 (lambda (line) (string-match-p "^%%\\(?:[^{]\\|$\\)" line))
+                 (split-string diagram-code "\n" t "[ \t\r]+")))
          (first (car lines))
          (type (cond
-                ((and first (string-match "^\\(?:graph\\|flowchart\\)" first)) 'flowchart)
-                ((and first (string-match "^sequenceDiagram" first)) 'sequence)
-                ((and first (string-match "^stateDiagram" first)) 'state)
-                ((and first (string-match "^classDiagram" first)) 'class)
-                ((and first (string-match "^erDiagram" first)) 'er)
+                ((and first (string-match "^\\(?:graph\\|flowchart\\)\\s-" first)) 'flowchart)
+                ((equal first "sequenceDiagram") 'sequence)
+                ((member first '("stateDiagram" "stateDiagram-v2")) 'state)
+                ((equal first "classDiagram") 'class)
+                ((equal first "erDiagram") 'er)
                 (t nil))))
     (when type
       (condition-case err
           (let ((colors (markdown-modern-mermaid--theme-colors)))
+            (when (markdown-modern-mermaid--unsupported-p type (cdr lines))
+              (error "Unsupported construct; displaying source"))
             (cond
              ((eq type 'flowchart) (markdown-modern-mermaid--render-flowchart lines colors))
              ((eq type 'sequence)  (markdown-modern-mermaid--render-sequence lines colors))
@@ -187,91 +193,91 @@ Returns SVG XML string or nil if diagram type is unsupported."
          (message "markdown-modern-mermaid: %s render error: %s" type (error-message-string err))
          nil)))))
 
+(defun markdown-modern-mermaid--unsupported-p (type lines)
+  "Return non-nil when LINES contain known unsupported constructs for TYPE."
+  (let ((pattern
+         (pcase type
+           ('sequence "^\\(?:activate\\|deactivate\\|create\\|destroy\\|box\\|rect\\|break\\)\\b\\|[-=]>+[+-]\\|<<->>\\|--?x")
+           ('state "^note\\b\\|^state.*{\\|<<\\|^--$")
+           ('class "^\\(?:namespace\\|direction\\|note\\|click\\|style\\|classDef\\)\\b\\|^[^:\n]*\"")
+           ('er "^direction\\b"))))
+    (and pattern (cl-some (lambda (line) (string-match-p pattern line)) lines))))
+
 ;;; ============================================================
 ;;; Flowchart Renderer
 ;;; ============================================================
 
+(defun markdown-modern-mermaid--flowchart-statements (code)
+  "Split CODE at newlines and semicolons outside quoted or shaped labels."
+  (let ((start 0) (depth 0) quoted statements)
+    (dotimes (i (length code))
+      (let ((char (aref code i)))
+        (cond
+         ((eq char ?\") (setq quoted (not quoted)))
+         (quoted)
+         ((memq char '(?\[ ?\( ?\{)) (setq depth (1+ depth)))
+         ((memq char '(?\] ?\) ?\})) (setq depth (max 0 (1- depth))))
+         ((and (= depth 0) (memq char '(?\; ?\n)))
+          (push (string-trim (substring code start i)) statements)
+          (setq start (1+ i))))))
+    (push (string-trim (substring code start)) statements)
+    (cl-remove-if #'string-empty-p (nreverse statements))))
+
+(defun markdown-modern-mermaid--flowchart-node (text nodes)
+  "Read a node from TEXT into NODES; return (ID . REMAINING-TEXT).
+An explicit label updates an earlier implicit declaration."
+  (unless (string-match "^\\([[:alnum:]_-]+\\)" text)
+    (error "Unsupported flowchart node: %s" text))
+  (let* ((id (match-string 1 text))
+         (rest (substring text (match-end 0)))
+         (form (cl-find-if (lambda (entry) (string-prefix-p (car entry) rest))
+                           '(("[[" "]]" subroutine) ("((" "))" circle)
+                             ("[" "]" rect) ("(" ")" round) ("{" "}" diamond))))
+         label shape)
+    (when form
+      (let* ((start (length (car form)))
+             (quoted (eq (aref rest start) ?\"))
+             (end (if quoted (string-match "\"" rest (1+ start))
+                    (string-match (regexp-quote (cadr form)) rest start))))
+        (unless end (error "Unclosed flowchart label"))
+        (setq label (substring rest (if quoted (1+ start) start) end))
+        (when quoted (setq end (1+ end)))
+        (unless (string-prefix-p (cadr form) (substring rest end))
+          (error "Unsupported flowchart shape"))
+        (setq rest (substring rest (+ end (length (cadr form))))
+              shape (nth 2 form))))
+    (when (or label (not (gethash id nodes)))
+      (puthash id (list :id id :label (or label id) :shape (or shape 'rect)) nodes))
+    (cons id (string-trim-left rest))))
+
 (defun markdown-modern-mermaid--parse-flowchart (lines)
-  "Parse flowchart LINES into (:direction DIR :nodes NODES :edges EDGES).
-NODES is a hash-table id->(list :id :label :shape).
-EDGES is a list of (list :from :to :label :style)."
-  (let ((direction "TD")
-        (nodes (make-hash-table :test 'equal))
-        (edges nil)
-        (first (car lines)))
-    ;; Parse direction from first line
-    (when (string-match "^\\(?:graph\\|flowchart\\)\\s-+\\(TB\\|TD\\|BT\\|LR\\|RL\\)" first)
-      (setq direction (match-string 1 first)))
-    ;; Parse remaining lines
-    (dolist (raw-line (cdr lines))
-      (let ((line (string-trim raw-line)))
-        (unless (or (string-empty-p line)
-                    (string-match-p "^%%" line)
-                    (string-match-p "^\\(style\\|classDef\\|class\\|click\\|subgraph\\|end\\)" line))
-          (cond
-           ;; Edge: A[label] -->|text| B[label]
-           ((string-match
-             (concat "\\([A-Za-z0-9_]+\\)"
-                     "\\(?:\\[\\([^]]*\\)\\]\\|(\\([^)]*\\))\\|{\\([^}]*\\)}\\|\\[\\[\\([^]]*\\)\\]\\]\\)?"
-                     "[ \t]*"
-                     "\\(--+>\\|==+>\\|-\\.->\\|--+\\)"
-                     "[ \t]*"
-                     "\\(?:|\\([^|]*\\)|\\)?"
-                     "[ \t]*"
-                     "\\([A-Za-z0-9_]+\\)"
-                     "\\(?:\\[\\([^]]*\\)\\]\\|(\\([^)]*\\))\\|{\\([^}]*\\)}\\|\\[\\[\\([^]]*\\)\\]\\]\\)?")
-             line)
-            (let* ((from-id (match-string 1 line))
-                   (from-label (or (match-string 2 line) (match-string 3 line)
-                                   (match-string 4 line) (match-string 5 line)))
-                   (arrow (match-string 6 line))
-                   (edge-label (match-string 7 line))
-                   (to-id (match-string 8 line))
-                   (to-label (or (match-string 9 line) (match-string 10 line)
-                                 (match-string 11 line) (match-string 12 line)))
-                   (from-shape (cond ((match-string 2 line) 'rect)
-                                     ((match-string 3 line) 'round)
-                                     ((match-string 4 line) 'diamond)
-                                     (t nil)))
-                   (to-shape (cond ((match-string 9 line) 'rect)
-                                   ((match-string 10 line) 'round)
-                                   ((match-string 11 line) 'diamond)
-                                   (t nil))))
-              ;; Register nodes
-              (unless (gethash from-id nodes)
-                (puthash from-id (list :id from-id :label (or from-label from-id)
-                                       :shape (or from-shape 'rect))
-                         nodes))
-              (when (and from-label (not from-shape))
-                ;; Update label if we have one now
-                (let ((existing (gethash from-id nodes)))
-                  (when (string= (plist-get existing :label) from-id)
-                    (puthash from-id (plist-put (copy-sequence existing) :label from-label) nodes))))
-              (unless (gethash to-id nodes)
-                (puthash to-id (list :id to-id :label (or to-label to-id)
-                                     :shape (or to-shape 'rect))
-                         nodes))
-              (when (and to-label (not to-shape))
-                (let ((existing (gethash to-id nodes)))
-                  (when (string= (plist-get existing :label) to-id)
-                    (puthash to-id (plist-put (copy-sequence existing) :label to-label) nodes))))
-              (push (list :from from-id :to to-id
-                          :label (when edge-label (string-trim edge-label))
-                          :style (cond
-                                  ((string-match-p "==>" arrow) 'thick)
-                                  ((string-match-p "-\\.->" arrow) 'dotted)
-                                  (t 'normal)))
-                    edges)))
-           ;; Standalone node: A[text] or A(text) or A{text}
-           ((string-match
-             "^\\([A-Za-z0-9_]+\\)\\(?:\\[\\([^]]*\\)\\]\\|(\\([^)]*\\))\\|{\\([^}]*\\)}\\)"
-             line)
-            (let ((id (match-string 1 line))
-                  (label (or (match-string 2 line) (match-string 3 line) (match-string 4 line)))
-                  (shape (cond ((match-string 2 line) 'rect)
-                               ((match-string 3 line) 'round)
-                               ((match-string 4 line) 'diamond))))
-              (puthash id (list :id id :label (or label id) :shape (or shape 'rect)) nodes)))))))
+  "Parse flowchart LINES into :direction, :nodes and :edges.
+Reject unsupported statements rather than silently discarding graph content."
+  (let* ((statements (markdown-modern-mermaid--flowchart-statements
+                      (mapconcat #'identity lines "\n")))
+         (header (pop statements))
+         (nodes (make-hash-table :test 'equal))
+         (direction "TD") edges)
+    (unless (string-match "^\\(?:graph\\|flowchart\\)\\s-+\\(TB\\|TD\\|BT\\|LR\\|RL\\)\\s-*$" header)
+      (error "Unsupported flowchart header"))
+    (setq direction (match-string 1 header))
+    (dolist (line statements)
+      (unless (string-prefix-p "%%" line)
+        (let* ((node (markdown-modern-mermaid--flowchart-node line nodes))
+               (from (car node)) (rest (cdr node)))
+          (while (not (string-empty-p rest))
+            (unless (string-match "^\\(--+>\\|==+>\\|-\\.->\\|---+\\)\\s-*\\(?:|\\([^|]*\\)|\\s-*\\)?" rest)
+              (error "Unsupported flowchart connection: %s" rest))
+            (let ((arrow (match-string 1 rest))
+                  (label (match-string 2 rest)))
+              (setq rest (substring rest (match-end 0))
+                    node (markdown-modern-mermaid--flowchart-node rest nodes))
+              (push (list :from from :to (car node) :label label
+                          :arrow (string-suffix-p ">" arrow)
+                          :style (cond ((string-prefix-p "=" arrow) 'thick)
+                                       ((string-prefix-p "-." arrow) 'dotted)
+                                       (t 'normal))) edges)
+              (setq from (car node) rest (cdr node)))))))
     (list :direction direction :nodes nodes :edges (nreverse edges))))
 
 (defun markdown-modern-mermaid--flowchart-topo-sort (nodes edges)
@@ -349,235 +355,62 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
       (nreverse result))))
 
 (defun markdown-modern-mermaid--render-flowchart (lines colors)
-  "Render flowchart from LINES with theme COLORS.  Return SVG string."
+  "Render flowchart LINES with COLORS using the layered state layout."
   (let* ((parsed (markdown-modern-mermaid--parse-flowchart lines))
-         (direction (plist-get parsed :direction))
          (nodes (plist-get parsed :nodes))
-         (edges (plist-get parsed :edges))
-         (horizontal (member direction '("LR" "RL")))
-         (reverse-dir (member direction '("BT" "RL")))
-         (bg (plist-get colors :bg))
-         (fg (plist-get colors :fg))
-         (surface (plist-get colors :surface))
-         (border (plist-get colors :border))
-         ;; Layout parameters
-         (font-size 14)
-         (node-pad-x 20)
-         (node-h 40)
-         (layer-gap (if horizontal 120 80))
-         (sibling-gap 40)
-         ;; Compute
-         (sorted-ids (markdown-modern-mermaid--flowchart-topo-sort nodes edges))
-         (effective-edges (if reverse-dir
-                              (mapcar (lambda (e)
-                                        (list :from (plist-get e :to)
-                                              :to (plist-get e :from)
-                                              :label (plist-get e :label)
-                                              :style (plist-get e :style)))
-                                      edges)
-                            edges))
-         (layer-alist (markdown-modern-mermaid--flowchart-assign-layers sorted-ids effective-edges))
-         (max-layer (if layer-alist (apply #'max (mapcar #'cdr layer-alist)) 0))
-         (layer-groups (make-hash-table :test 'equal))
-         ;; Node positions: id -> (:x :y :w :h)
-         (node-pos (make-hash-table :test 'equal))
-         (svg-parts nil)
-         (defs-parts nil)
-         (total-w 0)
-         (total-h 0))
-    ;; Group nodes by layer
-    (dolist (pair layer-alist)
-      (puthash (cdr pair)
-               (append (gethash (cdr pair) layer-groups nil) (list (car pair)))
-               layer-groups))
-    ;; Compute node widths
-    (let ((node-widths (make-hash-table :test 'equal)))
-      (maphash (lambda (id info)
-                 (let* ((label (plist-get info :label))
-                        (tw (markdown-modern-mermaid--text-width label font-size))
-                        (shape (plist-get info :shape))
-                        (w (pcase shape
-                             ('diamond (+ tw (* node-pad-x 4)))
-                             (_ (+ tw (* node-pad-x 2))))))
-                   (puthash id (max w 70) node-widths)))
-               nodes)
-      ;; FIRST PASS: compute total-w and total-h before positioning
-      (if horizontal
-          (let ((x 20))
-            (dotimes (layer (1+ max-layer))
-              (let* ((layer-nodes (gethash layer layer-groups nil))
-                     (max-w (apply #'max 70
-                                   (mapcar (lambda (id) (gethash id node-widths 70)) layer-nodes)))
-                     (count (length layer-nodes))
-                     (layer-h (+ (* count node-h) (* (max 0 (1- count)) sibling-gap))))
-                (setq total-h (max total-h (+ layer-h 40)))
-                (setq x (+ x max-w layer-gap))))
-            (setq total-w (+ x 20)))
-        (progn
-          (dotimes (layer (1+ max-layer))
-            (let* ((layer-nodes (gethash layer layer-groups nil))
-                   (layer-w 0))
-              (dolist (id layer-nodes)
-                (setq layer-w (+ layer-w (gethash id node-widths 70) sibling-gap)))
-              (setq layer-w (- layer-w sibling-gap))
-              (setq total-w (max total-w (+ layer-w 40)))))
-          ;; total-w already computed from layer widths
-          (setq total-h (+ 40 (* (1+ max-layer) (+ node-h layer-gap))))))
-      ;; SECOND PASS: position nodes centered within total-w
-      (if horizontal
-          (let ((x 20))
-            (dotimes (layer (1+ max-layer))
-              (let* ((layer-nodes (gethash layer layer-groups nil))
-                     (max-w (apply #'max 70
-                                   (mapcar (lambda (id) (gethash id node-widths 70)) layer-nodes)))
-                     (count (length layer-nodes))
-                     (layer-h (+ (* count node-h) (* (max 0 (1- count)) sibling-gap)))
-                     (y (/ (- total-h layer-h) 2)))
-                (dolist (id layer-nodes)
-                  (let ((w (gethash id node-widths 70)))
-                    (puthash id (list :x (+ x (/ (- max-w w) 2)) :y y :w w :h node-h) node-pos)
-                    (setq y (+ y node-h sibling-gap))))
-                (setq x (+ x max-w layer-gap)))))
-        (let ((y 20))
-          (dotimes (layer (1+ max-layer))
-            (let* ((layer-nodes (gethash layer layer-groups nil))
-                   (layer-w 0))
-              (dolist (id layer-nodes)
-                (setq layer-w (+ layer-w (gethash id node-widths 70) sibling-gap)))
-              (setq layer-w (- layer-w sibling-gap))
-              (let ((x (/ (- total-w layer-w) 2)))
-                (dolist (id layer-nodes)
-                  (let ((w (gethash id node-widths 70)))
-                    (puthash id (list :x x :y y :w w :h node-h) node-pos)
-                    (setq x (+ x w sibling-gap)))))
-              (setq y (+ y node-h layer-gap))))
-          (setq total-h (+ y 20)))))
-    ;; Check for back-edges that need right-side routing and widen SVG
-    (let ((has-back-edge nil))
-      (dolist (edge effective-edges)
-        (let ((fp (gethash (plist-get edge :from) node-pos))
-              (tp (gethash (plist-get edge :to) node-pos)))
-          (when (and fp tp
-                     (if horizontal
-                         (>= (plist-get fp :x) (plist-get tp :x))
-                       (>= (plist-get fp :y) (plist-get tp :y))))
-            (setq has-back-edge t))))
-      (when has-back-edge
-        (setq total-w (+ total-w 60))))
-    ;; Arrow marker
-    (push (markdown-modern-mermaid--svg-arrow-marker "arrowhead" fg) defs-parts)
-    ;; Background
-    (push (markdown-modern-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
-    ;; Draw edges first (behind nodes)
-    (dolist (edge effective-edges)
-      (let* ((from-id (plist-get edge :from))
-             (to-id (plist-get edge :to))
-             (from-pos (gethash from-id node-pos))
-             (to-pos (gethash to-id node-pos))
-             (label (plist-get edge :label))
-             (style (plist-get edge :style)))
-        (when (and from-pos to-pos)
-          (let* ((dash (pcase style ('dotted "5,5") ('thick nil) (_ nil)))
-                 (sw (pcase style ('thick "3") (_ "1.5")))
-                 ;; Detect back-edge: target is above source (vertical) or left (horizontal)
-                 (is-back-edge (if horizontal
-                                   (>= (plist-get from-pos :x) (plist-get to-pos :x))
-                                 (>= (plist-get from-pos :y) (plist-get to-pos :y))))
-                 (sx 0) (sy 0) (ex 0) (ey 0))
-            (if is-back-edge
-                ;; Back-edge: route around the right side of nodes
-                (let* ((from-right (+ (plist-get from-pos :x) (plist-get from-pos :w)))
-                       (to-right (+ (plist-get to-pos :x) (plist-get to-pos :w)))
-                       (from-cy (+ (plist-get from-pos :y) (/ (plist-get from-pos :h) 2)))
-                       (to-cy (+ (plist-get to-pos :y) (/ (plist-get to-pos :h) 2)))
-                       (route-x (+ (max from-right to-right) 30)))
-                  (setq sx from-right sy from-cy ex to-right ey to-cy)
-                  (push (format "<path d=\"M %d %d L %d %d L %d %d L %d %d\" stroke=\"%s\" fill=\"none\" stroke-width=\"%s\" marker-end=\"url(#arrowhead)\"%s/>"
-                                sx sy route-x sy route-x ey ex ey
-                                fg sw
-                                (if dash (format " stroke-dasharray=\"%s\"" dash) ""))
-                        svg-parts)
-                  ;; Label on back-edge
-                  (when label
-                    (let ((lx (+ route-x 6))
-                          (ly (/ (+ sy ey) 2)))
-                      (push (markdown-modern-mermaid--svg-text lx ly label (1- font-size) fg "start") svg-parts))))
-              ;; Forward edge: normal routing
-              (let* ((fx (+ (plist-get from-pos :x) (/ (plist-get from-pos :w) 2)))
-                     (fy (+ (plist-get from-pos :y) (/ (plist-get from-pos :h) 2)))
-                     (tx (+ (plist-get to-pos :x) (/ (plist-get to-pos :w) 2)))
-                     (ty (+ (plist-get to-pos :y) (/ (plist-get to-pos :h) 2))))
-                ;; Adjust connection points to node borders
-                (if horizontal
-                    (progn
-                      (setq sx (+ (plist-get from-pos :x) (plist-get from-pos :w)))
-                      (setq sy fy)
-                      (setq ex (plist-get to-pos :x))
-                      (setq ey ty))
-                  (setq sx fx)
-                  (setq sy (+ (plist-get from-pos :y) (plist-get from-pos :h)))
-                  (setq ex tx)
-                  (setq ey (plist-get to-pos :y)))
-                ;; Draw path
-                (if (and (not horizontal) (/= sx ex))
-                    (let ((mid-y (/ (+ sy ey) 2)))
-                      (push (format "<path d=\"M %d %d C %d %d %d %d %d %d\" stroke=\"%s\" fill=\"none\" stroke-width=\"%s\" marker-end=\"url(#arrowhead)\"%s/>"
-                                    sx sy sx mid-y ex mid-y ex ey
-                                    fg sw
-                                    (if dash (format " stroke-dasharray=\"%s\"" dash) ""))
-                            svg-parts))
-                  (if (and horizontal (/= sy ey))
-                      (let ((mid-x (/ (+ sx ex) 2)))
-                        (push (format "<path d=\"M %d %d C %d %d %d %d %d %d\" stroke=\"%s\" fill=\"none\" stroke-width=\"%s\" marker-end=\"url(#arrowhead)\"%s/>"
-                                      sx sy mid-x sy mid-x ey ex ey
-                                      fg sw
-                                      (if dash (format " stroke-dasharray=\"%s\"" dash) ""))
-                              svg-parts))
-                    (push (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"%s\" marker-end=\"url(#arrowhead)\"%s/>"
-                                  sx sy ex ey fg sw
-                                  (if dash (format " stroke-dasharray=\"%s\"" dash) ""))
-                          svg-parts)))
-                ;; Edge label
-                (when label
-                  (let ((lx (/ (+ sx ex) 2))
-                        (ly (- (/ (+ sy ey) 2) 4)))
-                    (push (markdown-modern-mermaid--svg-rect (- lx (/ (+ (markdown-modern-mermaid--text-width label font-size) 8) 2))
-                                                        (- ly (1+ font-size))
-                                                        (+ (markdown-modern-mermaid--text-width label font-size) 8)
-                                                        (+ font-size 6)
-                                                        3 bg "none")
-                          svg-parts)
-                    (push (markdown-modern-mermaid--svg-text lx ly label (1- font-size) fg) svg-parts)))))))))
-    ;; Draw nodes
-    (maphash
-     (lambda (id pos)
-       (let* ((info (gethash id nodes))
-              (label (plist-get info :label))
-              (shape (plist-get info :shape))
-              (x (plist-get pos :x))
-              (y (plist-get pos :y))
-              (w (plist-get pos :w))
-              (h (plist-get pos :h))
-              (cx (+ x (/ w 2)))
-              (cy (+ y (/ h 2)))
-              (text-y (+ cy (/ font-size 3))))
-         (pcase shape
-           ('diamond
-            (push (markdown-modern-mermaid--svg-diamond cx cy w h surface border) svg-parts))
-           ('round
-            (push (markdown-modern-mermaid--svg-rect x y w h (/ h 2) surface border) svg-parts))
-           ('circle
-            (let ((r (/ (max w h) 2)))
-              (push (markdown-modern-mermaid--svg-circle cx cy r surface border) svg-parts)))
-           (_
-            (push (markdown-modern-mermaid--svg-rect x y w h 6 surface border) svg-parts)))
-         (push (markdown-modern-mermaid--svg-text cx text-y label font-size fg) svg-parts)))
-     node-pos)
-    ;; Assemble SVG
-    (markdown-modern-mermaid--svg-wrap
-     total-w total-h
-     (mapconcat #'identity (nreverse defs-parts) "\n")
-     (mapconcat #'identity (nreverse svg-parts) "\n"))))
+         (bg (plist-get colors :bg)) (fg (plist-get colors :fg))
+         (surface (plist-get colors :surface)) (border (plist-get colors :border))
+         parts)
+    (when (> (hash-table-count nodes) 0)
+      (maphash
+       (lambda (_id info)
+         (let* ((size (markdown-modern-mermaid--state-text-size (plist-get info :label) 14))
+                (w (max 80 (+ 24 (car size)))) (h (max 40 (+ 8 (cdr size)))))
+           (pcase (plist-get info :shape)
+             ('diamond (setq w (* 2 w) h (* 2 h)))
+             ('circle (setq w (max w h) h w)))
+           (plist-put info :width w)
+           (plist-put info :height h))) nodes)
+      (let* ((layout (markdown-modern-mermaid--layout-state
+                      (list :states nodes :transitions (plist-get parsed :edges)
+                            :direction (plist-get parsed :direction))))
+             (width (plist-get layout :width)) (height (plist-get layout :height)))
+        (push (markdown-modern-mermaid--svg-rect 0 0 width height 6 bg "none") parts)
+        (dolist (route (plist-get layout :routes))
+          (push (format "<path d=\"%s\" stroke=\"%s\" fill=\"none\" stroke-width=\"%s\"%s%s/>"
+                        (markdown-modern-mermaid--state-path
+                         (plist-get route :points) (plist-get layout :horizontal) (plist-get route :back))
+                        fg (if (eq (plist-get route :style) 'thick) "3" "1.5")
+                        (if (plist-get route :arrow) " marker-end=\"url(#arrowhead)\"" "")
+                        (if (eq (plist-get route :style) 'dotted) " stroke-dasharray=\"5,5\"" "")) parts))
+        (maphash
+         (lambda (id pos)
+           (let* ((info (gethash id nodes)) (label (plist-get info :label))
+                  (x (plist-get pos :x)) (y (plist-get pos :y))
+                  (w (plist-get pos :w)) (h (plist-get pos :h))
+                  (cx (+ x (/ w 2))) (cy (+ y (/ h 2))))
+             (pcase (plist-get info :shape)
+               ('diamond (push (markdown-modern-mermaid--svg-diamond cx cy w h surface border) parts))
+               ('circle (push (markdown-modern-mermaid--svg-circle cx cy (/ w 2) surface border) parts))
+               (_
+                (push (markdown-modern-mermaid--svg-rect x y w h
+                       (if (eq (plist-get info :shape) 'round) (/ h 2) 0) surface border) parts)
+                (when (eq (plist-get info :shape) 'subroutine)
+                  (dolist (sx (list (+ x 8) (- (+ x w) 8)))
+                    (push (markdown-modern-mermaid--svg-line sx y sx (+ y h) border) parts)))))
+             (push (markdown-modern-mermaid--sequence-text
+                    cx (+ (- cy (* 9 (length (markdown-modern-mermaid--sequence-text-lines label)))) 14)
+                    label 14 fg) parts))) (plist-get layout :nodes))
+        (dolist (route (plist-get layout :routes))
+          (when-let* ((box (plist-get route :label-box)))
+            (let ((x (plist-get box :x)) (y (plist-get box :y))
+                  (w (plist-get box :w)) (h (plist-get box :h)))
+              (push (markdown-modern-mermaid--svg-rect x y w h 3 bg "none") parts)
+              (push (markdown-modern-mermaid--sequence-text
+                     (+ x (/ w 2)) (+ y 19) (plist-get route :label) 13 fg) parts))))
+        (markdown-modern-mermaid--svg-wrap
+         width height (markdown-modern-mermaid--svg-arrow-marker "arrowhead" fg)
+         (mapconcat #'identity (nreverse parts) "\n"))))))
 
 ;;; ============================================================
 ;;; Sequence Diagram Renderer
@@ -1049,9 +882,13 @@ across layers and Y along them; horizontal directions are transposed last."
                   (offset (* (min 14 (/ (plist-get node :w) (1+ count)))
                              (- (cl-position route edges :test #'eq) (/ (1- count) 2.0))))
                   (radius (/ (plist-get node :h) 2.0))
-                  (dy (if (memq id '(start end))
-                          (sqrt (max 0 (- (* radius radius) (* offset offset))))
-                        radius)))
+                  (shape (plist-get (gethash id states) :shape))
+                  (dy (cond
+                       ((or (memq id '(start end)) (eq shape 'circle))
+                        (sqrt (max 0 (- (* radius radius) (* offset offset)))))
+                       ((eq shape 'diamond)
+                        (* radius (- 1 (/ (abs offset) (/ (plist-get node :w) 2.0)))))
+                       (t radius))))
              (cons (+ (plist-get node :x) offset)
                    (+ (plist-get node :y) (* (if source 1 -1) dy)))))
          (transform (point)
@@ -1070,8 +907,8 @@ across layers and Y along them; horizontal directions are transposed last."
                (pseudo (memq (plist-get info :type) '(start end)))
                (diameter (if (eq (plist-get info :type) 'start) 20 24)))
           (puthash id (vertex (* 2 (cdr pair))
-                              (if pseudo diameter (max 80 (+ 20 (car size))))
-                              (if pseudo diameter (max 40 (+ 8 (cdr size)))) id) nodes)))
+                              (if pseudo diameter (or (plist-get info :width) (max 80 (+ 20 (car size)))))
+                              (if pseudo diameter (or (plist-get info :height) (max 40 (+ 8 (cdr size))))) id) nodes)))
       ;; Every forward edge has its own waypoint in every intermediate layer.
       ;; One waypoint holds the label and reserves its full dimensions.
       (dolist (edge transitions)
@@ -1261,74 +1098,47 @@ Use smooth curves between layers, or line segments when STRAIGHT is non-nil."
 ;;; ============================================================
 
 (defun markdown-modern-mermaid--parse-class (lines)
-  "Parse class diagram LINES.
-Returns (:classes CLASSES :relationships RELS).
-CLASSES is hash-table name->(list :name :attrs :methods).
-RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
-  (let ((classes (make-hash-table :test 'equal))
-        (relationships nil)
-        (current-class nil))
-    (dolist (raw-line (cdr lines))
-      (let ((line (string-trim raw-line)))
+  "Parse class LINES into :classes and :relationships.
+Keep marker endpoints and line style independent of relationship labels."
+  (let ((classes (make-hash-table :test 'equal)) relationships current-class)
+    (cl-labels
+        ((register (id)
+           (or (gethash id classes)
+               (puthash id (list :name id :attrs nil :methods nil) classes)))
+         (member-line (id text)
+           (let* ((cls (register id))
+                  (key (if (string-match-p "(.*)" text) :methods :attrs)))
+             (plist-put cls key (append (plist-get cls key) (list text))))))
+      (dolist (line (cdr lines))
+        (setq line (string-trim line))
         (cond
-         ;; End of class body
-         ((and current-class (string= line "}"))
-          (setq current-class nil))
-         ;; Inside class body - attribute or method
-         (current-class
-          (let ((cls (gethash current-class classes)))
-            (when cls
-              (if (string-match "(.*)" line)
-                  (plist-put cls :methods
-                             (append (plist-get cls :methods) (list line)))
-                (plist-put cls :attrs
-                           (append (plist-get cls :attrs) (list line)))))))
-         ;; class Name { ... }
-         ((string-match "^class\\s-+\\(\\S-+\\)\\s-*{?" line)
-          (let ((name (match-string 1 line)))
-            (unless (gethash name classes)
-              (puthash name (list :name name :attrs nil :methods nil) classes))
-            (when (string-match "{" line)
-              (setq current-class name))))
-         ;; class Name
-         ((string-match "^class\\s-+\\(\\S-+\\)$" line)
-          (let ((name (match-string 1 line)))
-            (unless (gethash name classes)
-              (puthash name (list :name name :attrs nil :methods nil) classes))))
-         ;; Relationship: A <|-- B, A *-- B, A o-- B, A --> B, A -- B, A ..> B
+         ((or (string-empty-p line) (string-prefix-p "%%" line)))
+         ((and current-class (string= line "}")) (setq current-class nil))
+         (current-class (member-line current-class line))
+         ((string-match "^class\\s-+\\([[:alnum:]_-]+\\)\\s-*\\({\\)?$" line)
+          (let ((id (match-string 1 line)) (body (match-string 2 line)))
+            (register id) (when body (setq current-class id))))
          ((string-match
-           "^\\(\\S-+\\)\\s-+\\(<|--\\|\\*--\\|o--\\|-->\\|--\\|\\.\\+>\\|\\.\\.>\\)\\s-+\\(\\S-+\\)\\(?:\\s-*:\\s-*\\(.*\\)\\)?"
-           line)
-          (let ((from (match-string 1 line))
-                (rel (match-string 2 line))
-                (to (match-string 3 line))
-                (label (match-string 4 line)))
-            (unless (gethash from classes)
-              (puthash from (list :name from :attrs nil :methods nil) classes))
-            (unless (gethash to classes)
-              (puthash to (list :name to :attrs nil :methods nil) classes))
-            (push (list :from from :to to
-                        :type (cond
-                               ((string= rel "<|--") 'inheritance)
-                               ((string= rel "*--") 'composition)
-                               ((string= rel "o--") 'aggregation)
-                               ((string= rel "-->") 'dependency)
-                               ((string-match-p "\\.\\." rel) 'realization)
-                               (t 'association))
-                        :label (when label (string-trim label)))
-                  relationships)))
-         ;; Colon syntax: ClassName : +method() or ClassName : -attr
-         ((string-match "^\\(\\S-+\\)\\s-*:\\s-*\\(.*\\)" line)
-          (let ((name (match-string 1 line))
-                (member-str (string-trim (match-string 2 line))))
-            (unless (gethash name classes)
-              (puthash name (list :name name :attrs nil :methods nil) classes))
-            (let ((cls (gethash name classes)))
-              (if (string-match "(.*)" member-str)
-                  (plist-put cls :methods
-                             (append (plist-get cls :methods) (list member-str)))
-                (plist-put cls :attrs
-                           (append (plist-get cls :attrs) (list member-str))))))))))
+           (concat "^\\([[:alnum:]_-]+\\)\\s-*"
+                   "\\(<|--\\|--|>\\|<|\\.\\.\\|\\.\\.|>\\|\\*--\\|--\\*\\|o--\\|--o\\|-->\\|<--\\|\\.\\.>\\|<\\.\\.\\|--\\|\\.\\.\\)"
+                   "\\s-*\\([[:alnum:]_-]+\\)\\(?:\\s-*:\\s-*\\(.*\\)\\)?$") line)
+          (let* ((from (match-string 1 line)) (arrow (match-string 2 line))
+                 (to (match-string 3 line)) (label (match-string 4 line))
+                 (start (cond ((string-prefix-p "<|" arrow) "class-inherit")
+                              ((string-prefix-p "*" arrow) "class-diamond")
+                              ((string-prefix-p "o" arrow) "class-aggregate")
+                              ((string-prefix-p "<" arrow) "class-arrow")))
+                 (end (cond ((string-suffix-p "|>" arrow) "class-inherit")
+                            ((string-suffix-p "*" arrow) "class-diamond")
+                            ((string-suffix-p "o" arrow) "class-aggregate")
+                            ((string-suffix-p ">" arrow) "class-arrow"))))
+            (register from) (register to)
+            (push (list :from from :to to :label label :marker-start start :marker-end end
+                        :dash (and (string-match-p "\\.\\." arrow) "5,5")) relationships)))
+         ((string-match "^\\([[:alnum:]_-]+\\)\\s-*:\\s-*\\(.+\\)$" line)
+          (member-line (match-string 1 line) (match-string 2 line)))
+         (t (error "Unsupported class statement: %s" line)))))
+    (when current-class (error "Unclosed class body"))
     (list :classes classes :relationships (nreverse relationships))))
 
 (defun markdown-modern-mermaid--render-class (lines colors)
@@ -1397,9 +1207,9 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
               (setq col 0 x 20 y (+ y row-h grid-gap-y) row-h 0))))
         (setq total-h (+ y row-h 20))))
     ;; Markers
-    (push (markdown-modern-mermaid--svg-arrow-marker "class-arrow" fg) defs-parts)
+    (push (markdown-modern-mermaid--svg-arrow-marker "class-arrow" fg 'open) defs-parts)
     (push (markdown-modern-mermaid--svg-arrow-marker "class-diamond" fg 'diamond) defs-parts)
-    (push (markdown-modern-mermaid--svg-arrow-marker "class-circle" fg 'circle) defs-parts)
+    (push (format "<marker id=\"class-aggregate\" viewBox=\"0 0 12 12\" refX=\"12\" refY=\"6\" markerWidth=\"10\" markerHeight=\"10\" orient=\"auto-start-reverse\"><polygon points=\"0,6 6,0 12,6 6,12\" fill=\"%s\" stroke=\"%s\"/></marker>" bg fg) defs-parts)
     (push (format "<marker id=\"class-inherit\" viewBox=\"0 0 10 10\" refX=\"10\" refY=\"5\" markerWidth=\"10\" markerHeight=\"10\" orient=\"auto-start-reverse\"><path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1\"/></marker>"
                   bg fg)
           defs-parts)
@@ -1409,7 +1219,8 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
     (dolist (rel relationships)
       (let* ((from-name (plist-get rel :from))
              (to-name (plist-get rel :to))
-             (rel-type (plist-get rel :type))
+             (marker-start (plist-get rel :marker-start))
+             (marker-end (plist-get rel :marker-end))
              (label (plist-get rel :label))
              (fp (gethash from-name class-pos))
              (tp (gethash to-name class-pos)))
@@ -1418,12 +1229,7 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
                  (fy (+ (plist-get fp :y) (plist-get fp :h)))
                  (tx (+ (plist-get tp :x) (/ (plist-get tp :w) 2)))
                  (ty (plist-get tp :y))
-                 (marker (pcase rel-type
-                           ('inheritance "class-inherit")
-                           ('composition "class-diamond")
-                           ('aggregation "class-circle")
-                           (_ "class-arrow")))
-                 (dash (if (memq rel-type '(dependency realization)) "5,5" nil)))
+                 (dash (plist-get rel :dash)))
             ;; Connect from bottom of from-class to top of to-class
             ;; If they're on the same row, connect side-to-side instead
             (when (and (>= ty (plist-get fp :y))
@@ -1432,8 +1238,15 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
               (setq fy (+ (plist-get fp :y) (/ (plist-get fp :h) 2)))
               (setq tx (plist-get tp :x))
               (setq ty (+ (plist-get tp :y) (/ (plist-get tp :h) 2))))
-            (push (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"1.5\" marker-end=\"url(#%s)\"%s/>"
-                          fx fy tx ty fg marker
+            (if (= (plist-get fp :y) (plist-get tp :y))
+                (when (> (plist-get fp :x) (plist-get tp :x))
+                  (setq fx (plist-get fp :x) tx (+ (plist-get tp :x) (plist-get tp :w))))
+              (when (> (plist-get fp :y) (plist-get tp :y))
+                (setq fy (plist-get fp :y) ty (+ (plist-get tp :y) (plist-get tp :h)))))
+            (push (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"1.5\"%s%s%s/>"
+                          fx fy tx ty fg
+                          (if marker-start (format " marker-start=\"url(#%s)\"" marker-start) "")
+                          (if marker-end (format " marker-end=\"url(#%s)\"" marker-end) "")
                           (if dash (format " stroke-dasharray=\"%s\"" dash) ""))
                   svg-parts)
             (when label
@@ -1475,62 +1288,52 @@ RELS is list of (:from FROM :to TO :type TYPE :label LABEL)."
           (setq cy (+ cy line-h))
           (push (markdown-modern-mermaid--svg-text (+ x pad-x) cy m font-size fg "start") svg-parts))))
     ;; Assemble
-    (markdown-modern-mermaid--svg-wrap
+    (when (> (hash-table-count classes) 0)
+      (markdown-modern-mermaid--svg-wrap
      total-w total-h
      (mapconcat #'identity (nreverse defs-parts) "\n")
-     (mapconcat #'identity (nreverse svg-parts) "\n"))))
+     (mapconcat #'identity (nreverse svg-parts) "\n")))))
 
 ;;; ============================================================
 ;;; ER Diagram Renderer
 ;;; ============================================================
 
 (defun markdown-modern-mermaid--parse-er (lines)
-  "Parse ER diagram LINES.
-Returns (:entities ENTITIES :relationships RELS).
-ENTITIES is hash-table name->(list :name :attrs).
-RELS is list of (:from FROM :to TO :card-from CARD :card-to CARD :label LABEL)."
-  (let ((entities (make-hash-table :test 'equal))
-        (relationships nil)
-        (current-entity nil))
-    (dolist (raw-line (cdr lines))
-      (let ((line (string-trim raw-line)))
+  "Parse ER LINES into :entities and :relationships.
+Support the four cardinalities on both ends and both identifying line styles."
+  (let ((entities (make-hash-table :test 'equal)) relationships current-entity)
+    (cl-labels ((register (id)
+                  (or (gethash id entities)
+                      (puthash id (list :name id :attrs nil) entities))))
+      (dolist (line (cdr lines))
+        (setq line (string-trim line))
         (cond
-         ;; End of entity body
-         ((and current-entity (string= line "}"))
-          (setq current-entity nil))
-         ;; Inside entity body
+         ((or (string-empty-p line) (string-prefix-p "%%" line)))
+         ((and current-entity (string= line "}")) (setq current-entity nil))
          (current-entity
-          (when (string-match "^\\(\\S-+\\)\\s-+\\(\\S-+\\)\\(?:\\s-+\\(.*\\)\\)?" line)
-            (let ((ent (gethash current-entity entities)))
-              (when ent
-                (plist-put ent :attrs
-                           (append (plist-get ent :attrs)
-                                   (list (list :type (match-string 1 line)
-                                               :name (match-string 2 line)
-                                               :constraint (match-string 3 line)))))))))
-         ;; Entity with body
-         ((string-match "^\\(\\S-+\\)\\s-*{" line)
-          (let ((name (match-string 1 line)))
-            (unless (gethash name entities)
-              (puthash name (list :name name :attrs nil) entities))
-            (setq current-entity name)))
-         ;; Relationship: ENTITY ||--o{ OTHER : "label"
+          (unless (string-match "^\\(\\S-+\\)\\s-+\\(\\S-+\\)\\(?:\\s-+\\(.*\\)\\)?$" line)
+            (error "Unsupported entity attribute: %s" line))
+          (let ((ent (gethash current-entity entities)))
+            (plist-put ent :attrs
+                       (append (plist-get ent :attrs)
+                               (list (list :type (match-string 1 line) :name (match-string 2 line)
+                                           :constraint (match-string 3 line)))))))
+         ((string-match "^\\([[:alnum:]_-]+\\)\\s-*{$" line)
+          (setq current-entity (match-string 1 line)) (register current-entity))
          ((string-match
-           "^\\(\\S-+\\)\\s-+\\(||\\||o\\|}|\\|}o\\)--\\(||\\|o|\\|o{\\|{\\||{\\)\\s-+\\(\\S-+\\)\\s-*:\\s-*\\(.*\\)"
-           line)
-          (let ((from (match-string 1 line))
-                (card-from (match-string 2 line))
-                (card-to (match-string 3 line))
-                (to (match-string 4 line))
-                (label (string-trim (match-string 5 line) "\"" "\"")))
-            (unless (gethash from entities)
-              (puthash from (list :name from :attrs nil) entities))
-            (unless (gethash to entities)
-              (puthash to (list :name to :attrs nil) entities))
-            (push (list :from from :to to
-                        :card-from card-from :card-to card-to
-                        :label label)
-                  relationships))))))
+           (concat "^\\([[:alnum:]_-]+\\)\\s-+"
+                   "\\(||\\||o\\|}|\\|}o\\)\\(--\\|\\.\\.\\)\\(||\\|o|\\|o{\\||{\\)"
+                   "\\s-+\\([[:alnum:]_-]+\\)\\s-*:\\s-*\\(.+\\)$") line)
+          (let ((from (match-string 1 line)) (left (match-string 2 line))
+                (style (match-string 3 line)) (right (match-string 4 line))
+                (to (match-string 5 line)) (label (match-string 6 line)))
+            (register from) (register to)
+            (push (list :from from :to to :card-from left :card-to right
+                        :dash (and (string= style "..") "5,5")
+                        :label (string-trim label "\"" "\"")) relationships)))
+         ((string-match-p "^[[:alnum:]_-]+$" line) (register line))
+         (t (error "Unsupported ER statement: %s" line)))))
+    (when current-entity (error "Unclosed entity body"))
     (list :entities entities :relationships (nreverse relationships))))
 
 (defun markdown-modern-mermaid--er-draw-notation (ex ey dx dy card color)
@@ -1632,7 +1435,9 @@ COLOR is the stroke color.  Returns list of SVG element strings."
                (num-lines (1+ (length attrs)))) ; name + attrs
           (dolist (a attrs)
             (let ((attr-text (concat (plist-get a :type) " " (plist-get a :name))))
-              (setq max-w (max max-w (markdown-modern-mermaid--text-width attr-text font-size)))))
+              (setq max-w (max max-w (+ (markdown-modern-mermaid--text-width attr-text font-size)
+                       (if-let* ((constraint (plist-get a :constraint)))
+                           (+ 24 (markdown-modern-mermaid--text-width constraint font-size)) 0))))))
           ;; Add separator line
           (when attrs (setq num-lines (1+ num-lines)))
           (puthash name (list :w (+ max-w (* pad-x 2) 14)
@@ -1697,7 +1502,7 @@ COLOR is the stroke color.  Returns list of SVG element strings."
               (push (markdown-modern-mermaid--svg-line
                      (round (+ fx (* lux inset))) (round (+ fy (* luy inset)))
                      (round (- tx (* lux inset))) (round (- ty (* luy inset)))
-                     fg) svg-parts)
+                     fg (plist-get rel :dash)) svg-parts)
               ;; Crow's foot notation at from-entity
               (dolist (s (markdown-modern-mermaid--er-draw-notation
                           fx fy ldx ldy card-from fg))
@@ -1748,10 +1553,12 @@ COLOR is the stroke color.  Returns list of SVG element strings."
                                                       (- font-size 2) border "end")
                         svg-parts))))))))
     ;; Assemble
-    (markdown-modern-mermaid--svg-wrap
+    (when (> (hash-table-count entities) 0)
+      (markdown-modern-mermaid--svg-wrap
      total-w total-h
      (if defs-parts (mapconcat #'identity (nreverse defs-parts) "\n") "")
-     (mapconcat #'identity (nreverse svg-parts) "\n"))))
+     (mapconcat #'identity (nreverse svg-parts) "\n")))))
 
 (provide 'markdown-modern-mermaid)
+
 ;;; markdown-modern-mermaid.el ends here

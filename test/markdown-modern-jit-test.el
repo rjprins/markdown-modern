@@ -68,6 +68,19 @@
                          (search-backward "```")
                          (match-end 0)))))))
 
+(ert-deftest jit/partial-list-fontify-reports-whole-container ()
+  "A nested item refresh includes its siblings but stops before the next block."
+  (markdown-modern-jit-test--with-buffer
+      "before\n\n- parent\n  - child **bold**\n- sibling\n\n# After\n"
+    (search-forward "- parent")
+    (let ((start (match-beginning 0)))
+      (search-forward "bold")
+      (let ((mid (match-beginning 0))
+            (end (progn (search-forward "# After") (match-beginning 0))))
+        (should (equal (markdown-modern--jit-fontify mid (1+ mid))
+                       `(jit-lock-bounds ,start . ,end)))
+        (should-not (get-char-property end 'display))))))
+
 ;;; Reveal-at-point granularity
 
 (ert-deftest jit/markup-element-at-heading ()

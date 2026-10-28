@@ -600,6 +600,47 @@ item must lose its old marker first."
       (should (= (markdown-modern-render-test--markers-at 7) 1))
       (should (= (markdown-modern-render-test--markers-at third) 1)))))
 
+(ert-deftest render/list-markers-stable-during-cursor-motion ()
+  "Walking through lists repeatedly must not accumulate rendered markers."
+  (dolist (text '("- first\n- second\n- third\n\n"
+                  "- first **bold**\n- second *emphasis*\n- [ ] task\n\n"
+                  "- parent **bold**\n  - nested *emphasis*\n- sibling\n\n"
+                  "> - **first**\n> - second\n\n"))
+    (markdown-modern-render-test--with text
+      (set-buffer-modified-p nil)
+      (let ((count (length markdown-modern-render--overlays))
+            (tick (buffer-chars-modified-tick))
+            (positions (append (number-sequence (point-min) (point-max))
+                               (number-sequence (point-max) (point-min) -1))))
+        (dotimes (_ 3)
+          (dolist (pos positions)
+            (markdown-modern-render-test--move pos)
+            ;; Reveal can remove overlays, but must never add extra copies.
+            (should (<= (length markdown-modern-render--overlays) count)))
+          (markdown-modern-render-test--move (point-max))
+          (should (= (length markdown-modern-render--overlays) count)))
+        (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                       text))
+        (should (= (buffer-chars-modified-tick) tick))
+        (should-not (buffer-modified-p))))))
+
+(ert-deftest render/partial-list-render-keeps-one-marker-per-item ()
+  "Refreshing one list item must preserve sibling styling without duplicates."
+  (dolist (render '(markdown-modern--jit-fontify
+                    markdown-modern-render--render-region))
+    (markdown-modern-render-test--with
+        "- first **bold**\n- second *emphasis*\n- [ ] task\n\n"
+      (let ((count (length markdown-modern-render--overlays)))
+        (goto-char (point-min))
+        (search-forward "emphasis")
+        (dotimes (_ 3)
+          (funcall render (1- (point)) (point))
+          (should (= (markdown-modern-render-test--count 'list-marker) 3))
+          (should (= (markdown-modern-render-test--count 'checkbox) 1))
+          (should (= (markdown-modern-render-test--count 'strong-delim) 2))
+          (should (= (markdown-modern-render-test--count 'emphasis-delim) 2))
+          (should (= (length markdown-modern-render--overlays) count)))))))
+
 (ert-deftest render/list-marker-pixel-alignment ()
   "Bullets and both checkbox states start their text at the same pixel."
   (skip-unless (display-graphic-p))

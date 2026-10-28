@@ -1,0 +1,634 @@
+[
+  {
+    "id": "flow-basic",
+    "family": "Flowchart",
+    "title": "Decision and labeled branches",
+    "code": "flowchart TD\nA[Request] --> B{Valid?}\nB -->|Yes| C(Accept)\nB -->|No| D[Reject]",
+    "checks": {
+      "texts": [
+        "Request",
+        "Valid?",
+        "Accept",
+        "Reject",
+        "Yes",
+        "No"
+      ],
+      "edges": 3
+    },
+    "description": "Four nodes, three directed edges and both branch labels."
+  },
+  {
+    "id": "flow-chain",
+    "family": "Flowchart",
+    "title": "Chained connections",
+    "code": "flowchart LR\nA[Start] --> B[Work] --> C[Done]",
+    "checks": {
+      "texts": [
+        "Start",
+        "Work",
+        "Done"
+      ],
+      "edges": 2
+    },
+    "description": "Every node and edge in a chained statement must survive parsing."
+  },
+  {
+    "id": "flow-semicolons",
+    "family": "Flowchart",
+    "title": "Single-line diagram",
+    "code": "graph LR; A[Start] --> B[Work]; B --> C[Done];",
+    "checks": {
+      "texts": [
+        "Start",
+        "Work",
+        "Done"
+      ],
+      "edges": 2
+    },
+    "description": "Semicolons separate the header and statements."
+  },
+  {
+    "id": "flow-lr",
+    "family": "Flowchart",
+    "title": "LR direction",
+    "code": "flowchart LR\nA[First] --> B[Second]\nB --> C[Third]",
+    "checks": {
+      "texts": [
+        "First",
+        "Second",
+        "Third"
+      ],
+      "edges": 2,
+      "order": [
+        "LR",
+        "First",
+        "Second",
+        "Third"
+      ]
+    },
+    "description": "Preserve source-to-target arrows while placing nodes in the requested direction."
+  },
+  {
+    "id": "flow-rl",
+    "family": "Flowchart",
+    "title": "RL direction",
+    "code": "flowchart RL\nA[First] --> B[Second]\nB --> C[Third]",
+    "checks": {
+      "texts": [
+        "First",
+        "Second",
+        "Third"
+      ],
+      "edges": 2,
+      "order": [
+        "RL",
+        "First",
+        "Second",
+        "Third"
+      ]
+    },
+    "description": "Preserve source-to-target arrows while placing nodes in the requested direction."
+  },
+  {
+    "id": "flow-tb",
+    "family": "Flowchart",
+    "title": "TB direction",
+    "code": "flowchart TB\nA[First] --> B[Second]\nB --> C[Third]",
+    "checks": {
+      "texts": [
+        "First",
+        "Second",
+        "Third"
+      ],
+      "edges": 2,
+      "order": [
+        "TB",
+        "First",
+        "Second",
+        "Third"
+      ]
+    },
+    "description": "Preserve source-to-target arrows while placing nodes in the requested direction."
+  },
+  {
+    "id": "flow-bt",
+    "family": "Flowchart",
+    "title": "BT direction",
+    "code": "flowchart BT\nA[First] --> B[Second]\nB --> C[Third]",
+    "checks": {
+      "texts": [
+        "First",
+        "Second",
+        "Third"
+      ],
+      "edges": 2,
+      "order": [
+        "BT",
+        "First",
+        "Second",
+        "Third"
+      ]
+    },
+    "description": "Preserve source-to-target arrows while placing nodes in the requested direction."
+  },
+  {
+    "id": "flow-late-label",
+    "family": "Flowchart",
+    "title": "Labels declared after an edge",
+    "code": "flowchart TD\nA --> B\nB[Destination] --> C[Finish]\nA[Origin]",
+    "checks": {
+      "texts": [
+        "Origin",
+        "Destination",
+        "Finish"
+      ],
+      "absent": [
+        "A",
+        "B"
+      ],
+      "edges": 2
+    },
+    "description": "Explicit labels replace implicit IDs even in later edge statements."
+  },
+  {
+    "id": "flow-shapes",
+    "family": "Flowchart",
+    "title": "Circle and subroutine shapes",
+    "code": "flowchart LR\nA((Start)) --> B[[Process]]\nB --> C{Ready?}",
+    "checks": {
+      "texts": [
+        "Start",
+        "Process",
+        "Ready?"
+      ],
+      "edges": 2,
+      "circle": true
+    },
+    "description": "Nested shape delimiters must not leak into labels or drop edges."
+  },
+  {
+    "id": "flow-styles",
+    "family": "Flowchart",
+    "title": "Solid, dotted, thick and undirected links",
+    "code": "flowchart LR\nA --> B\nB -.-> C\nC ==> D\nD --- E",
+    "checks": {
+      "texts": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "edges": 4,
+      "arrows": 3,
+      "dashed": true,
+      "thick": true
+    },
+    "description": "Undirected links have no arrowhead; other line styles remain distinct."
+  },
+  {
+    "id": "flow-cycle",
+    "family": "Flowchart",
+    "title": "Return edge and self-loop",
+    "code": "flowchart TD\nA[Ready] --> B[Work]\nB -->|retry| A\nB -->|again| B",
+    "checks": {
+      "texts": [
+        "Ready",
+        "Work",
+        "retry",
+        "again"
+      ],
+      "edges": 3,
+      "nondegenerate": true
+    },
+    "description": "Cycles terminate and self-loops have visible area."
+  },
+  {
+    "id": "flow-escaped",
+    "family": "Flowchart",
+    "title": "Quotes, punctuation and multiline labels",
+    "code": "flowchart TD\nA[\"A; B & <tag>\"] --> B[\"First<br/>Second\"]",
+    "checks": {
+      "texts": [
+        "A; B & <tag>",
+        "First",
+        "Second"
+      ],
+      "edges": 1
+    },
+    "description": "XML is escaped, quotes are syntax, and line breaks are displayed as lines."
+  },
+  {
+    "id": "flow-subgraph",
+    "family": "Flowchart",
+    "title": "Subgraphs",
+    "code": "flowchart TD\nsubgraph Services\nA --> B\nend",
+    "checks": {
+      "fallback": true
+    },
+    "description": "Grouping is not implemented: retain source rather than flattening away its meaning."
+  },
+  {
+    "id": "sequence-basic",
+    "family": "Sequence",
+    "title": "Aliases, numbering and note",
+    "code": "sequenceDiagram\nautonumber\nparticipant C as Client\nparticipant S as Server\nC->>S: Request\nS-->>C: Response\nNote over S,C: Shared note",
+    "checks": {
+      "texts": [
+        "Client",
+        "Server",
+        "1. Request",
+        "2. Response",
+        "Shared note"
+      ],
+      "edges": 2
+    },
+    "description": "Two lifelines, numbered messages and a reversed spanning note."
+  },
+  {
+    "id": "sequence-nested",
+    "family": "Sequence",
+    "title": "Nested branches and self-message",
+    "code": "sequenceDiagram\nparticipant A\nparticipant B\nalt ready\nloop retry\nA->>B: Work\nB-->>B: Check\nend\nelse wait\nB-->>A: Later\nend",
+    "checks": {
+      "texts": [
+        "[ready]",
+        "[retry]",
+        "[wait]",
+        "Work",
+        "Check",
+        "Later"
+      ],
+      "edges": 3
+    },
+    "description": "Nested frames reserve separate space for headings and messages."
+  },
+  {
+    "id": "sequence-activation",
+    "family": "Sequence",
+    "title": "Activation shorthand",
+    "code": "sequenceDiagram\nA->>+B: Work\nB-->>-A: Done",
+    "checks": {
+      "fallback": true
+    },
+    "description": "Activation bars are not implemented: do not create spurious +B and -A participants."
+  },
+  {
+    "id": "state-basic",
+    "family": "State",
+    "title": "Start, finish and aliases",
+    "code": "stateDiagram-v2\nstate \"Waiting\" as W\n[*] --> W\nW --> Done:go\nDone --> [*]",
+    "checks": {
+      "texts": [
+        "Waiting",
+        "Done",
+        "go"
+      ],
+      "edges": 3
+    },
+    "description": "Identity is independent of display text; start and end are distinct."
+  },
+  {
+    "id": "state-cycle",
+    "family": "State",
+    "title": "Branching, returns and multiline labels",
+    "code": "stateDiagram-v2\ndirection LR\n[*] --> A\nA --> B:accept\nA --> C:reject\nB --> A:retry<br/>later\nC --> [*]",
+    "checks": {
+      "texts": [
+        "A",
+        "B",
+        "C",
+        "accept",
+        "reject",
+        "retry",
+        "later"
+      ],
+      "edges": 5
+    },
+    "description": "Branching transitions and multiline return labels stay legible."
+  },
+  {
+    "id": "state-composite",
+    "family": "State",
+    "title": "Composite states",
+    "code": "stateDiagram-v2\nstate Active {\n[*] --> Running\nRunning --> [*]\n}\n[*] --> Active",
+    "checks": {
+      "fallback": true
+    },
+    "description": "Composite-state hierarchy is not implemented; retain the complete source."
+  },
+  {
+    "id": "state-notes",
+    "family": "State",
+    "title": "State notes",
+    "code": "stateDiagram-v2\nA --> B\nnote right of B: Important",
+    "checks": {
+      "fallback": true
+    },
+    "description": "State notes are not implemented; do not silently discard them."
+  },
+  {
+    "id": "class-members",
+    "family": "Class",
+    "title": "Attributes and methods",
+    "code": "classDiagram\nclass Account {\n+String name\n+save() bool\n}\nAccount : +load()",
+    "checks": {
+      "texts": [
+        "Account",
+        "+String name",
+        "+save() bool",
+        "+load()"
+      ]
+    },
+    "description": "Class bodies and colon member syntax preserve attributes and methods."
+  },
+  {
+    "id": "class-comments",
+    "family": "Class",
+    "title": "Comments inside a class",
+    "code": "classDiagram\nclass Account{\n%% internal comment\n+String name\n}",
+    "checks": {
+      "texts": [
+        "Account",
+        "+String name"
+      ],
+      "absent": [
+        "%% internal comment",
+        "Account{"
+      ]
+    },
+    "description": "Comments are not members; a brace need not be preceded by a space."
+  },
+  {
+    "id": "class-inheritance",
+    "family": "Class",
+    "title": "Inheritance arrow direction",
+    "code": "classDiagram\nAnimal <|-- Duck",
+    "checks": {
+      "texts": [
+        "Animal",
+        "Duck"
+      ],
+      "markers": [
+        [
+          "url(#class-inherit)",
+          null,
+          null
+        ]
+      ]
+    },
+    "description": "The hollow triangle belongs at Animal, the superclass."
+  },
+  {
+    "id": "class-aggregation",
+    "family": "Class",
+    "title": "Aggregation and composition",
+    "code": "classDiagram\nTeam o-- Member\nTeam *-- Record",
+    "checks": {
+      "texts": [
+        "Team",
+        "Member",
+        "Record"
+      ],
+      "markers": [
+        [
+          "url(#class-aggregate)",
+          null,
+          null
+        ],
+        [
+          "url(#class-diamond)",
+          null,
+          null
+        ]
+      ]
+    },
+    "description": "Aggregation uses a hollow diamond; composition uses a filled diamond at the owner."
+  },
+  {
+    "id": "class-links",
+    "family": "Class",
+    "title": "Association, dependency and realization",
+    "code": "classDiagram\nA --> B\nB ..> C\nC ..|> D\nD -- E",
+    "checks": {
+      "texts": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "markers": [
+        [
+          null,
+          "url(#class-arrow)",
+          null
+        ],
+        [
+          null,
+          "url(#class-arrow)",
+          "5,5"
+        ],
+        [
+          null,
+          "url(#class-inherit)",
+          "5,5"
+        ],
+        [
+          null,
+          null,
+          null
+        ]
+      ]
+    },
+    "description": "Solid association, dashed dependency, hollow realization triangle and plain link are distinct."
+  },
+  {
+    "id": "class-multiplicity",
+    "family": "Class",
+    "title": "Multiplicity labels",
+    "code": "classDiagram\nCustomer \"1\" --> \"*\" Order : owns",
+    "checks": {
+      "fallback": true
+    },
+    "description": "Multiplicity annotations are not implemented; retain source instead of dropping the relationship."
+  },
+  {
+    "id": "er-basic",
+    "family": "ER",
+    "title": "One-to-many relationship",
+    "code": "erDiagram\nCUSTOMER ||--o{ ORDER : places\nCUSTOMER {\nint id PK\nstring name\n}\nORDER {\nint id PK\nint customer_id FK\n}",
+    "checks": {
+      "texts": [
+        "CUSTOMER",
+        "ORDER",
+        "places",
+        "int id",
+        "int customer_id",
+        "FK"
+      ]
+    },
+    "description": "Entities, attributes, key constraints and relationship labels are retained."
+  },
+  {
+    "id": "er-cardinality",
+    "family": "ER",
+    "title": "All cardinalities",
+    "code": "erDiagram\nA |o--o| B : optional\nB ||--|| C : exactly\nC }o--o{ D : many\nD }|--|{ E : required",
+    "checks": {
+      "texts": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "optional",
+        "exactly",
+        "many",
+        "required"
+      ]
+    },
+    "description": "Both ends accept the documented zero/one/many cardinalities."
+  },
+  {
+    "id": "er-dashed",
+    "family": "ER",
+    "title": "Non-identifying relationship",
+    "code": "erDiagram\nPERSON }|..|{ CAR : drives",
+    "checks": {
+      "texts": [
+        "PERSON",
+        "CAR",
+        "drives"
+      ],
+      "dashed": true
+    },
+    "description": "Two dots denote a dashed, non-identifying relationship."
+  },
+  {
+    "id": "er-isolated",
+    "family": "ER",
+    "title": "Isolated entity",
+    "code": "erDiagram\nCUSTOMER",
+    "checks": {
+      "texts": [
+        "CUSTOMER"
+      ]
+    },
+    "description": "An entity may be declared without attributes or relationships."
+  },
+  {
+    "id": "leading-comment",
+    "family": "Input",
+    "title": "Comment before the diagram header",
+    "code": "%% explanation\nflowchart TD\nA --> B",
+    "checks": {
+      "texts": [
+        "A",
+        "B"
+      ],
+      "edges": 1
+    },
+    "description": "A leading comment must not prevent type detection."
+  },
+  {
+    "id": "empty-flowchart",
+    "family": "Input",
+    "title": "Empty Flowchart diagram",
+    "code": "flowchart TD",
+    "checks": {
+      "fallback": true
+    },
+    "description": "Empty diagrams keep source visible instead of replacing it with a blank SVG."
+  },
+  {
+    "id": "empty-class",
+    "family": "Input",
+    "title": "Empty Class diagram",
+    "code": "classDiagram",
+    "checks": {
+      "fallback": true
+    },
+    "description": "Empty diagrams keep source visible instead of replacing it with a blank SVG."
+  },
+  {
+    "id": "empty-er",
+    "family": "Input",
+    "title": "Empty ER diagram",
+    "code": "erDiagram",
+    "checks": {
+      "fallback": true
+    },
+    "description": "Empty diagrams keep source visible instead of replacing it with a blank SVG."
+  },
+  {
+    "id": "pie",
+    "family": "Pie",
+    "title": "Pie (unsupported family)",
+    "code": "pie title Pets\n\"Cats\" : 5\n\"Dogs\" : 3",
+    "checks": {
+      "fallback": true
+    },
+    "description": "This family is outside the built-in renderer; source fallback is the expected result."
+  },
+  {
+    "id": "gantt",
+    "family": "Gantt",
+    "title": "Gantt (unsupported family)",
+    "code": "gantt\ntitle Release\ndateFormat YYYY-MM-DD\nsection Work\nBuild :a, 2026-10-01, 5d",
+    "checks": {
+      "fallback": true
+    },
+    "description": "This family is outside the built-in renderer; source fallback is the expected result."
+  },
+  {
+    "id": "mindmap",
+    "family": "Mindmap",
+    "title": "Mindmap (unsupported family)",
+    "code": "mindmap\n  root((Project))\n    Code\n    Tests",
+    "checks": {
+      "fallback": true
+    },
+    "description": "This family is outside the built-in renderer; source fallback is the expected result."
+  },
+  {
+    "id": "timeline",
+    "family": "Timeline",
+    "title": "Timeline (unsupported family)",
+    "code": "timeline\ntitle Release\n2026 : Build : Ship",
+    "checks": {
+      "fallback": true
+    },
+    "description": "This family is outside the built-in renderer; source fallback is the expected result."
+  },
+  {
+    "id": "journey",
+    "family": "Journey",
+    "title": "Journey (unsupported family)",
+    "code": "journey\ntitle Checkout\nsection Buy\nPay: 5: User",
+    "checks": {
+      "fallback": true
+    },
+    "description": "This family is outside the built-in renderer; source fallback is the expected result."
+  },
+  {
+    "id": "gitgraph",
+    "family": "Git graph",
+    "title": "Git graph (unsupported family)",
+    "code": "gitGraph\ncommit\nbranch develop\ncheckout develop\ncommit",
+    "checks": {
+      "fallback": true
+    },
+    "description": "This family is outside the built-in renderer; source fallback is the expected result."
+  },
+  {
+    "id": "xychart",
+    "family": "XY chart",
+    "title": "XY chart (unsupported family)",
+    "code": "xychart-beta\nx-axis [Jan, Feb]\ny-axis \"Sales\" 0 --> 10\nbar [3, 7]",
+    "checks": {
+      "fallback": true
+    },
+    "description": "This family is outside the built-in renderer; source fallback is the expected result."
+  }
+]
