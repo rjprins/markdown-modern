@@ -8,7 +8,7 @@
 ;; Loads all test modules and provides test execution functions.
 ;;
 ;; Covers commands, export, integration, jit-lock, LaTeX conversion,
-;; rendering, parser setup and tree-sitter parsing.
+;; Mermaid, rendering, parser setup and tree-sitter parsing.
 ;;
 ;; Run tests:
 ;;   M-x markdown-modern-run-all-tests
@@ -35,11 +35,12 @@
 (require 'markdown-modern-integration-test)
 (require 'markdown-modern-jit-test)
 (require 'markdown-modern-latex-test)
+(require 'markdown-modern-mermaid-test)
 (require 'markdown-modern-render-test)
 (require 'markdown-modern-ts-test)
 
 (defconst markdown-modern-test-selector
-  "^\\(export\\|cmd\\|setup\\|integration\\|jit\\|latex\\|render\\|ts\\)/"
+  "^\\(export\\|cmd\\|setup\\|integration\\|jit\\|latex\\|mermaid\\|render\\|ts\\)/"
   "ERT selector for all markdown-modern test suites.")
 
 ;;; Test Runner Functions
@@ -76,7 +77,7 @@
   "Display test statistics."
   (interactive)
   (let ((tests (ert-select-tests markdown-modern-test-selector t)))
-    (dolist (suite '(cmd export integration jit latex setup render ts))
+    (dolist (suite '(cmd export integration jit latex mermaid setup render ts))
       (message "%s: %d" suite
                (length (ert-select-tests (format "^%s/" suite) t))))
     (message "Total test count: %d" (length tests))))

@@ -585,243 +585,301 @@ Back-edges (cycles) are ignored to prevent infinite layer growth."
 
 (defun markdown-modern-mermaid--parse-sequence (lines)
   "Parse sequence diagram LINES.
-Returns plist with :participants :messages :blocks.
-PARTICIPANTS is list of names in order.
-MESSAGES is list of plists with :from :to :text :type :index.
-BLOCKS is list of plists with :type :label :start :end :sections."
+Return :participants (IDs in source order), :labels (ID to display label),
+:messages, :blocks and :events.  Events preserve the order of messages and
+block boundaries so layout can reserve space for each header and branch."
   (let ((participants nil)
+        (labels (make-hash-table :test 'equal))
         (messages nil)
         (blocks nil)
+        (events nil)
         (block-stack nil)
-        (msg-idx 0))
-    (dolist (raw-line (cdr lines))
-      (let ((line (string-trim raw-line)))
-        (cond
-         ;; participant declarations
-         ((string-match "^\\(?:participant\\|actor\\)\\s-+\\(.+\\)" line)
-          (let ((name (string-trim (match-string 1 line))))
-            ;; Handle "participant A as Label"
-            (when (string-match "^\\(\\S-+\\)\\s-+as\\s-+\\(.*\\)" name)
-              (setq name (string-trim (match-string 2 name))))
-            (unless (member name participants)
-              (push name participants))))
-         ;; Messages: A->>B: text, A-->>B: text, A-)B: text, etc.
-         ((string-match
-           "^\\(\\S-+?\\)\\s-*\\(->>\\|-->>\\|->\\|-->\\|-)\\)\\s-*\\(\\S-+?\\)\\s-*:\\s-*\\(.*\\)" line)
-          (let ((from (match-string 1 line))
-                (arrow (match-string 2 line))
-                (to (match-string 3 line))
-                (text (string-trim (match-string 4 line))))
-            ;; Auto-register participants
-            (unless (member from participants) (push from participants))
-            (unless (member to participants) (push to participants))
-            (push (list :from from :to to :text text
-                        :type (cond
-                               ((string= arrow "->>") 'solid)
-                               ((string= arrow "-->>") 'dashed)
-                               ((string= arrow "->") 'solid-open)
-                               ((string= arrow "-->") 'dashed-open)
-                               ((string= arrow "-)") 'async)
-                               (t 'solid))
-                        :index msg-idx)
-                  messages)
-            (setq msg-idx (1+ msg-idx))))
-         ;; Note
-         ((string-match "^Note\\s-+\\(?:over\\|left of\\|right of\\)\\s-+\\([^:]+\\):\\s-*\\(.*\\)" line)
-          (let ((target (string-trim (match-string 1 line)))
-                (text (string-trim (match-string 2 line))))
-            (push (list :from target :to target :text text :type 'note :index msg-idx) messages)
-            (setq msg-idx (1+ msg-idx))))
-         ;; Alt/Else/Loop/End blocks
-         ((string-match "^\\(alt\\|opt\\|loop\\|par\\|critical\\)\\s-+\\(.*\\)" line)
-          (push (list :type (intern (match-string 1 line))
-                      :label (string-trim (match-string 2 line))
-                      :start msg-idx
-                      :sections nil)
-                block-stack))
-         ((string-match "^else\\s-*\\(.*\\)" line)
-          (when block-stack
-            (let ((block (car block-stack)))
-              (plist-put block :sections
-                         (append (plist-get block :sections)
-                                 (list (list :label (string-trim (or (match-string 1 line) ""))
-                                             :index msg-idx)))))))
-         ((string-match "^end$" line)
-          (when block-stack
-            (let ((block (pop block-stack)))
-              (plist-put block :end msg-idx)
-              (push block blocks)))))))
-    (list :participants (nreverse participants)
-          :messages (nreverse messages)
-          :blocks (nreverse blocks))))
+        (msg-idx 0)
+        (number nil))
+    (cl-labels ((register (id &optional label)
+                  (unless (member id participants) (push id participants))
+                  (when label (puthash id label labels))))
+      (dolist (raw-line (cdr lines))
+        (let ((line (string-trim raw-line)))
+          (cond
+           ((or (string-empty-p line) (string-prefix-p "%%" line)))
+           ((string-match "^\\(?:participant\\|actor\\)\\s-+\\(\\S-+\\)\\(?:\\s-+as\\s-+\\(.+\\)\\)?$" line)
+            (register (match-string 1 line) (match-string 2 line)))
+           ((string= line "autonumber") (setq number 1))
+           ;; Longest arrow spellings first; IDs may contain hyphens.
+           ((string-match
+             (concat "^\\(\\S-+?\\)\\s-*"
+                     "\\(-->>\\|->>\\|-->\\|->\\|--)\\|-)\\)"
+                     "\\s-*\\(\\S-+?\\)\\s-*:\\s-*\\(.*\\)$") line)
+            (let* ((from (match-string 1 line))
+                   (arrow (match-string 2 line))
+                   (to (match-string 3 line))
+                   (text (match-string 4 line))
+                   (msg (list :from from :to to :text text
+                              :type (cdr (assoc arrow '(("->>" . solid)
+                                                        ("-->>" . dashed)
+                                                        ("->" . solid-line)
+                                                        ("-->" . dashed-line)
+                                                        ("-)" . async)
+                                                        ("--)" . dashed-async))))
+                              :number number :index msg-idx)))
+              (register from)
+              (register to)
+              (push msg messages)
+              (push (cons 'message msg) events)
+              (when number (setq number (1+ number)))
+              (setq msg-idx (1+ msg-idx))))
+           ((string-match "^Note\\s-+\\(over\\|left of\\|right of\\)\\s-+\\([^:]+\\):\\s-*\\(.*\\)$" line)
+            (let* ((position (match-string 1 line))
+                   (targets (match-string 2 line))
+                   (text (match-string 3 line))
+                   (ids (split-string targets "," t "[ \t]+"))
+                   (msg (list :from (car ids) :to (car (last ids))
+                              :text text :type 'note :position position
+                              :index msg-idx)))
+              (dolist (id ids) (register id))
+              (push msg messages)
+              (push (cons 'message msg) events)
+              (setq msg-idx (1+ msg-idx))))
+           ((string-match "^\\(alt\\|opt\\|loop\\|par\\|critical\\)\\(?:\\s-+\\(.*\\)\\)?$" line)
+            (let ((block (list :type (intern (match-string 1 line))
+                               :label (or (match-string 2 line) "")
+                               :start msg-idx :sections nil
+                               :depth (length block-stack))))
+              (push block blocks)
+              (push block block-stack)
+              (push (cons 'start block) events)))
+           ((string-match "^\\(?:else\\|and\\|option\\)\\(?:\\s-+\\(.*\\)\\)?$" line)
+            (when block-stack
+              (let ((section (list :label (or (match-string 1 line) "")
+                                   :index msg-idx)))
+                (push section (plist-get (car block-stack) :sections))
+                (push (cons 'section section) events))))
+           ((string= line "end")
+            (when block-stack
+              (let ((block (pop block-stack)))
+                (plist-put block :end msg-idx)
+                (push (cons 'end block) events))))))))
+    (list :participants (nreverse participants) :labels labels
+          :messages (nreverse messages) :blocks (nreverse blocks)
+          :events (nreverse events))))
+
+(defun markdown-modern-mermaid--sequence-text-lines (text)
+  "Split sequence diagram TEXT at Mermaid line breaks."
+  (split-string text "<br[ \t]*/?>"))
+
+(defun markdown-modern-mermaid--sequence-text-width (text font-size)
+  "Estimate the widest line of sequence diagram TEXT at FONT-SIZE."
+  (apply #'max (mapcar (lambda (line)
+                         (markdown-modern-mermaid--text-width line font-size))
+                       (markdown-modern-mermaid--sequence-text-lines text))))
+
+(defun markdown-modern-mermaid--sequence-text (x y text font-size fill &optional anchor)
+  "Draw multiline TEXT at X Y with FONT-SIZE, FILL and ANCHOR.
+Y is the baseline of the first line; subsequent lines are 18 pixels apart."
+  (mapconcat (lambda (line)
+               (prog1 (markdown-modern-mermaid--svg-text
+                       x y line font-size fill anchor)
+                 (setq y (+ y 18))))
+             (markdown-modern-mermaid--sequence-text-lines text) "\n"))
+
+(defun markdown-modern-mermaid--sequence-message-text (msg)
+  "Return MSG's label including its sequence number, when enabled."
+  (if (plist-get msg :number)
+      (format "%s. %s" (plist-get msg :number) (plist-get msg :text))
+    (plist-get msg :text)))
+
+(defun markdown-modern-mermaid--sequence-note-bounds (msg positions)
+  "Return (X . WIDTH) for note MSG using participant POSITIONS."
+  (let* ((fx (gethash (plist-get msg :from) positions))
+         (tx (gethash (plist-get msg :to) positions))
+         (over (equal (plist-get msg :position) "over"))
+         (width (max (+ 24 (markdown-modern-mermaid--sequence-text-width
+                            (plist-get msg :text) 13))
+                     (if over (+ 24 (abs (- fx tx))) 0)))
+         (x (pcase (plist-get msg :position)
+              ("left of" (- fx 12 width))
+              ("right of" (+ fx 12))
+              (_ (- (/ (+ fx tx) 2) (/ width 2))))))
+    (cons x width)))
+
+(defun markdown-modern-mermaid--layout-sequence (parsed)
+  "Lay out PARSED sequence diagram and annotate events with vertical positions.
+Return participant :positions, :width, :height, :box-height and :bottom."
+  (let* ((participants (plist-get parsed :participants))
+         (labels (plist-get parsed :labels))
+         (messages (plist-get parsed :messages))
+         (blocks (plist-get parsed :blocks))
+         (positions (make-hash-table :test 'equal))
+         (widths (mapcar (lambda (id)
+                           (max 80 (+ 40 (markdown-modern-mermaid--sequence-text-width
+                                          (gethash id labels id) 14))))
+                         participants))
+         (box-height (apply #'max 40
+                            (mapcar (lambda (id)
+                                      (+ 20 (* 18 (length
+                                                   (markdown-modern-mermaid--sequence-text-lines
+                                                    (gethash id labels id))))))
+                                    participants)))
+         (gap 180)
+         (min-x 0)
+         (max-x 0)
+         (depth (apply #'max 0 (mapcar (lambda (block) (plist-get block :depth)) blocks)))
+         (margin (+ 20 (* 12 depth)))
+         (y (+ 40 box-height)))
+    ;; Keep adjacent boxes and message labels from overlapping other columns.
+    (cl-loop for (left right) on widths while right
+             do (setq gap (max gap (+ (/ (+ left right) 2) 40))))
+    (dolist (msg messages)
+      (unless (or (eq (plist-get msg :type) 'note)
+                  (equal (plist-get msg :from) (plist-get msg :to)))
+        (let ((span (abs (- (cl-position (plist-get msg :from) participants :test #'equal)
+                            (cl-position (plist-get msg :to) participants :test #'equal)))))
+          (setq gap (max gap (ceiling (+ 24 (markdown-modern-mermaid--sequence-text-width
+                                             (markdown-modern-mermaid--sequence-message-text msg) 13))
+                                      span))))))
+    (cl-loop for id in participants for width in widths for i from 0
+             for x = (* i gap)
+             do (puthash id x positions)
+             (setq min-x (min min-x (- x (/ width 2)))
+                   max-x (max max-x (+ x (/ width 2)))))
+    ;; Include notes and self-message labels in the canvas, even outside lifelines.
+    (dolist (msg messages)
+      (cond
+       ((eq (plist-get msg :type) 'note)
+        (let ((bounds (markdown-modern-mermaid--sequence-note-bounds msg positions)))
+          (setq min-x (min min-x (car bounds))
+                max-x (max max-x (+ (car bounds) (cdr bounds))))))
+       ((equal (plist-get msg :from) (plist-get msg :to))
+        (setq max-x (max max-x
+                         (+ (gethash (plist-get msg :from) positions)
+                            (max 40 (+ 8 (markdown-modern-mermaid--sequence-text-width
+                                          (markdown-modern-mermaid--sequence-message-text msg) 13)))))))))
+    (let ((offset (- margin min-x)))
+      (maphash (lambda (id x) (puthash id (+ x offset) positions)) positions))
+    (setq max-x (+ (- max-x min-x) (* 2 margin)))
+    ;; Long conditions must also fit inside their frames.
+    (dolist (block blocks)
+      (let ((inset (+ 20 (* 24 (plist-get block :depth)))))
+        (setq max-x (max max-x
+                         (+ inset 24
+                            (markdown-modern-mermaid--text-width
+                             (upcase (symbol-name (plist-get block :type))) 13)
+                            (markdown-modern-mermaid--sequence-text-width
+                             (concat "[" (plist-get block :label) "]") 13))))
+        (dolist (section (plist-get block :sections))
+          (setq max-x (max max-x
+                           (+ inset 40 (markdown-modern-mermaid--sequence-text-width
+                                        (concat "[" (plist-get section :label) "]") 13)))))))
+    ;; Every structural event gets space of its own, including empty branches.
+    (dolist (event (plist-get parsed :events))
+      (let ((item (cdr event)))
+        (pcase (car event)
+          ('message
+           (let* ((text (markdown-modern-mermaid--sequence-message-text item))
+                  (text-height (* 18 (length (markdown-modern-mermaid--sequence-text-lines text))))
+                  (note (eq (plist-get item :type) 'note))
+                  (self (equal (plist-get item :from) (plist-get item :to))))
+             (plist-put item :y y)
+             (plist-put item :text-height text-height)
+             (setq y (+ y text-height (if note 32 (if self 48 28))))))
+          ((or 'start 'section)
+           (plist-put item :y y)
+           (setq y (+ y 16 (* 18 (length (markdown-modern-mermaid--sequence-text-lines
+                                          (plist-get item :label)))))))
+          ('end
+           (plist-put item :bottom y)
+           (setq y (+ y 16))))))
+    ;; Incomplete blocks can occur during editing; keep their contents visible.
+    (dolist (block blocks)
+      (unless (plist-get block :bottom) (plist-put block :bottom y)))
+    (list :positions positions :width max-x :height (+ y box-height 20)
+          :box-height box-height :bottom y)))
 
 (defun markdown-modern-mermaid--render-sequence (lines colors)
   "Render sequence diagram from LINES with COLORS.  Return SVG string."
   (let* ((parsed (markdown-modern-mermaid--parse-sequence lines))
          (participants (plist-get parsed :participants))
-         (messages (plist-get parsed :messages))
-         (blocks (plist-get parsed :blocks))
+         (labels (plist-get parsed :labels))
          (bg (plist-get colors :bg))
          (fg (plist-get colors :fg))
          (surface (plist-get colors :surface))
          (border (plist-get colors :border))
-         (accent (plist-get colors :accent))
-         (font-size 14)
-         (box-h 40)
-         (box-pad 20)
-         (col-gap 180)
-         (msg-gap 44)
-         (top-margin 20)
-         ;; Participant positions
-         (_num-p (length participants))
-         (total-w 0)
-         (msg-count (length messages))
-         (total-h (+ top-margin box-h 20 (* (1+ msg-count) msg-gap) box-h 20))
-         ;; Map participant name -> x center
-         (px-map (make-hash-table :test 'equal))
-         (svg-parts nil)
-         (defs-parts nil))
-    ;; Assign x positions (left-aligned)
-    (let* ((margin 20)
-           (first-bw (if participants
-                         (max 80 (+ (markdown-modern-mermaid--text-width (car participants) font-size)
-                                    (* box-pad 2)))
-                       80))
-           (x (+ margin (/ first-bw 2))))
-      (dolist (p participants)
-        (puthash p x px-map)
-        (setq x (+ x col-gap)))
-      ;; Compute tight total-w from last participant's right edge
-      (let* ((last-p (car (last participants)))
-             (last-px (gethash last-p px-map))
-             (last-bw (if last-p
-                          (max 80 (+ (markdown-modern-mermaid--text-width last-p font-size)
-                                     (* box-pad 2)))
-                        80)))
-        (setq total-w (+ last-px (/ last-bw 2) margin))))
-    ;; Markers
-    (push (markdown-modern-mermaid--svg-arrow-marker "seq-arrow" fg) defs-parts)
-    (push (markdown-modern-mermaid--svg-arrow-marker "seq-open" fg 'open) defs-parts)
-    ;; Background
-    (push (markdown-modern-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
-    ;; Draw blocks (alt/loop rectangles) behind everything
-    (dolist (block blocks)
-      (let* ((start-idx (plist-get block :start))
-             (end-idx (plist-get block :end))
-             (label (plist-get block :label))
-             (block-type (plist-get block :type))
-             (by1 (+ top-margin box-h 10 (* start-idx msg-gap)))
-             (by2 (+ top-margin box-h 10 (* end-idx msg-gap) 20))
-             (bx1 10)
-             (bx2 (- total-w 10)))
-        (push (markdown-modern-mermaid--svg-rect bx1 by1 (- bx2 bx1) (- by2 by1) 4
-                                            "none" border "1" ) svg-parts)
-        ;; Type label
-        (let* ((type-label (upcase (symbol-name block-type)))
-               (tw (+ (markdown-modern-mermaid--text-width type-label (1- font-size)) 12)))
-          (push (markdown-modern-mermaid--svg-rect bx1 by1 tw 20 4 surface border) svg-parts)
-          (push (markdown-modern-mermaid--svg-text (+ bx1 (/ tw 2)) (+ by1 14)
-                                              type-label (1- font-size) accent nil "bold")
-                svg-parts))
-        ;; Condition label
-        (when (and label (not (string-empty-p label)))
-          (push (markdown-modern-mermaid--svg-text (+ bx1 80) (+ by1 14)
-                                              (concat "[" label "]") (1- font-size) fg "start")
-                svg-parts))
-        ;; Section dividers (else)
-        (dolist (section (plist-get block :sections))
-          (let* ((si (plist-get section :index))
-                 (sy (+ top-margin box-h 10 (* si msg-gap) -5)))
-            (push (markdown-modern-mermaid--svg-line bx1 sy bx2 sy border "5,5") svg-parts)
-            (let ((sl (plist-get section :label)))
-              (when (and sl (not (string-empty-p sl)))
-                (push (markdown-modern-mermaid--svg-text (+ bx1 30) (- sy 4)
-                                                    (concat "[" sl "]") (1- font-size) fg "start")
-                      svg-parts)))))))
-    ;; Draw participant boxes (top)
-    (dolist (p participants)
-      (let* ((px (gethash p px-map))
-             (tw (markdown-modern-mermaid--text-width p font-size))
-             (bw (max 80 (+ tw (* box-pad 2))))
-             (bx (- px (/ bw 2)))
-             (by top-margin))
-        (push (markdown-modern-mermaid--svg-rect bx by bw box-h 6 surface border) svg-parts)
-        (push (markdown-modern-mermaid--svg-text px (+ by (/ box-h 2) (/ font-size 3))
-                                            p font-size fg)
-              svg-parts)))
-    ;; Draw lifelines
-    (let ((life-y1 (+ top-margin box-h))
-          (life-y2 (- total-h box-h 20)))
-      (dolist (p participants)
-        (let ((px (gethash p px-map)))
-          (push (markdown-modern-mermaid--svg-line px life-y1 px life-y2 border "4,4") svg-parts))))
-    ;; Draw messages
-    (dolist (msg messages)
-      (let* ((from (plist-get msg :from))
-             (to (plist-get msg :to))
-             (text (plist-get msg :text))
-             (type (plist-get msg :type))
-             (idx (plist-get msg :index))
-             (my (+ top-margin box-h 20 (* (1+ idx) msg-gap)))
-             (fx (or (gethash from px-map) 0))
-             (tx (or (gethash to px-map) 0)))
-        (cond
-         ;; Note
-         ((eq type 'note)
-          (let* ((nw (+ (markdown-modern-mermaid--text-width text font-size) 20))
-                 (nh 28)
-                 (nx (- fx (/ nw 2)))
-                 (ny (- my (/ nh 2))))
-            (push (markdown-modern-mermaid--svg-rect nx ny nw nh 4
-                                                (markdown-modern-mermaid--color-blend bg accent 0.1)
-                                                accent)
-                  svg-parts)
-            (push (markdown-modern-mermaid--svg-text fx (+ my (/ font-size 3)) text (1- font-size) fg)
-                  svg-parts)))
-         ;; Self-message
-         ((string= from to)
-          (let ((sx fx)
-                (loop-w 30))
-            (push (markdown-modern-mermaid--svg-path
-                   (format "M %d %d L %d %d L %d %d L %d %d"
-                           sx my (+ sx loop-w) my (+ sx loop-w) (+ my 20) sx (+ my 20))
-                   fg "none" "1.5")
-                  svg-parts)
-            (push (markdown-modern-mermaid--svg-text (+ sx loop-w 8) (+ my 10)
-                                                text (1- font-size) fg "start")
-                  svg-parts)))
-         ;; Normal message
-         (t
-          (let* ((is-dashed (memq type '(dashed dashed-open)))
-                 (is-open (memq type '(solid-open dashed-open async)))
-                 (marker-id (if is-open "seq-open" "seq-arrow"))
-                 (x1 fx) (x2 tx))
-            ;; Arrow line
-            (push (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"1.5\" marker-end=\"url(#%s)\"%s/>"
-                          x1 my x2 my fg marker-id
-                          (if is-dashed " stroke-dasharray=\"5,5\"" ""))
-                  svg-parts)
-            ;; Label
-            (when (and text (not (string-empty-p text)))
-              (let ((lx (/ (+ x1 x2) 2))
-                    (ly (- my 6)))
-                (push (markdown-modern-mermaid--svg-text lx ly text (1- font-size) fg) svg-parts))))))))
-    ;; Draw participant boxes (bottom)
-    (dolist (p participants)
-      (let* ((px (gethash p px-map))
-             (tw (markdown-modern-mermaid--text-width p font-size))
-             (bw (max 80 (+ tw (* box-pad 2))))
-             (bx (- px (/ bw 2)))
-             (by (- total-h box-h 20)))
-        (push (markdown-modern-mermaid--svg-rect bx by bw box-h 6 surface border) svg-parts)
-        (push (markdown-modern-mermaid--svg-text px (+ by (/ box-h 2) (/ font-size 3))
-                                            p font-size fg)
-              svg-parts)))
-    ;; Assemble
-    (markdown-modern-mermaid--svg-wrap
-     total-w total-h
-     (mapconcat #'identity (nreverse defs-parts) "\n")
-     (mapconcat #'identity (nreverse svg-parts) "\n"))))
+         (accent (plist-get colors :accent)))
+    (when participants
+      (let* ((layout (markdown-modern-mermaid--layout-sequence parsed))
+             (positions (plist-get layout :positions))
+             (width (plist-get layout :width))
+             (height (plist-get layout :height))
+             (box-h (plist-get layout :box-height))
+             (bottom (plist-get layout :bottom))
+             (parts nil))
+        (push (markdown-modern-mermaid--svg-rect 0 0 width height 6 bg "none") parts)
+        ;; Frames and conditions precede the lifelines and messages.
+        (dolist (block (plist-get parsed :blocks))
+          (let* ((x (+ 10 (* 12 (plist-get block :depth))))
+                 (y (plist-get block :y))
+                 (right (- width x))
+                 (type (upcase (symbol-name (plist-get block :type))))
+                 (tag-w (+ 12 (markdown-modern-mermaid--text-width type 13))))
+            (push (markdown-modern-mermaid--svg-rect
+                   x y (- right x) (- (plist-get block :bottom) y) 4 "none" border "1") parts)
+            (push (markdown-modern-mermaid--svg-rect x y tag-w 22 4 surface border) parts)
+            (push (markdown-modern-mermaid--svg-text (+ x (/ tag-w 2)) (+ y 15)
+                                                     type 13 accent nil "bold") parts)
+            (push (markdown-modern-mermaid--sequence-text
+                   (+ x tag-w 8) (+ y 15) (concat "[" (plist-get block :label) "]") 13 fg "start") parts)
+            (dolist (section (plist-get block :sections))
+              (let ((sy (plist-get section :y)))
+                (push (markdown-modern-mermaid--svg-line x sy right sy border "5,5") parts)
+                (push (markdown-modern-mermaid--sequence-text
+                       (+ x 20) (+ sy 18) (concat "[" (plist-get section :label) "]") 13 fg "start") parts)))))
+        (dolist (id participants)
+          (let* ((x (gethash id positions))
+                 (label (gethash id labels id))
+                 (bw (max 80 (+ 40 (markdown-modern-mermaid--sequence-text-width label 14))))
+                 (text-h (* 18 (length (markdown-modern-mermaid--sequence-text-lines label)))))
+            (push (markdown-modern-mermaid--svg-line x (+ 20 box-h) x bottom border "4,4") parts)
+            (dolist (y (list 20 bottom))
+              (push (markdown-modern-mermaid--svg-rect (- x (/ bw 2)) y bw box-h 6 surface border) parts)
+              (push (markdown-modern-mermaid--sequence-text
+                     x (+ y (/ (- box-h text-h) 2) 14) label 14 fg) parts))))
+        (dolist (msg (plist-get parsed :messages))
+          (let* ((fx (gethash (plist-get msg :from) positions))
+                 (tx (gethash (plist-get msg :to) positions))
+                 (text (markdown-modern-mermaid--sequence-message-text msg))
+                 (type (plist-get msg :type))
+                 (y (plist-get msg :y))
+                 (text-h (plist-get msg :text-height)))
+            (if (eq type 'note)
+                (let* ((bounds (markdown-modern-mermaid--sequence-note-bounds msg positions))
+                       (x (car bounds))
+                       (nw (cdr bounds)))
+                  (push (markdown-modern-mermaid--svg-rect
+                         x y nw (+ text-h 16) 4
+                         (markdown-modern-mermaid--color-blend bg accent 0.1) accent) parts)
+                  (push (markdown-modern-mermaid--sequence-text
+                         (+ x (/ nw 2)) (+ y 21) text 13 fg) parts))
+              (let* ((my (+ y text-h 8))
+                     (self (= fx tx))
+                     (dashed (memq type '(dashed dashed-line dashed-async)))
+                     (marker (cond ((memq type '(solid-line dashed-line)) "")
+                                   ((memq type '(async dashed-async)) " marker-end=\"url(#seq-open)\"")
+                                   (t " marker-end=\"url(#seq-arrow)\"")))
+                     (style (concat marker (if dashed " stroke-dasharray=\"5,5\"" ""))))
+                (push (if self
+                          (format "<path d=\"M %d %d H %d V %d H %d\" fill=\"none\" stroke=\"%s\" stroke-width=\"1.5\"%s/>"
+                                  fx my (+ fx 30) (+ my 20) fx fg style)
+                        (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"1.5\"%s/>"
+                                fx my tx my fg style)) parts)
+                (push (markdown-modern-mermaid--sequence-text
+                       (if self (+ fx 8) (/ (+ fx tx) 2)) (+ y 13) text 13 fg
+                       (if self "start" "middle")) parts)))))
+        (markdown-modern-mermaid--svg-wrap
+         width height
+         (concat (markdown-modern-mermaid--svg-arrow-marker "seq-arrow" fg)
+                 (markdown-modern-mermaid--svg-arrow-marker "seq-open" fg 'open))
+         (mapconcat #'identity (nreverse parts) "\n"))))))
 
 ;;; ============================================================
 ;;; State Diagram Renderer

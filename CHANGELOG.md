@@ -16,6 +16,10 @@ changes.
 
 ### Fixed
 
+- Mermaid sequence diagrams keep participant IDs separate from aliases, so
+  messages connect to the labeled lifelines without creating duplicates.
+  Notes honor their targets and placement, `autonumber` numbers messages,
+  and branch headings, multiline labels and self-messages get enough space.
 - `C-c '` could open an empty edit buffer when Tree-sitter skipped the code
   block's content node. It now shows the block's contents.
 - Clicking a link label no longer reveals its markup before the link opens.
