@@ -31,6 +31,7 @@
 ;; Load test modules
 (require 'markdown-modern-export-test)
 (require 'markdown-modern-commands-test)
+(require 'markdown-modern-diagram-test)
 (require 'markdown-modern-setup-test)
 (require 'markdown-modern-integration-test)
 (require 'markdown-modern-jit-test)

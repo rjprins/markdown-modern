@@ -64,6 +64,7 @@
 (require 'markdown-modern-render)
 (require 'markdown-modern-elements)
 (require 'markdown-modern-commands)
+(require 'markdown-modern-diagram)
 (require 'markdown-modern-export)
 
 ;;; Customization Groups
@@ -500,6 +501,9 @@ single source of truth shared between point-motion reveal and jit-lock.")
     ;; Toggle horizontal-scroll view (for tables wider than the window)
     (define-key map (kbd "C-c C-v t") #'markdown-modern-toggle-truncate-lines)
 
+    ;; Focus a diagram, including from its revealed source.
+    (define-key map (kbd "C-c C-v d") #'markdown-modern-focus-diagram)
+
     ;; Code block editing
     (define-key map (kbd "C-c '") #'markdown-modern-edit-code-block)
 
@@ -651,7 +655,8 @@ overlays, revealing the raw markup of the element under the cursor for editing.
 
 (defconst markdown-modern--modules
   '(markdown-modern-ts markdown-modern-mermaid markdown-modern-render
-    markdown-modern-elements markdown-modern-commands markdown-modern-export markdown-modern)
+    markdown-modern-elements markdown-modern-commands markdown-modern-diagram
+    markdown-modern-export markdown-modern)
   "List of markdown-modern source modules, in load order.")
 
 ;;;###autoload

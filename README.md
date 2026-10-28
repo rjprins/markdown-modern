@@ -27,6 +27,8 @@ markdown-modern is a fork of [mark-graf](https://github.com/hyperZphere/mark-gra
   as source. See the [rendering audit](reports/mermaid/report.html) for examples,
   before/after results and limitations. Built-in HTML export preserves the code
   fences rather than rendering Mermaid SVGs.
+- **Focused diagram viewer** — click a Mermaid diagram to zoom, pan and fit it
+  to the window, then return to the document with `q`.
 - **LaTeX math** — inline and display math via a built-in LaTeX → Unicode converter
 - **HTML export** — built in, with no external dependencies
 
@@ -203,6 +205,23 @@ Inside a fenced code block, `C-c '` opens an indirect buffer narrowed to that
 block's contents, with the language's major mode when available. Edits update
 the Markdown buffer. Press `C-c '` again to finish, or `C-c C-k` to abort and
 restore the original code.
+
+Click a rendered Mermaid diagram, or press `C-c C-v d`
+(`markdown-modern-focus-diagram`) anywhere in its source block, to open a
+focused viewer in the current window. It starts fitted to the window.
+
+| Viewer control | Action |
+|----------------|--------|
+| `+` / `=` and `-` | Zoom in and out |
+| `Ctrl` + mouse wheel | Zoom in and out |
+| Arrow keys, mouse wheel, or left-button drag | Pan around the diagram |
+| `f` | Fit the whole diagram to the window |
+| `0` | Show actual size (100%) |
+| `q` | Close the viewer and return to the document |
+
+The viewer requires graphical Emacs with SVG support. Zooming and panning
+leave the Markdown and its inline diagram unchanged; reopening the viewer
+renders the current source.
 
 Click a link label to follow it, or use `C-c C-o` with point anywhere in
 the link, including its revealed source. Moving point into a link with the

@@ -10,6 +10,9 @@ changes.
 
 ### Added
 
+- Focused Mermaid diagram viewer: click an inline diagram or use `C-c C-v d`
+  from its source, then zoom, pan with the keyboard or mouse, fit to the window,
+  and return to the document with `q`.
 - Local links open files of any type in Emacs, relative to the Markdown file.
   Line fragments such as `#L352` and `#L352-L365` go to that line. `M-,` goes
   back to the Markdown buffer. A missing file reports an error.

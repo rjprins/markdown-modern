@@ -32,6 +32,8 @@
 (require 'xref)
 (require 'markdown-modern-mermaid)
 
+(declare-function markdown-modern-focus-diagram "markdown-modern-diagram")
+
 ;; Variables defined in markdown-modern-ts.el
 
 ;; Variables defined in markdown-modern.el
@@ -164,6 +166,7 @@
     (overlay-put ov 'priority nil)
     (overlay-put ov 'keymap nil)
     (overlay-put ov 'mouse-face nil)
+    (overlay-put ov 'help-echo nil)
     (overlay-put ov 'follow-link nil)
     (overlay-put ov 'markdown-modern-url nil)
     ;; Set standard properties
@@ -2065,6 +2068,15 @@ hide opening $$ line, display converted content, hide closing $$ line."
 
 ;;; Mermaid Diagram Rendering (SVG)
 
+(defvar markdown-modern-render--diagram-map
+  (let ((map (make-sparse-keymap)))
+    ;; Keep reveal-at-point from replacing the image before mouse-up.
+    (define-key map [down-mouse-1] #'ignore)
+    (define-key map [mouse-1] #'markdown-modern-focus-diagram)
+    (define-key map [mouse-2] #'markdown-modern-focus-diagram)
+    map)
+  "Mouse bindings for focused diagram viewing.")
+
 (defvar-local markdown-modern-render--mermaid-cache nil
   "Hash table caching mermaid diagram SVG by content hash.")
 
@@ -2143,7 +2155,10 @@ an image only once per unique diagram, not on every render."
         (markdown-modern-render--clear-region start end)
         (let ((ov (markdown-modern-render--get-overlay start end)))
           (overlay-put ov 'display image)
-          (overlay-put ov 'help-echo "Mermaid diagram (SVG)")
+          (overlay-put ov 'help-echo
+                       "Click to focus diagram (zoom and pan); C-c C-v d from source")
+          (overlay-put ov 'keymap markdown-modern-render--diagram-map)
+          (overlay-put ov 'mouse-face 'highlight)
           (overlay-put ov 'markdown-modern-type 'mermaid-svg)
           (overlay-put ov 'priority 200))))))
 
