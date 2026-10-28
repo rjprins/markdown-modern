@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 
-;; Check sequence and state diagram identities, SVG geometry and semantics.
+;; Check all five diagram families, SVG geometry and source fallback behavior.
 
 ;;; Code:
 
@@ -379,6 +379,121 @@ Note over B, A: safe < & >\nB-->>A: last"))
   "Edges crossing a layer stay outside its states, regardless of box height."
   (markdown-modern-mermaid-test--state-geometry
    "stateDiagram-v2\n[*] --> A\nA --> B\nA --> C\nB --> D\nA --> D:shortcut\nC --> D\nD --> [*]\nstate \"Tall<br/>state<br/>with<br/>several<br/>lines\" as C"))
+
+;;; Audit fixtures are also regression tests, independent of the HTML report.
+(require 'json)
+
+(defconst markdown-modern-mermaid-test--audit-cases
+  (let ((json-object-type 'alist) (json-array-type 'list))
+    (json-read-file (expand-file-name "fixtures/mermaid-audit.json"
+                                     (file-name-directory (or load-file-name buffer-file-name))))))
+
+(defun markdown-modern-mermaid-test--audit (case)
+  "Check the output contract declared by audit CASE."
+  (let* ((code (alist-get 'code case)) (checks (alist-get 'checks case))
+         (result (markdown-modern-mermaid-render code)))
+    (if (alist-get 'fallback checks)
+        (should-not result)
+      (let* ((svg (markdown-modern-mermaid-test--svg code))
+             (children (cl-remove-if-not #'listp (dom-children svg)))
+             (connections (cl-remove-if-not
+                           (lambda (node) (and (memq (dom-tag node) '(line path))
+                                               (or (dom-attr node 'marker-start)
+                                                   (dom-attr node 'marker-end)))) children)))
+        (dolist (text (alist-get 'texts checks))
+          (should (markdown-modern-mermaid-test--text svg text)))
+        (dolist (text (alist-get 'absent checks))
+          (should-not (markdown-modern-mermaid-test--text svg text)))
+        (dolist (dim '(width height))
+          (should (> (markdown-modern-mermaid-test--number svg dim) 0)))
+        (when-let* ((expected (alist-get 'edges checks)))
+          (should (= expected
+                     (if (equal (alist-get 'family case) "Flowchart")
+                         (cl-count 'path children :key #'dom-tag)
+                       (length connections)))))
+        (when-let* ((expected (alist-get 'arrows checks)))
+          (should (= expected (length connections))))
+        (when (alist-get 'circle checks) (should (dom-by-tag svg 'circle)))
+        (when (alist-get 'dashed checks)
+          (should (cl-some (lambda (node) (dom-attr node 'stroke-dasharray)) children)))
+        (when (alist-get 'thick checks)
+          (should (cl-some (lambda (node) (equal (dom-attr node 'stroke-width) "3")) children)))
+        (when-let* ((order (alist-get 'order checks)))
+          (let* ((direction (car order))
+                 (axis (if (member direction '("LR" "RL")) 'x 'y))
+                 (values (mapcar (lambda (text) (markdown-modern-mermaid-test--number
+                                                (markdown-modern-mermaid-test--text svg text) axis))
+                                 (cdr order))))
+            (should (apply (if (member direction '("RL" "BT")) #'> #'<) values))))
+        (when-let* ((markers (alist-get 'markers checks)))
+          (let (actual done)
+            (dolist (node children)
+              (when (and (eq (dom-tag node) 'rect) (not (equal (dom-attr node 'x) "0")))
+                (setq done t))
+              (when (and (not done) (eq (dom-tag node) 'line))
+                (push (list (dom-attr node 'marker-start) (dom-attr node 'marker-end)
+                            (dom-attr node 'stroke-dasharray)) actual)))
+            (should (equal markers (nreverse actual)))))
+        (when (alist-get 'nondegenerate checks)
+          (let ((paths (cl-remove-if-not (lambda (node) (eq (dom-tag node) 'path)) children)))
+            (dolist (path paths)
+              (let ((points (markdown-modern-mermaid-test--path-points path)))
+                (should (> (length (delete-dups (mapcar #'cdr points))) 1))))))))))
+
+(dolist (case markdown-modern-mermaid-test--audit-cases)
+  (eval `(ert-deftest ,(intern (concat "mermaid/audit-" (alist-get 'id case))) ()
+           ,(alist-get 'description case)
+           (markdown-modern-mermaid-test--audit ',case)) t))
+
+(ert-deftest mermaid/er-all-cardinality-pairs ()
+  "Every pair of the four endpoint cardinalities preserves both entities."
+  (dolist (left '("||" "|o" "}|" "}o"))
+    (dolist (right '("||" "o|" "|{" "o{"))
+      (dolist (style '("--" ".."))
+        (let* ((parsed (markdown-modern-mermaid--parse-er
+                        (list "erDiagram" (format "A %s%s%s B : related" left style right))))
+               (rels (plist-get parsed :relationships)))
+          (should (= 2 (hash-table-count (plist-get parsed :entities))))
+          (should (= 1 (length rels)))
+          (should (equal (plist-get (car rels) :card-from) left))
+          (should (equal (plist-get (car rels) :card-to) right)))))))
+
+(ert-deftest mermaid/flowchart-invalid-input-preserves-source ()
+  "Incomplete nodes and unknown syntax must not produce a partial diagram."
+  (dolist (code '("flowchart TD\nA[" "flowchart TD\nA -->"
+                  "flowchart TD\nA --> B\nnot valid syntax"
+                  "classDiagram\nclass A {\n+x" "erDiagram\nA {\nint id"))
+    (should-not (markdown-modern-mermaid-render code))))
+
+(ert-deftest mermaid/flowchart-shape-endpoints ()
+  "Diamond and circle arrows meet the perimeter rather than their bounding box."
+  (dolist (direction '("LR" "RL" "TB" "BT"))
+    (let* ((svg (markdown-modern-mermaid-test--svg
+                 (concat "flowchart " direction "\nA[Start] --> B{Decision}\nC[Other] --> B\nB --> D((End))")))
+           (paths (cl-remove-if-not (lambda (p) (dom-attr p 'marker-end)) (dom-by-tag svg 'path))))
+      (should (= 3 (length paths)))
+      (dolist (path paths)
+        (dolist (point (markdown-modern-mermaid-test--path-points path))
+          (should (<= 0 (car point) (markdown-modern-mermaid-test--number svg 'width)))
+          (should (<= 0 (cdr point) (markdown-modern-mermaid-test--number svg 'height))))))))
+
+(ert-deftest mermaid/er-crows-foot-nearest-entity ()
+  "Many cardinalities put the crow's foot at the entity and minimum farther out."
+  (let* ((svg (with-temp-buffer
+                (insert (markdown-modern-mermaid--svg-wrap
+                         60 40 nil (mapconcat #'identity
+                          (markdown-modern-mermaid--er-draw-notation
+                           10 20 1 0 "o{" "#000000" "#ffffff") "")))
+                (car (xml-parse-region (point-min) (point-max)))))
+         (lines (dom-by-tag svg 'line))
+         (circle (car (dom-by-tag svg 'circle))))
+    (should (cl-find-if (lambda (line)
+                         (and (equal (dom-attr line 'x1) "10")
+                              (equal (dom-attr line 'y1) "13")
+                              (equal (dom-attr line 'x2) "22")
+                              (equal (dom-attr line 'y2) "20"))) lines))
+    (should (equal (dom-attr circle 'cx) "28"))
+    (should (equal (dom-attr circle 'fill) "#ffffff"))))
 
 (provide 'markdown-modern-mermaid-test)
 ;;; markdown-modern-mermaid-test.el ends here

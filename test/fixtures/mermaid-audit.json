@@ -33,6 +33,21 @@
     "description": "Every node and edge in a chained statement must survive parsing."
   },
   {
+    "id": "flow-compact",
+    "family": "Flowchart",
+    "title": "Compact arrows and hyphenated IDs",
+    "code": "flowchart LR\nclient-app-->api-service\napi-service-.->db",
+    "checks": {
+      "texts": [
+        "client-app",
+        "api-service",
+        "db"
+      ],
+      "edges": 2
+    },
+    "description": "Arrows need no surrounding spaces, and hyphens inside IDs do not split nodes."
+  },
+  {
     "id": "flow-semicolons",
     "family": "Flowchart",
     "title": "Single-line diagram",

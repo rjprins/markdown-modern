@@ -927,5 +927,49 @@ closing pipe.  Only the pipe glyphs (`│') may carry a `display'."
       (should (> fill-before-strings 0))    ; padding is virtual
       (should (= display-over-text 0)))))   ; cell text is never covered
 
+(ert-deftest render/mermaid-fence-variants ()
+  "Tree-sitter Mermaid fences deliver only the body to the SVG renderer."
+  (dolist (fence '("```mermaid" "~~~mermaid" "````mermaid" "~~~ MERMAID"))
+    (let ((closing (if (string-prefix-p "~" fence) "~~~~" "````")) captured)
+      (cl-letf (((symbol-function 'markdown-modern-render--display-mermaid-svg)
+                 (lambda (_start _end svg &optional _key) (setq captured svg))))
+        (markdown-modern-render-test--with (concat fence "\nflowchart LR\nA --> B\n" closing "\n")
+          (should (string-prefix-p "<svg" captured))
+          (should (string-match-p ">A</text>" captured))
+          (should (string-match-p ">B</text>" captured)))))))
+
+(ert-deftest render/mermaid-unsupported-source-fallback ()
+  "Unsupported Mermaid remains readable under every supported fence spelling."
+  (dolist (fence '("```mermaid" "~~~mermaid" "````mermaid" "~~~ MERMAID"))
+    (let* ((closing (if (string-prefix-p "~" fence) "~~~~" "````"))
+           (text (concat fence "\npie\n\"Cats\" : 5\n" closing "\n")))
+      (markdown-modern-render-test--with text
+        (should (markdown-modern-render-test--ov 'mermaid-fallback))
+        (should (equal (buffer-string) text))
+        (goto-char (point-min))
+        (forward-line 1)
+        (should-not (cl-some (lambda (ov) (overlay-get ov 'display)) (overlays-at (point))))))))
+
+(ert-deftest render/mermaid-theme-cache ()
+  "The same diagram is rendered again after its theme colors change."
+  (let ((colors '(:bg "#ffffff" :fg "#000000" :surface "#eeeeee" :border "#888888" :accent "#0000ff"))
+        outputs)
+    (cl-letf (((symbol-function 'markdown-modern-mermaid--theme-colors) (lambda () colors))
+              ((symbol-function 'markdown-modern-render--display-mermaid-svg)
+               (lambda (_start _end svg &optional _key) (push svg outputs))))
+      (markdown-modern-render-test--with "```mermaid\nflowchart TD\nA --> B\n```\n"
+        (let ((element (markdown-modern-ts--containing-block 16)))
+          (setq colors '(:bg "#111111" :fg "#ffffff" :surface "#222222" :border "#888888" :accent "#00ffff"))
+          (markdown-modern-render--mermaid element)
+          (should (= 2 (length outputs)))
+          (should-not (equal (car outputs) (cadr outputs))))))))
+
+(ert-deftest render/mermaid-display-error-preserves-source ()
+  "A missing SVG image backend does not hide the diagram's source."
+  (cl-letf (((symbol-function 'markdown-modern-render--display-mermaid-svg)
+             (lambda (&rest _) (error "No SVG backend"))))
+    (markdown-modern-render-test--with "~~~mermaid\nflowchart TD\nA --> B\n~~~\n"
+      (should (markdown-modern-render-test--ov 'mermaid-fallback)))))
+
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here

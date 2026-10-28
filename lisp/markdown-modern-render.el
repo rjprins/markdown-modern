@@ -2074,21 +2074,35 @@ hide opening $$ line, display converted content, hide closing $$ line."
     (setq markdown-modern-render--mermaid-cache (make-hash-table :test 'equal)))
   markdown-modern-render--mermaid-cache)
 
+(defun markdown-modern-render--mermaid-bounds (start end)
+  "Return opening-fence end, content start and closing-fence start.
+Read a Mermaid fence between START and END, accepting backticks or tildes."
+  (save-excursion
+    (goto-char start)
+    (let ((case-fold-search t))
+      (when (looking-at "[ \t]*\\(`\\{3,\\}\\|~\\{3,\\}\\)[ \t]*mermaid[ \t]*\r?$")
+        (let* ((fence (match-string-no-properties 1))
+               (fence-end (line-end-position))
+               (content-start (min end (1+ fence-end)))
+               (closing (format "^[ \t]*%c\\{%d,\\}[ \t]*\r?$"
+                                (aref fence 0) (length fence))))
+          (goto-char end)
+          (list fence-end content-start
+                (if (re-search-backward closing content-start t)
+                    (match-beginning 0) end)))))))
+
 (defun markdown-modern-render--mermaid (elem)
   "Render Mermaid diagram element ELEM as inline SVG."
   (let ((start (markdown-modern-node-start elem))
         (end (markdown-modern-node-end elem)))
     (save-excursion
       (goto-char start)
-      (when (looking-at "^[ \t]*```mermaid[ \t]*\r?$")
-        (let* ((content-start (1+ (line-end-position)))
-               (content-end (save-excursion
-                              (goto-char end)
-                              (if (re-search-backward "^[ \t]*```[ \t]*\r?$" content-start t)
-                                  (match-beginning 0)
-                                end)))
+      (when-let* ((bounds (markdown-modern-render--mermaid-bounds start end)))
+        (let* ((content-start (nth 1 bounds))
+               (content-end (nth 2 bounds))
                (diagram-code (buffer-substring-no-properties content-start content-end))
-               (cache-key (md5 diagram-code))
+               (cache-key (md5 (concat diagram-code
+                                      (prin1-to-string (markdown-modern-mermaid--theme-colors)))))
                (svg-string (or (gethash cache-key (markdown-modern-render--mermaid-cache))
                                (let ((svg (condition-case err
                                               (markdown-modern-mermaid-render diagram-code)
@@ -2139,14 +2153,10 @@ an image only once per unique diagram, not on every render."
         (end (markdown-modern-node-end elem)))
     (save-excursion
       (goto-char start)
-      (when (looking-at "^[ \t]*```mermaid[ \t]*\r?$")
-        (let* ((fence-end (line-end-position))
-               (closing-fence (save-excursion
-                                (goto-char end)
-                                (if (re-search-backward "^[ \t]*```[ \t]*\r?$" fence-end t)
-                                    (match-beginning 0)
-                                  end)))
-               (content-start (1+ fence-end)))
+      (when-let* ((bounds (markdown-modern-render--mermaid-bounds start end)))
+        (let* ((fence-end (nth 0 bounds))
+               (closing-fence (nth 2 bounds))
+               (content-start (nth 1 bounds)))
           ;; Replace opening fence with mermaid label
           (let ((ov (markdown-modern-render--get-overlay start fence-end)))
             (overlay-put ov 'display

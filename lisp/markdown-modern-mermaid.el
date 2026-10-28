@@ -140,7 +140,7 @@ MARKER-TYPE can be `arrow' (default), `open', `diamond', `circle'."
      (format "<marker id=\"%s\" viewBox=\"0 0 10 10\" refX=\"10\" refY=\"5\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto-start-reverse\"><path d=\"M 0 0 L 10 5 L 0 10\" fill=\"none\" stroke=\"%s\" stroke-width=\"1.5\"/></marker>"
              id color))
     ('diamond
-     (format "<marker id=\"%s\" viewBox=\"0 0 12 12\" refX=\"6\" refY=\"6\" markerWidth=\"10\" markerHeight=\"10\" orient=\"auto-start-reverse\"><polygon points=\"6,0 12,6 6,12 0,6\" fill=\"%s\"/></marker>"
+     (format "<marker id=\"%s\" viewBox=\"0 0 12 12\" refX=\"12\" refY=\"6\" markerWidth=\"10\" markerHeight=\"10\" orient=\"auto-start-reverse\"><polygon points=\"6,0 12,6 6,12 0,6\" fill=\"%s\"/></marker>"
              id color))
     ('circle
      (format "<marker id=\"%s\" viewBox=\"0 0 10 10\" refX=\"5\" refY=\"5\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto-start-reverse\"><circle cx=\"5\" cy=\"5\" r=\"4\" fill=\"%s\"/></marker>"
@@ -165,7 +165,7 @@ Uses average character width of 0.6 * font-size for sans-serif."
 (defun markdown-modern-mermaid-render (diagram-code)
   "Render mermaid DIAGRAM-CODE to an SVG string.
 Returns SVG XML string or nil for empty or unsupported diagrams.
-Unsupported constructs retain source instead of showing a partial diagram."
+Known unsupported constructs retain source instead of showing a partial diagram."
   (let* ((lines (cl-remove-if
                  (lambda (line) (string-match-p "^%%\\(?:[^{]\\|$\\)" line))
                  (split-string diagram-code "\n" t "[ \t\r]+")))
@@ -226,7 +226,7 @@ Unsupported constructs retain source instead of showing a partial diagram."
 (defun markdown-modern-mermaid--flowchart-node (text nodes)
   "Read a node from TEXT into NODES; return (ID . REMAINING-TEXT).
 An explicit label updates an earlier implicit declaration."
-  (unless (string-match "^\\([[:alnum:]_-]+\\)" text)
+  (unless (string-match "^\\([[:alnum:]_]+\\(?:-[[:alnum:]_]+\\)*\\)" text)
     (error "Unsupported flowchart node: %s" text))
   (let* ((id (match-string 1 text))
          (rest (substring text (match-end 0)))
@@ -1290,9 +1290,9 @@ Keep marker endpoints and line style independent of relationship labels."
     ;; Assemble
     (when (> (hash-table-count classes) 0)
       (markdown-modern-mermaid--svg-wrap
-     total-w total-h
-     (mapconcat #'identity (nreverse defs-parts) "\n")
-     (mapconcat #'identity (nreverse svg-parts) "\n")))))
+       total-w total-h
+       (mapconcat #'identity (nreverse defs-parts) "\n")
+       (mapconcat #'identity (nreverse svg-parts) "\n")))))
 
 ;;; ============================================================
 ;;; ER Diagram Renderer
@@ -1336,69 +1336,32 @@ Support the four cardinalities on both ends and both identifying line styles."
     (when current-entity (error "Unclosed entity body"))
     (list :entities entities :relationships (nreverse relationships))))
 
-(defun markdown-modern-mermaid--er-draw-notation (ex ey dx dy card color)
-  "Draw crow's foot ER notation at entity edge (EX, EY).
-DX, DY is the direction away from the entity along the relationship.
-CARD is the cardinality string (e.g. \"||\" \"|o\" \"}|\" \"o{\").
-COLOR is the stroke color.  Returns list of SVG element strings."
+(defun markdown-modern-mermaid--er-draw-notation (ex ey dx dy card color &optional background)
+  "Draw CARD at entity edge (EX, EY), extending toward (DX, DY).
+The maximum cardinality is nearest the entity; the minimum is farther away.
+Use COLOR for strokes and BACKGROUND to mask the line inside an optionality
+circle.  Return SVG element strings."
   (let* ((len (sqrt (+ (* (float dx) dx) (* (float dy) dy))))
          (ux (if (> len 0) (/ (float dx) len) 1.0))
          (uy (if (> len 0) (/ (float dy) len) 0.0))
-         (px (- uy))   ; perpendicular unit vector
-         (py ux)
-         (tk 7)        ; tick half-length
-         (parts nil)
-         (has-one (string-match-p "|" card))
-         (has-zero (string-match-p "o" card))
-         (has-many (string-match-p "[{}]" card)))
-    (cond
-     ;; Exactly one (||): two perpendicular ticks
-     ((and has-one (not has-many) (not has-zero))
-      (dolist (d '(6 12))
-        (let ((cx (+ ex (* ux d))) (cy (+ ey (* uy d))))
-          (push (format "<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"%s\" stroke-width=\"2\"/>"
-                        (- cx (* px tk)) (- cy (* py tk))
-                        (+ cx (* px tk)) (+ cy (* py tk)) color)
-                parts))))
-     ;; One or many (}| |{): tick + crow's foot
-     ((and has-one has-many)
-      (let ((cx (+ ex (* ux 6))) (cy (+ ey (* uy 6))))
-        (push (format "<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"%s\" stroke-width=\"2\"/>"
-                      (- cx (* px tk)) (- cy (* py tk))
-                      (+ cx (* px tk)) (+ cy (* py tk)) color)
-              parts))
-      (let* ((tip-x (+ ex (* ux 20))) (tip-y (+ ey (* uy 20)))
-             (base-x (+ ex (* ux 10))) (base-y (+ ey (* uy 10))))
-        (push (format "<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"%s\" stroke-width=\"1.5\"/>"
-                      tip-x tip-y (+ base-x (* px tk)) (+ base-y (* py tk)) color) parts)
-        (push (format "<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"%s\" stroke-width=\"1.5\"/>"
-                      tip-x tip-y base-x base-y color) parts)
-        (push (format "<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"%s\" stroke-width=\"1.5\"/>"
-                      tip-x tip-y (- base-x (* px tk)) (- base-y (* py tk)) color) parts)))
-     ;; Zero or one (o| |o): tick + circle
-     ((and has-zero has-one)
-      (let ((cx (+ ex (* ux 6))) (cy (+ ey (* uy 6))))
-        (push (format "<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"%s\" stroke-width=\"2\"/>"
-                      (- cx (* px tk)) (- cy (* py tk))
-                      (+ cx (* px tk)) (+ cy (* py tk)) color)
-              parts))
-      (let ((ox (+ ex (* ux 17))) (oy (+ ey (* uy 17))))
-        (push (format "<circle cx=\"%.0f\" cy=\"%.0f\" r=\"4\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1.5\"/>"
-                      ox oy "none" color) parts)))
-     ;; Zero or many (}o o{): circle + crow's foot
-     ((and has-zero has-many)
-      (let ((ox (+ ex (* ux 8))) (oy (+ ey (* uy 8))))
-        (push (format "<circle cx=\"%.0f\" cy=\"%.0f\" r=\"4\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1.5\"/>"
-                      ox oy "none" color) parts))
-      (let* ((tip-x (+ ex (* ux 22))) (tip-y (+ ey (* uy 22)))
-             (base-x (+ ex (* ux 14))) (base-y (+ ey (* uy 14))))
-        (push (format "<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"%s\" stroke-width=\"1.5\"/>"
-                      tip-x tip-y (+ base-x (* px tk)) (+ base-y (* py tk)) color) parts)
-        (push (format "<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"%s\" stroke-width=\"1.5\"/>"
-                      tip-x tip-y base-x base-y color) parts)
-        (push (format "<line x1=\"%.0f\" y1=\"%.0f\" x2=\"%.0f\" y2=\"%.0f\" stroke=\"%s\" stroke-width=\"1.5\"/>"
-                      tip-x tip-y (- base-x (* px tk)) (- base-y (* py tk)) color) parts))))
-    parts))
+         (px (- uy)) (py ux) parts)
+    (cl-labels
+        ((line (d1 o1 d2 o2 &optional weight)
+           (push (markdown-modern-mermaid--svg-line
+                  (round (+ ex (* ux d1) (* px o1)))
+                  (round (+ ey (* uy d1) (* py o1)))
+                  (round (+ ex (* ux d2) (* px o2)))
+                  (round (+ ey (* uy d2) (* py o2))) color nil weight) parts)))
+      (line 0 0 22 0)
+      (if (string-match-p "[{}]" card)
+          (progn (line 0 -7 12 0) (line 0 7 12 0))
+        (line 6 -7 6 7 "2"))
+      (if (string-match-p "o" card)
+          (push (markdown-modern-mermaid--svg-circle
+                 (+ ex (* ux 18)) (+ ey (* uy 18)) 4
+                 (or background "none") color) parts)
+        (line 18 -7 18 7 "2")))
+    (nreverse parts)))
 
 (defun markdown-modern-mermaid--render-er (lines colors)
   "Render ER diagram from LINES with COLORS.  Return SVG string."
@@ -1505,11 +1468,11 @@ COLOR is the stroke color.  Returns list of SVG element strings."
                      fg (plist-get rel :dash)) svg-parts)
               ;; Crow's foot notation at from-entity
               (dolist (s (markdown-modern-mermaid--er-draw-notation
-                          fx fy ldx ldy card-from fg))
+                          fx fy ldx ldy card-from fg bg))
                 (push s svg-parts))
               ;; Crow's foot notation at to-entity
               (dolist (s (markdown-modern-mermaid--er-draw-notation
-                          tx ty (- ldx) (- ldy) card-to fg))
+                          tx ty (- ldx) (- ldy) card-to fg bg))
                 (push s svg-parts)))
             ;; Relationship label
             (when (and label (not (string-empty-p label)))
@@ -1555,9 +1518,9 @@ COLOR is the stroke color.  Returns list of SVG element strings."
     ;; Assemble
     (when (> (hash-table-count entities) 0)
       (markdown-modern-mermaid--svg-wrap
-     total-w total-h
-     (if defs-parts (mapconcat #'identity (nreverse defs-parts) "\n") "")
-     (mapconcat #'identity (nreverse svg-parts) "\n")))))
+       total-w total-h
+       (if defs-parts (mapconcat #'identity (nreverse defs-parts) "\n") "")
+       (mapconcat #'identity (nreverse svg-parts) "\n")))))
 
 (provide 'markdown-modern-mermaid)
 

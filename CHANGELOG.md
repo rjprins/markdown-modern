@@ -16,6 +16,16 @@ changes.
 
 ### Fixed
 
+- Mermaid flowcharts preserve chained edges, semicolon-separated statements,
+  later labels, circle and subroutine shapes, line styles and all directions.
+  Shared layered routing gives cycles and multiline labels dedicated space.
+- Mermaid class relationships use the correct markers and endpoints; ER
+  relationships support all four cardinalities, non-identifying dashed links
+  and isolated entities. Crow's feet face the entity and attribute constraints
+  have their own space.
+- Mermaid blocks accept tilde and longer backtick fences and refresh cached
+  colors after a theme change. Empty diagrams and recognized unsupported
+  features preserve source instead of producing empty or partial SVGs.
 - Mermaid state diagrams route long transitions around intermediate states,
   give return arrows and self-loops separate lanes, and reserve space for
   transition labels. Colons no longer become part of state IDs, and start

@@ -21,7 +21,12 @@ markdown-modern is a fork of [mark-graf](https://github.com/hyperZphere/mark-gra
 - **Reveal-at-point editing** — the element under the cursor shows its raw markup (styling preserved) for editing, and re-renders when you move away; a single view mode, no source/rendered toggle
 - **Viewport-driven** — built on `jit-lock`, so routine rendering follows the visible region (see [Performance](#performance))
 - **GFM constructs** — tables, task lists, fenced code blocks, strikethrough, blockquotes, lists, horizontal rules
-- **Mermaid diagrams** — rendered inline by a built-in, pure-Elisp SVG renderer (no Node or external CLI)
+- **Mermaid diagrams** — a built-in, pure-Elisp SVG renderer supports a subset
+  of flowchart, sequence, state, class and ER syntax (no Node or external CLI).
+  Unsupported families and recognized unsupported constructs remain visible
+  as source. See the [rendering audit](reports/mermaid/report.html) for examples,
+  before/after results and limitations. Built-in HTML export preserves the code
+  fences rather than rendering Mermaid SVGs.
 - **LaTeX math** — inline and display math via a built-in LaTeX → Unicode converter
 - **HTML export** — built in, with no external dependencies
 
