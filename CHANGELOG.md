@@ -16,6 +16,11 @@ changes.
 
 ### Fixed
 
+- Mermaid state diagrams route long transitions around intermediate states,
+  give return arrows and self-loops separate lanes, and reserve space for
+  transition labels. Colons no longer become part of state IDs, and start
+  and end markers remain distinct. State descriptions, multiline labels and
+  diagram directions are supported.
 - Mermaid sequence diagrams keep participant IDs separate from aliases, so
   messages connect to the labeled lifelines without creating duplicates.
   Notes honor their targets and placement, `autonumber` numbers messages,

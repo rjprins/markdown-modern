@@ -886,172 +886,375 @@ Return participant :positions, :width, :height, :box-height and :bottom."
 ;;; ============================================================
 
 (defun markdown-modern-mermaid--parse-state (lines)
-  "Parse state diagram LINES.
-Returns (:states STATES :transitions TRANSITIONS).
-STATES is hash-table id->(list :id :label :type).
-TRANSITIONS is list of (:from FROM :to TO :label LABEL)."
+  "Parse state diagram LINES into states, transitions and direction.
+State identities are independent of descriptions.  The start and end
+pseudostates have distinct symbol IDs, separate from user-supplied IDs."
   (let ((states (make-hash-table :test 'equal))
-        (transitions nil))
-    (dolist (raw-line (cdr lines))
-      (let ((line (string-trim raw-line)))
-        (cond
-         ;; State with description: state "label" as id
-         ((string-match "^state\\s-+\"\\([^\"]+\\)\"\\s-+as\\s-+\\(\\S-+\\)" line)
-          (puthash (match-string 2 line)
-                   (list :id (match-string 2 line) :label (match-string 1 line) :type 'state)
-                   states))
-         ;; Transition: State1 --> State2 : label
-         ((string-match "^\\(\\[\\*\\]\\|\\S-+\\)\\s-*-->\\s-*\\(\\[\\*\\]\\|\\S-+\\)\\(?:\\s-*:\\s-*\\(.*\\)\\)?" line)
-          (let ((from (match-string 1 line))
-                (to (match-string 2 line))
-                (label (match-string 3 line)))
-            ;; Register states
-            (unless (gethash from states)
-              (puthash from (list :id from :label from
-                                  :type (if (string= from "[*]") 'start 'state))
-                       states))
-            (unless (gethash to states)
-              (puthash to (list :id to :label to
-                                :type (if (string= to "[*]") 'end 'state))
-                       states))
-            (push (list :from from :to to
-                        :label (when label (string-trim label)))
-                  transitions))))))
-    (list :states states :transitions (nreverse transitions))))
+        (transitions nil)
+        (direction "TB")
+        (in-note nil)
+        (id-pattern "\\([^[:space:]:;{}]+?\\)"))
+    (cl-labels
+        ((register (id &optional label)
+           (unless (gethash id states)
+             (puthash id (list :id id :label (if (stringp id) id "")
+                               :type (if (symbolp id) id 'state)) states))
+           (when label (plist-put (gethash id states) :label label))))
+      (dolist (raw-line (cdr lines))
+        (let ((line (string-trim (car (split-string raw-line "%%")))))
+          (setq line (string-trim-right line "[; \t]+"))
+          (cond
+           ((or (string-empty-p line) (string-prefix-p "%%" line)))
+           (in-note (when (equal line "end note") (setq in-note nil)))
+           ((string-match-p "^note\\s-" line)
+            (setq in-note (not (string-match-p ":" line))))
+           ((string-match "^direction\\s-+\\(TB\\|TD\\|BT\\|LR\\|RL\\)$" line)
+            (setq direction (match-string 1 line)))
+           ((string-match (concat "^state\\s-+\"\\([^\"]*\\)\"\\s-+as\\s-+"
+                                  id-pattern "$") line)
+            (register (match-string 2 line) (match-string 1 line)))
+           ;; A colon terminates the target ID, even with no surrounding spaces.
+           ((string-match (concat "^" id-pattern "\\s-*-->\\s-*" id-pattern
+                                  "\\(?:\\s-*:\\s-*\\(.*\\)\\)?$") line)
+            (let* ((from (match-string 1 line))
+                   (to (match-string 2 line))
+                   (label (match-string 3 line)))
+              (when (equal from "[*]") (setq from 'start))
+              (when (equal to "[*]") (setq to 'end))
+              (register from)
+              (register to)
+              (push (list :from from :to to
+                          :label (and label (not (string-empty-p label)) label))
+                    transitions)))
+           ((string-match (concat "^" id-pattern "\\s-*:\\s-*\\(.*\\)$") line)
+            (register (match-string 1 line) (match-string 2 line)))
+           ((string-match (concat "^\\(?:state\\s-+\\)?" id-pattern "$") line)
+            (unless (member line '("}" "--")) (register (match-string 1 line))))))))
+    (list :states states :transitions (nreverse transitions) :direction direction)))
+
+(defun markdown-modern-mermaid--state-order (states transitions)
+  "Return a cycle-aware order for STATES connected by TRANSITIONS.
+Depth-first finishing order puts forward transitions before their targets.
+Only edges to active ancestors (and self-loops) need feedback routing."
+  (let ((adjacency (make-hash-table :test 'equal))
+        (incoming (make-hash-table :test 'equal))
+        (visited (make-hash-table :test 'equal))
+        order)
+    (dolist (edge (reverse transitions))
+      (push (plist-get edge :to) (gethash (plist-get edge :from) adjacency))
+      (puthash (plist-get edge :to) t incoming))
+    (cl-labels ((visit (id)
+                 (unless (gethash id visited)
+                   (puthash id t visited)
+                   (dolist (to (gethash id adjacency)) (visit to))
+                   (push id order))))
+      (when (gethash 'start states) (visit 'start))
+      (maphash (lambda (id _) (unless (gethash id incoming) (visit id))) states)
+      (maphash (lambda (id _) (visit id)) states))
+    order))
+
+(defun markdown-modern-mermaid--state-text-size (text font-size)
+  "Return the padded (WIDTH . HEIGHT) of TEXT at FONT-SIZE."
+  (cons (+ 16 (markdown-modern-mermaid--sequence-text-width text font-size))
+        (+ 10 (* 18 (length (markdown-modern-mermaid--sequence-text-lines text))))))
+
+(defun markdown-modern-mermaid--state-sort-layers (layers links)
+  "Reduce crossings in LAYERS using adjacent vertex LINKS.
+Each layer contains vertex plists.  Invisible routing vertices participate
+in the ordering so transitions spanning several layers avoid real states."
+  (let ((before (make-hash-table :test 'eq))
+        (after (make-hash-table :test 'eq))
+        (positions (make-hash-table :test 'eq))
+        best best-score)
+    (dolist (link links)
+      (push (car link) (gethash (cdr link) before))
+      (push (cdr link) (gethash (car link) after)))
+    (cl-labels
+        ((index-layers ()
+           (dotimes (rank (length layers))
+             (cl-loop for vertex in (aref layers rank) for i from 0
+                      do (puthash vertex i positions))))
+         (score ()
+           (let ((crossings 0))
+             (cl-loop for rest on links for a = (car rest) do
+                      (dolist (b (cdr rest))
+                        (when (and (= (plist-get (car a) :rank)
+                                      (plist-get (car b) :rank))
+                                   (< (* (- (gethash (car a) positions)
+                                            (gethash (car b) positions))
+                                         (- (gethash (cdr a) positions)
+                                            (gethash (cdr b) positions))) 0))
+                          (cl-incf crossings))))
+             crossings))
+         (remember ()
+           (let ((value (score)))
+             (when (or (null best-score) (< value best-score))
+               (setq best-score value best (copy-sequence layers))))))
+      (index-layers)
+      (remember)
+      (dotimes (sweep 8)
+        (let ((down (cl-evenp sweep)))
+          (dotimes (step (1- (length layers)))
+            (let* ((rank (if down (1+ step) (- (length layers) step 2)))
+                   (neighbors (if down before after))
+                   (weights (make-hash-table :test 'eq)))
+              (dolist (vertex (aref layers rank))
+                (let ((ids (gethash vertex neighbors)))
+                  (puthash vertex
+                           (if ids (/ (float (apply #'+ (mapcar
+                                                         (lambda (id) (gethash id positions)) ids)))
+                                      (length ids))
+                             (gethash vertex positions)) weights)))
+              (aset layers rank
+                    (cl-stable-sort (copy-sequence (aref layers rank))
+                                    (lambda (a b) (< (gethash a weights) (gethash b weights)))))
+              (index-layers))))
+        (remember)))
+    best))
+
+(defun markdown-modern-mermaid--layout-state (parsed)
+  "Lay out PARSED state diagram with separate transition and label space.
+Return :nodes, :routes, :width and :height.  Routes contain SVG-coordinate
+:points and optional :label-box rectangles.  Internal coordinates use X
+across layers and Y along them; horizontal directions are transposed last."
+  (let* ((states (plist-get parsed :states))
+         (transitions (plist-get parsed :transitions))
+         (direction (plist-get parsed :direction))
+         (horizontal (member direction '("LR" "RL")))
+         (backward (member direction '("BT" "RL")))
+         (order (markdown-modern-mermaid--state-order states transitions))
+         (ranks (markdown-modern-mermaid--flowchart-assign-layers order transitions))
+         (max-rank (* 2 (apply #'max 0 (mapcar #'cdr ranks))))
+         (layers (make-vector (1+ max-rank) nil))
+         (nodes (make-hash-table :test 'equal))
+         (outgoing (make-hash-table :test 'equal))
+         (incoming (make-hash-table :test 'equal))
+         (feedback-out (make-vector (1+ max-rank) nil))
+         (feedback-in (make-vector (1+ max-rank) nil))
+         (feedback-space (make-vector (1+ max-rank) 0))
+         (row-tops (make-vector (1+ max-rank) 0))
+         (row-bottoms (make-vector (1+ max-rank) 0))
+         links routes
+         (width 0) (height 0))
+    (cl-labels
+        ((vertex (rank w h &optional id label)
+           (let ((v (list :rank rank :w (if horizontal h w) :h (if horizontal w h)
+                          :id id :label label :x 0 :y 0)))
+             (push v (aref layers rank)) v))
+         (port (route source)
+           (let* ((id (plist-get route (if source :from :to)))
+                  (node (gethash id nodes))
+                  (edges (gethash id (if source outgoing incoming)))
+                  (count (length edges))
+                  (offset (* (min 14 (/ (plist-get node :w) (1+ count)))
+                             (- (cl-position route edges :test #'eq) (/ (1- count) 2.0))))
+                  (radius (/ (plist-get node :h) 2.0))
+                  (dy (if (memq id '(start end))
+                          (sqrt (max 0 (- (* radius radius) (* offset offset))))
+                        radius)))
+             (cons (+ (plist-get node :x) offset)
+                   (+ (plist-get node :y) (* (if source 1 -1) dy)))))
+         (transform (point)
+           (let ((x (car point)) (y (if backward (- height (cdr point)) (cdr point))))
+             (if horizontal (cons y x) (cons x y))))
+         (box (v)
+           (let ((center (transform (cons (plist-get v :x) (plist-get v :y))))
+                 (w (plist-get v (if horizontal :h :w)))
+                 (h (plist-get v (if horizontal :w :h))))
+             (list :x (- (car center) (/ w 2.0)) :y (- (cdr center) (/ h 2.0))
+                   :w w :h h))))
+      (dolist (pair ranks)
+        (let* ((id (car pair))
+               (info (gethash id states))
+               (size (markdown-modern-mermaid--state-text-size (plist-get info :label) 14))
+               (pseudo (memq (plist-get info :type) '(start end)))
+               (diameter (if (eq (plist-get info :type) 'start) 20 24)))
+          (puthash id (vertex (* 2 (cdr pair))
+                              (if pseudo diameter (max 80 (+ 20 (car size))))
+                              (if pseudo diameter (max 40 (+ 8 (cdr size)))) id) nodes)))
+      ;; Every forward edge has its own waypoint in every intermediate layer.
+      ;; One waypoint holds the label and reserves its full dimensions.
+      (dolist (edge transitions)
+        (let* ((from (gethash (plist-get edge :from) nodes))
+               (to (gethash (plist-get edge :to) nodes))
+               (fr (plist-get from :rank)) (tr (plist-get to :rank))
+               (label (plist-get edge :label))
+               (route (append (copy-sequence edge) (list :back (>= fr tr))))
+               (chain (list from))
+               (label-rank (1+ (* 2 (/ (+ fr tr -2) 4)))))
+          (if (>= fr tr)
+              (progn
+                (push route (aref feedback-out fr))
+                (push route (aref feedback-in tr)))
+            (cl-loop for rank from (1+ fr) below tr do
+                     (let* ((text (and (= rank label-rank) label))
+                            (size (and text (markdown-modern-mermaid--state-text-size text 13)))
+                            (v (if size (vertex rank (car size) (cdr size) nil text)
+                                 (vertex rank (if horizontal 0 12) (if horizontal 12 0)))))
+                       (when text (plist-put route :label-vertex v))
+                       (push v chain)))
+            (push to chain)
+            (setq chain (nreverse chain))
+            (cl-loop for (a b) on chain while b do (push (cons a b) links))
+            (plist-put route :vertices chain))
+          (push route routes)
+          (push route (gethash (plist-get edge :from) outgoing))
+          (push route (gethash (plist-get edge :to) incoming))))
+      (setq routes (nreverse routes))
+      ;; Each returning label gets a band above its target.  Other return
+      ;; arrows cross the outside lanes only between these label bands.
+      (dotimes (rank (length layers))
+        (dolist (route (aref feedback-in rank))
+          (let* ((label (plist-get route :label))
+                 (size (and label (markdown-modern-mermaid--state-text-size label 13)))
+                 (depth (if size (if horizontal (car size) (cdr size)) 0)))
+            (cl-incf (aref feedback-space rank) (+ 24 depth))
+            (plist-put route :entry-offset (aref feedback-space rank)))))
+      (dotimes (rank (length layers)) (aset layers rank (nreverse (aref layers rank))))
+      (setq layers (markdown-modern-mermaid--state-sort-layers layers links))
+      (dotimes (rank (length layers))
+        (setq width (max width (+ 40 (apply #'+ (mapcar
+                                                (lambda (v) (+ 24 (plist-get v :w)))
+                                                (aref layers rank)))))))
+      (dotimes (rank (length layers))
+        (let* ((row (aref layers rank))
+               (row-width (- (apply #'+ (mapcar (lambda (v) (+ 24 (plist-get v :w))) row)) 24))
+               (row-height (apply #'max 0 (mapcar (lambda (v) (plist-get v :h)) row)))
+               (x (/ (- width row-width) 2.0)))
+          (cl-incf height (+ 20 (aref feedback-space rank)))
+          (aset row-tops rank height)
+          (dolist (v row)
+            (plist-put v :x (+ x (/ (plist-get v :w) 2.0)))
+            (plist-put v :y (+ height (/ row-height 2.0)))
+            (cl-incf x (+ (plist-get v :w) 24)))
+          (cl-incf height row-height)
+          (aset row-bottoms rank height)
+          (cl-incf height (+ 20 (* 16 (length (aref feedback-out rank)))))))
+      ;; Sort ports by their next waypoint to avoid crossings at the node edge.
+      (dolist (table (list outgoing incoming))
+        (maphash
+         (lambda (id edges)
+           (puthash id
+                    (cl-stable-sort
+                     edges (lambda (a b)
+                             (cl-labels ((next-x (r)
+                                           (if (plist-get r :back) width
+                                             (plist-get (if (eq table outgoing)
+                                                            (cadr (plist-get r :vertices))
+                                                          (car (last (plist-get r :vertices) 2))) :x))))
+                               (< (next-x a) (next-x b))))) table)) table))
+      (let ((lane-x width))
+        (dolist (route routes)
+          (let ((start (port route t)) (end (port route nil)) points)
+            (if (plist-get route :back)
+                (let* ((fr (plist-get (gethash (plist-get route :from) nodes) :rank))
+                       (tr (plist-get (gethash (plist-get route :to) nodes) :rank))
+                       (sy (+ (aref row-bottoms fr) 16
+                              (* 16 (cl-position route (aref feedback-out fr) :test #'eq))))
+                       (ty (- (aref row-tops tr) (plist-get route :entry-offset)))
+                       (label (plist-get route :label))
+                       (size (and label (markdown-modern-mermaid--state-text-size label 13)))
+                       (w (if size (if horizontal (cdr size) (car size)) 0))
+                       (h (if size (if horizontal (car size) (cdr size)) 0)))
+                  (cl-incf lane-x (+ 24 (/ w 2.0)))
+                  (setq points (list start (cons (car start) sy) (cons lane-x sy)
+                                     (cons lane-x ty) (cons (car end) ty) end))
+                  (when label
+                    (plist-put route :label-box
+                               (box (list :x lane-x :y (+ ty 8 (/ h 2.0)) :w w :h h))))
+                  (cl-incf lane-x (+ 24 (/ w 2.0))))
+              (setq points (list start))
+              (push (cons (car start)
+                          (aref row-bottoms (plist-get (gethash (plist-get route :from) nodes) :rank)))
+                    points)
+              (dolist (v (butlast (cdr (plist-get route :vertices))))
+                ;; Stay vertical across the entire row, including beside
+                ;; taller siblings, and bend only in the space between rows.
+                (push (cons (plist-get v :x) (aref row-tops (plist-get v :rank))) points)
+                (push (cons (plist-get v :x) (aref row-bottoms (plist-get v :rank))) points))
+              (push (cons (car end)
+                          (aref row-tops (plist-get (gethash (plist-get route :to) nodes) :rank)))
+                    points)
+              (push end points)
+              (setq points (nreverse points))
+              (when (plist-get route :label-vertex)
+                (plist-put route :label-box (box (plist-get route :label-vertex)))))
+            (plist-put route :points (mapcar #'transform points))))
+        (setq width (max width (+ lane-x 20))))
+      (maphash (lambda (id v) (puthash id (box v) nodes)) nodes))
+    (list :nodes nodes :routes routes :horizontal horizontal
+          :width (ceiling (if horizontal height width))
+          :height (ceiling (if horizontal width height)))))
+
+(defun markdown-modern-mermaid--state-path (points horizontal straight)
+  "Return a path through POINTS, using HORIZONTAL layer orientation.
+Use smooth curves between layers, or line segments when STRAIGHT is non-nil."
+  ;; A zero-length final segment makes SVG orient the arrowhead to the right
+  ;; instead of along the incoming edge.  Row-boundary stubs can coincide.
+  (let (distinct)
+    (dolist (point points)
+      (unless (and distinct (= (car point) (caar distinct))
+                   (= (cdr point) (cdar distinct)))
+        (push point distinct)))
+    (setq points (nreverse distinct)))
+  (concat (format "M %.1f %.1f" (caar points) (cdar points))
+          (mapconcat
+           (lambda (pair)
+             (let* ((a (car pair)) (b (cadr pair))
+                    (mx (/ (+ (car a) (car b)) 2.0))
+                    (my (/ (+ (cdr a) (cdr b)) 2.0)))
+               (if (or straight (= (car a) (car b)) (= (cdr a) (cdr b)))
+                   (format " L %.1f %.1f" (car b) (cdr b))
+                 (format " C %.1f %.1f %.1f %.1f %.1f %.1f"
+                         (if horizontal mx (car a)) (if horizontal (cdr a) my)
+                         (if horizontal mx (car b)) (if horizontal (cdr b) my)
+                         (car b) (cdr b)))))
+           (cl-loop for rest on points while (cdr rest) collect (list (car rest) (cadr rest))) "")))
 
 (defun markdown-modern-mermaid--render-state (lines colors)
   "Render state diagram from LINES with COLORS.  Return SVG string."
   (let* ((parsed (markdown-modern-mermaid--parse-state lines))
          (states (plist-get parsed :states))
-         (transitions (plist-get parsed :transitions))
          (bg (plist-get colors :bg))
          (fg (plist-get colors :fg))
-         (surface (plist-get colors :surface))
-         (border (plist-get colors :border))
-         (font-size 14)
-         (node-h 40)
-         (node-pad-x 20)
-         (layer-gap 80)
-         (sibling-gap 40)
-         ;; Topo-sort states using transitions as edges
-         (sorted-ids (markdown-modern-mermaid--flowchart-topo-sort states
-                       (mapcar (lambda (t_)
-                                 (list :from (plist-get t_ :from) :to (plist-get t_ :to)))
-                               transitions)))
-         (layer-alist (markdown-modern-mermaid--flowchart-assign-layers sorted-ids
-                        (mapcar (lambda (t_)
-                                  (list :from (plist-get t_ :from) :to (plist-get t_ :to)))
-                                transitions)))
-         (max-layer (if layer-alist (apply #'max (mapcar #'cdr layer-alist)) 0))
-         (layer-groups (make-hash-table :test 'equal))
-         (node-pos (make-hash-table :test 'equal))
-         (svg-parts nil)
-         (defs-parts nil)
-         (total-w 0)
-         (total-h 0))
-    ;; Group by layer
-    (dolist (pair layer-alist)
-      (puthash (cdr pair)
-               (append (gethash (cdr pair) layer-groups nil) (list (car pair)))
-               layer-groups))
-    ;; Compute widths
-    (let ((node-widths (make-hash-table :test 'equal)))
-      (maphash (lambda (id info)
-                 (let* ((type (plist-get info :type))
-                        (label (plist-get info :label)))
-                   (puthash id
-                            (if (memq type '(start end)) 24
-                              (max 70 (+ (markdown-modern-mermaid--text-width label font-size)
-                                         (* node-pad-x 2))))
-                            node-widths)))
-               states)
-      ;; First pass: compute total-w
-      (dotimes (layer (1+ max-layer))
-        (let* ((layer-nodes (gethash layer layer-groups nil))
-               (layer-w 0))
-          (dolist (id layer-nodes)
-            (setq layer-w (+ layer-w (gethash id node-widths 70) sibling-gap)))
-          (setq layer-w (- layer-w sibling-gap))
-          (setq total-w (max total-w (+ layer-w 40)))))
-      ;; Second pass: position nodes centered
-      (let ((y 20))
-        (dotimes (layer (1+ max-layer))
-          (let* ((layer-nodes (gethash layer layer-groups nil))
-                 (layer-w 0))
-            (dolist (id layer-nodes)
-              (setq layer-w (+ layer-w (gethash id node-widths 70) sibling-gap)))
-            (setq layer-w (- layer-w sibling-gap))
-            (let ((x (/ (- total-w layer-w) 2)))
-              (dolist (id layer-nodes)
-                (let ((w (gethash id node-widths 70))
-                      (h (let ((info (gethash id states)))
-                           (if (memq (plist-get info :type) '(start end)) 24 node-h))))
-                  (puthash id (list :x x :y y :w w :h h) node-pos)
-                  (setq x (+ x w sibling-gap)))))
-            (setq y (+ y node-h layer-gap))))
-        (setq total-h (+ y 20))))
-    ;; Defs
-    (push (markdown-modern-mermaid--svg-arrow-marker "state-arrow" fg) defs-parts)
-    ;; Background
-    (push (markdown-modern-mermaid--svg-rect 0 0 total-w total-h 6 bg "none") svg-parts)
-    ;; Draw transitions
-    (dolist (tr transitions)
-      (let* ((from-id (plist-get tr :from))
-             (to-id (plist-get tr :to))
-             (label (plist-get tr :label))
-             (fp (gethash from-id node-pos))
-             (tp (gethash to-id node-pos)))
-        (when (and fp tp)
-          (let* ((fx (+ (plist-get fp :x) (/ (plist-get fp :w) 2)))
-                 (fy (+ (plist-get fp :y) (plist-get fp :h)))
-                 (tx (+ (plist-get tp :x) (/ (plist-get tp :w) 2)))
-                 (ty (plist-get tp :y)))
-            (if (/= fx tx)
-                (let ((mid-y (/ (+ fy ty) 2)))
-                  (push (format "<path d=\"M %d %d C %d %d %d %d %d %d\" stroke=\"%s\" fill=\"none\" stroke-width=\"1.5\" marker-end=\"url(#state-arrow)\"/>"
-                                fx fy fx mid-y tx mid-y tx ty fg)
-                        svg-parts))
-              (push (format "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"%s\" stroke-width=\"1.5\" marker-end=\"url(#state-arrow)\"/>"
-                            fx fy tx ty fg)
-                    svg-parts))
-            (when label
-              (let ((lx (/ (+ fx tx) 2))
-                    (ly (- (/ (+ fy ty) 2) 4)))
-                (push (markdown-modern-mermaid--svg-rect (- lx (/ (+ (markdown-modern-mermaid--text-width label font-size) 8) 2))
-                                                    (- ly (1+ font-size))
-                                                    (+ (markdown-modern-mermaid--text-width label font-size) 8)
-                                                    (+ font-size 6)
-                                                    3 bg "none")
-                      svg-parts)
-                (push (markdown-modern-mermaid--svg-text lx ly label (1- font-size) fg) svg-parts)))))))
-    ;; Draw states
-    (maphash
-     (lambda (id pos)
-       (let* ((info (gethash id states))
-              (type (plist-get info :type))
-              (label (plist-get info :label))
-              (x (plist-get pos :x))
-              (y (plist-get pos :y))
-              (w (plist-get pos :w))
-              (h (plist-get pos :h))
-              (cx (+ x (/ w 2)))
-              (cy (+ y (/ h 2))))
-         (pcase type
-           ('start
-            (push (markdown-modern-mermaid--svg-circle cx cy 10 fg fg) svg-parts))
-           ('end
-            (push (markdown-modern-mermaid--svg-circle cx cy 12 "none" fg) svg-parts)
-            (push (markdown-modern-mermaid--svg-circle cx cy 8 fg fg) svg-parts))
-           (_
-            (push (markdown-modern-mermaid--svg-rect x y w h 8 surface border) svg-parts)
-            (push (markdown-modern-mermaid--svg-text cx (+ cy (/ font-size 3)) label font-size fg)
-                  svg-parts)))))
-     node-pos)
-    ;; Assemble
-    (markdown-modern-mermaid--svg-wrap
-     total-w total-h
-     (mapconcat #'identity (nreverse defs-parts) "\n")
-     (mapconcat #'identity (nreverse svg-parts) "\n"))))
+         parts)
+    (when (> (hash-table-count states) 0)
+      (let* ((layout (markdown-modern-mermaid--layout-state parsed))
+             (width (plist-get layout :width)) (height (plist-get layout :height)))
+        (push (markdown-modern-mermaid--svg-rect 0 0 width height 6 bg "none") parts)
+        (dolist (route (plist-get layout :routes))
+          (push (format "<path d=\"%s\" stroke=\"%s\" fill=\"none\" stroke-width=\"1.5\" stroke-linejoin=\"round\" marker-end=\"url(#state-arrow)\"/>"
+                        (markdown-modern-mermaid--state-path
+                         (plist-get route :points) (plist-get layout :horizontal) (plist-get route :back)) fg) parts))
+        (maphash
+         (lambda (id pos)
+           (let* ((info (gethash id states))
+                  (x (plist-get pos :x)) (y (plist-get pos :y))
+                  (w (plist-get pos :w)) (h (plist-get pos :h))
+                  (cx (+ x (/ w 2.0))) (cy (+ y (/ h 2.0))))
+             (pcase (plist-get info :type)
+               ('start (push (markdown-modern-mermaid--svg-circle cx cy 10 fg fg) parts))
+               ('end
+                (push (markdown-modern-mermaid--svg-circle cx cy 12 bg fg) parts)
+                (push (markdown-modern-mermaid--svg-circle cx cy 8 fg fg) parts))
+               (_
+                (push (markdown-modern-mermaid--svg-rect x y w h 8
+                                                       (plist-get colors :surface)
+                                                       (plist-get colors :border)) parts)
+                (push (markdown-modern-mermaid--sequence-text
+                       cx (+ y 25) (plist-get info :label) 14 fg) parts)))))
+         (plist-get layout :nodes))
+        ;; Draw labels last, in the space reserved during layout.
+        (dolist (route (plist-get layout :routes))
+          (when-let* ((box (plist-get route :label-box)))
+            (let ((x (plist-get box :x)) (y (plist-get box :y))
+                  (w (plist-get box :w)) (h (plist-get box :h)))
+              (push (markdown-modern-mermaid--svg-rect x y w h 3 bg "none") parts)
+              (push (markdown-modern-mermaid--sequence-text
+                     (+ x (/ w 2.0)) (+ y 19) (plist-get route :label) 13 fg) parts))))
+        (markdown-modern-mermaid--svg-wrap
+         width height (markdown-modern-mermaid--svg-arrow-marker "state-arrow" fg)
+         (mapconcat #'identity (nreverse parts) "\n"))))))
 
 ;;; ============================================================
 ;;; Class Diagram Renderer

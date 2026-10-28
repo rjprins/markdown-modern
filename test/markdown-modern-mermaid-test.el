@@ -2,7 +2,7 @@
 
 ;;; Commentary:
 
-;; Check sequence diagram identities, SVG geometry and message semantics.
+;; Check sequence and state diagram identities, SVG geometry and semantics.
 
 ;;; Code:
 
@@ -200,6 +200,185 @@ Note over B, A: safe < & >\nB-->>A: last"))
   (should-not (markdown-modern-mermaid-render "sequenceDiagram\nautonumber"))
   (should (markdown-modern-mermaid-test--text
            (markdown-modern-mermaid-test--svg "sequenceDiagram\nparticipant A as App") "App")))
+
+(defconst markdown-modern-mermaid-test--states
+  "stateDiagram-v2
+  [*] --> REQUESTED
+  REQUESTED --> PENDING
+  REQUESTED --> ACCEPTED
+  PENDING --> ACCEPTED
+  REQUESTED --> REJECTED
+  PENDING --> REJECTED
+  REQUESTED --> EXPIRED
+  PENDING --> EXPIRED
+  ACCEPTED --> REWARD
+  REWARD --> REWARDED
+  REWARD --> REFUSED
+  REWARD --> ERROR
+  ERROR --> REQUESTED: republished
+  REWARDED --> [*]
+  REFUSED --> [*]
+  REJECTED --> [*]
+  EXPIRED --> [*]"
+  "Branching state diagram with a cycle and a shared final state.")
+
+(defun markdown-modern-mermaid-test--state-layout (code)
+  "Parse and lay out state diagram CODE."
+  (markdown-modern-mermaid--layout-state
+   (markdown-modern-mermaid--parse-state (split-string code "\n" t "[ \t]+"))))
+
+(defun markdown-modern-mermaid-test--inside-box-p (point box)
+  "Return non-nil if POINT is strictly inside BOX, allowing edge rounding."
+  (and (< (+ (plist-get box :x) 1) (car point)
+          (- (+ (plist-get box :x) (plist-get box :w)) 1))
+       (< (+ (plist-get box :y) 1) (cdr point)
+          (- (+ (plist-get box :y) (plist-get box :h)) 1))))
+
+(defun markdown-modern-mermaid-test--path-points (path)
+  "Sample SVG PATH's actual line and cubic curve geometry."
+  (let ((tokens (split-string (dom-attr path 'd))) current points)
+    (while tokens
+      (let* ((command (pop tokens))
+             (count (if (equal command "C") 3 1)) coords)
+        (dotimes (_ count)
+          (push (cons (string-to-number (pop tokens))
+                      (string-to-number (pop tokens))) coords))
+        (setq coords (nreverse coords))
+        (if (equal command "M")
+            (setq current (car coords))
+          ;; A degenerate segment can give an arrowhead the wrong direction.
+          (should-not (equal current (car (last coords))))
+          (dotimes (step 21)
+            (let* ((fraction (/ step 20.0)) (remaining (- 1 fraction))
+                   (weights (if (equal command "C")
+                                (list (expt remaining 3) (* 3 remaining remaining fraction)
+                                      (* 3 remaining fraction fraction) (expt fraction 3))
+                              (list remaining fraction)))
+                   (vertices (cons current coords)))
+              (push (cons (cl-loop for p in vertices for w in weights sum (* w (car p)))
+                          (cl-loop for p in vertices for w in weights sum (* w (cdr p)))) points)))
+          (setq current (car (last coords))))))
+    points))
+
+(defun markdown-modern-mermaid-test--state-geometry (code)
+  "Check CODE's rendered arrows, nodes and labels for clipping and collisions."
+  (let* ((layout (markdown-modern-mermaid-test--state-layout code))
+         (svg (markdown-modern-mermaid-test--svg code))
+         (nodes (plist-get layout :nodes))
+         (routes (plist-get layout :routes))
+         (paths (cl-remove-if-not (lambda (p) (dom-attr p 'marker-end)) (dom-by-tag svg 'path)))
+         (width (markdown-modern-mermaid-test--number svg 'width))
+         (height (markdown-modern-mermaid-test--number svg 'height))
+         boxes)
+    (should (= (length paths) (length routes)))
+    (maphash (lambda (_ box) (push box boxes)) nodes)
+    (dolist (route routes)
+      (when (plist-get route :label-box) (push (plist-get route :label-box) boxes)))
+    (dolist (box boxes)
+      (should (<= 0 (plist-get box :x)))
+      (should (<= 0 (plist-get box :y)))
+      (should (<= (+ (plist-get box :x) (plist-get box :w)) width))
+      (should (<= (+ (plist-get box :y) (plist-get box :h)) height))
+      (dolist (other (remq box boxes))
+        (should-not (and (< (plist-get box :x) (+ (plist-get other :x) (plist-get other :w)))
+                         (< (plist-get other :x) (+ (plist-get box :x) (plist-get box :w)))
+                         (< (plist-get box :y) (+ (plist-get other :y) (plist-get other :h)))
+                         (< (plist-get other :y) (+ (plist-get box :y) (plist-get box :h)))))))
+    (cl-loop for route in routes for path in paths do
+             (dolist (point (markdown-modern-mermaid-test--path-points path))
+               (should (<= 0 (car point) width))
+               (should (<= 0 (cdr point) height))
+               (maphash
+                (lambda (id box)
+                  ;; Circular endpoints lie within their bounding rectangles.
+                  (unless (memq id '(start end))
+                    (should-not (markdown-modern-mermaid-test--inside-box-p point box)))) nodes)
+               (dolist (other routes)
+                 (when (and (not (eq route other)) (plist-get other :label-box))
+                   (should-not (markdown-modern-mermaid-test--inside-box-p
+                                point (plist-get other :label-box)))))))))
+
+(ert-deftest mermaid/state-example-identities-labels-and-geometry ()
+  "The reported diagram has nine named states, one start, one end and 17 arrows."
+  (let* ((svg (markdown-modern-mermaid-test--svg markdown-modern-mermaid-test--states))
+         (texts (mapcar #'dom-text (dom-by-tag svg 'text)))
+         (parsed (markdown-modern-mermaid--parse-state
+                  (split-string markdown-modern-mermaid-test--states "\n" t "[ \t]+"))))
+    (should (= 11 (hash-table-count (plist-get parsed :states))))
+    (should (= 17 (length (plist-get parsed :transitions))))
+    (should (= 3 (length (dom-by-tag svg 'circle))))
+    (dolist (name '("REQUESTED" "PENDING" "ACCEPTED" "REJECTED" "EXPIRED"
+                    "REWARD" "REWARDED" "REFUSED" "ERROR" "republished"))
+      (should (= 1 (cl-count name texts :test #'equal))))
+    (should-not (member "REQUESTED:" texts))
+    (markdown-modern-mermaid-test--state-geometry markdown-modern-mermaid-test--states)))
+
+(ert-deftest mermaid/state-colons-comments-and-aliases ()
+  "Colon spacing never changes identity, and later descriptions update aliases."
+  (let* ((parsed (markdown-modern-mermaid--parse-state
+                  '("stateDiagram-v2" "%% Ghost --> Phantom: ignored"
+                    "client-app-->server:request: retry" "server --> client-app : reply"
+                    "server-->client-app:compact" "server --> client-app: spaced"
+                    "state \"Client\" as client-app" "client-app: Mobile app"
+                    "state server" "server: API" "server" "server --> [*] %% done")))
+         (states (plist-get parsed :states))
+         (edges (plist-get parsed :transitions)))
+    (should (= 3 (hash-table-count states)))
+    (should (equal (plist-get (gethash "client-app" states) :label) "Mobile app"))
+    (should (equal (plist-get (gethash "server" states) :label) "API"))
+    (should (equal (mapcar (lambda (edge) (plist-get edge :label)) edges)
+                   '("request: retry" "reply" "compact" "spaced" nil)))
+    (should (equal (mapcar (lambda (edge) (plist-get edge :to)) edges)
+                   '("server" "client-app" "client-app" "client-app" end)))))
+
+(ert-deftest mermaid/state-start-end-and-shared-display-labels ()
+  "Pseudostate identity is independent of statement order and real state labels."
+  (let* ((code "stateDiagram-v2\nB --> [*]\n[*] --> A\nA --> B\nstate \"Shared\" as A\nstate \"Shared\" as B")
+         (svg (markdown-modern-mermaid-test--svg code))
+         (layout (markdown-modern-mermaid-test--state-layout code))
+         (nodes (plist-get layout :nodes)))
+    (should (= 2 (cl-count "Shared" (dom-by-tag svg 'text) :key #'dom-text :test #'equal)))
+    (should (< (plist-get (gethash 'start nodes) :y)
+               (plist-get (gethash "A" nodes) :y)
+               (plist-get (gethash "B" nodes) :y)
+               (plist-get (gethash 'end nodes) :y)))
+    (markdown-modern-mermaid-test--state-geometry code)))
+
+(ert-deftest mermaid/state-parallel-cyclic-and-self-transitions ()
+  "Parallel transitions, returns and self-loops have distinct paths and labels."
+  (let* ((code "stateDiagram-v2\n[*] --> A\nA --> B:first\nA --> B:second\nB --> C:next\nC --> A:retry\nB --> A:back\nA --> A:local\nA --> A:again\nC --> [*]")
+         (svg (markdown-modern-mermaid-test--svg code))
+         (paths (cl-remove-if-not (lambda (p) (dom-attr p 'marker-end)) (dom-by-tag svg 'path))))
+    (should (= 9 (length (delete-dups (mapcar (lambda (p) (dom-attr p 'd)) paths)))))
+    (dolist (text '("first" "second" "next" "retry" "back" "local" "again"))
+      (should (markdown-modern-mermaid-test--text svg text)))
+    (markdown-modern-mermaid-test--state-geometry code)))
+
+(ert-deftest mermaid/state-directions-and-multiline-labels ()
+  "Directions keep text upright and reserve space for long and multiline labels."
+  (dolist (direction '("TB" "BT" "LR" "RL"))
+    (let* ((code (concat "stateDiagram-v2\ndirection " direction
+                         "\nstate \"First<br/>state\" as A\n[*] --> A\nA --> B: a long transition label<br/>with < & > characters\nB --> A: retry<br/>later\nB --> B: another long transition label<br/>second<br/>third<br/>fourth\nB --> [*]"))
+           (svg (markdown-modern-mermaid-test--svg code))
+           (axis (if (member direction '("LR" "RL")) 'x 'y))
+           (a (markdown-modern-mermaid-test--number (markdown-modern-mermaid-test--text svg "First") axis))
+           (b (markdown-modern-mermaid-test--number (markdown-modern-mermaid-test--text svg "B") axis)))
+      (should (markdown-modern-mermaid-test--text svg "with < & > characters"))
+      (should (if (member direction '("BT" "RL")) (> a b) (< a b)))
+      (markdown-modern-mermaid-test--state-geometry code))))
+
+(ert-deftest mermaid/state-empty-isolated-and-disconnected ()
+  "Empty diagrams fall back to source; isolated and disconnected states render."
+  (should-not (markdown-modern-mermaid-render "stateDiagram-v2\n%% comment"))
+  (should (markdown-modern-mermaid-test--text
+           (markdown-modern-mermaid-test--svg "stateDiagram-v2\nLone") "Lone"))
+  (markdown-modern-mermaid-test--state-geometry
+   "stateDiagram-v2\nA --> B\nC --> D\nD --> C:retry\nE\nstate F"))
+
+(ert-deftest mermaid/state-long-edges-avoid-tall-siblings ()
+  "Edges crossing a layer stay outside its states, regardless of box height."
+  (markdown-modern-mermaid-test--state-geometry
+   "stateDiagram-v2\n[*] --> A\nA --> B\nA --> C\nB --> D\nA --> D:shortcut\nC --> D\nD --> [*]\nstate \"Tall<br/>state<br/>with<br/>several<br/>lines\" as C"))
 
 (provide 'markdown-modern-mermaid-test)
 ;;; markdown-modern-mermaid-test.el ends here
