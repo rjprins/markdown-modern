@@ -787,9 +787,12 @@ survives scroll/edit re-renders.  Returns a `jit-lock-bounds' cons reporting
 the true rendered extent."
   (when markdown-modern--rendering-enabled
     (let* ((b (markdown-modern--extend-region-to-blocks start end))
-           (bstart (car b))
-           (bend (cdr b)))
-      (markdown-modern-render--render-region bstart bend)
+           ;; Rendering can grow the region further, for example from one
+           ;; list item to its whole list.
+           (rendered (or (markdown-modern-render--render-region (car b) (cdr b))
+                         b))
+           (bstart (car rendered))
+           (bend (cdr rendered)))
       ;; Keep the element under point revealed across re-renders (markup
       ;; visible, styling preserved).  A revealed table row is an exception: the
       ;; table renderer already drew it as an editable grid row during

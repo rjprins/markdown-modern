@@ -561,6 +561,45 @@ Only the text that the edit marks for re-rendering is rendered again."
       (should r)
       (should (= (char-after (car r)) ?-)))))
 
+(defun markdown-modern-render-test--markers-at (pos)
+  "Return the number of list marker overlays that start at POS."
+  (cl-count-if (lambda (ov)
+                 (and (eq (overlay-get ov 'markdown-modern-type) 'list-marker)
+                      (= (overlay-start ov) pos)))
+               (overlays-at pos)))
+
+(ert-deftest render/list-markers-once-while-moving ()
+  "Moving through a list leaves one marker per item that is not at point.
+Re-hiding the bullet that point left re-renders the whole list, so each
+item must lose its old marker first."
+  (markdown-modern-render-test--with
+      "Philosophy:  \n- Stay close.\n- Provide a way out.\n- Stay small.\n---\n"
+    (let ((bullets (save-excursion
+                     (goto-char (point-min))
+                     (cl-loop while (re-search-forward "^- " nil t)
+                              collect (match-beginning 0)))))
+      (dolist (line '(1 2 3 4 5 4 3 2 1))
+        (markdown-modern-render-test--move
+         (save-excursion (goto-char (point-min))
+                         (forward-line (1- line))
+                         (point)))
+        (dolist (pos bullets)
+          (should (= (markdown-modern-render-test--markers-at pos)
+                     (if (= pos (line-beginning-position)) 0 1))))))))
+
+(ert-deftest render/list-item-re-render-keeps-list-whole ()
+  "Re-rendering one list item renders its list once and keeps point revealed."
+  (markdown-modern-render-test--with "- one\n- two\n- three\n"
+    (markdown-modern-render-test--move 1)
+    (should (= (markdown-modern-render-test--markers-at 1) 0))
+    (let ((third (save-excursion (goto-char (point-min))
+                                 (search-forward "- three")
+                                 (match-beginning 0))))
+      (markdown-modern--jit-fontify third (+ third 3))
+      (should (= (markdown-modern-render-test--markers-at 1) 0))
+      (should (= (markdown-modern-render-test--markers-at 7) 1))
+      (should (= (markdown-modern-render-test--markers-at third) 1)))))
+
 (ert-deftest render/list-marker-pixel-alignment ()
   "Bullets and both checkbox states start their text at the same pixel."
   (skip-unless (display-graphic-p))

@@ -213,18 +213,33 @@
            table-regions))
 
 (defun markdown-modern-render--render-region (start end)
-  "Render markdown elements in region from START to END."
+  "Render markdown elements in region from START to END.
+The region grows to cover every block that overlaps it, so each overlay is
+cleared before it is drawn again.  Return the rendered region as a cons
+\(START . END), or nil when nothing was rendered."
   (when (and (not markdown-modern-render--rendering-p)
              markdown-modern--rendering-enabled)
     (let ((markdown-modern-render--rendering-p t)
-          (inhibit-read-only t))
+          (inhibit-read-only t)
+          (elements (markdown-modern-ts--elements-in-region start end)))
+      ;; A block that overlaps the region can extend past it: the query
+      ;; returns a list for any item in it, and a list renders all its items.
+      ;; Query the grown region again for the nested blocks it now covers.
+      (let ((block-start (apply #'min start
+                                (mapcar #'markdown-modern-node-start elements)))
+            (block-end (apply #'max end
+                              (mapcar #'markdown-modern-node-end elements))))
+        (when (or (< block-start start) (> block-end end))
+          (setq start block-start
+                end block-end
+                elements (markdown-modern-ts--elements-in-region start end))))
       (with-silent-modifications
         (markdown-modern-render--clear-region start end)
-        (let ((elements (markdown-modern-ts--elements-in-region start end)))
-          (dolist (elem elements)
-            (markdown-modern-render--render-element elem))))
+        (dolist (elem elements)
+          (markdown-modern-render--render-element elem)))
       ;; Rendering shows every soft break as a space.
-      (markdown-modern-render--sync-soft-breaks))))
+      (markdown-modern-render--sync-soft-breaks)
+      (cons start end))))
 
 (defun markdown-modern-render--unrender-region (start end)
   "Remove rendering from region START to END."
