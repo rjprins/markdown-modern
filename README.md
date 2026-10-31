@@ -21,14 +21,12 @@ markdown-modern is a fork of [mark-graf](https://github.com/hyperZphere/mark-gra
 - **Reveal-at-point editing** — the element under the cursor shows its raw markup (styling preserved) for editing, and re-renders when you move away; a single view mode, no source/rendered toggle
 - **Viewport-driven** — built on `jit-lock`, so routine rendering follows the visible region (see [Performance](#performance))
 - **GFM constructs** — tables, task lists, fenced code blocks, strikethrough, blockquotes, lists, horizontal rules
-- **Mermaid diagrams** — a built-in, pure-Elisp SVG renderer supports a subset
-  of flowchart, sequence, state, class and ER syntax (no Node or external CLI).
-  Unsupported families and recognized unsupported constructs remain visible
-  as source. See the [rendering audit](reports/mermaid/report.html) for examples,
-  before/after results and limitations. Built-in HTML export preserves the code
-  fences rather than rendering Mermaid SVGs.
-- **Focused diagram viewer** — click a Mermaid diagram to zoom, pan and fit it
-  to the window, then return to the document with `q`.
+- **Mermaid diagrams** — rendered inline by a built-in, pure-Elisp SVG renderer
+  (no Node or external CLI). It supports common flowchart, sequence, state,
+  class and ER syntax. A diagram it cannot draw shows its source. HTML export
+  shows Mermaid blocks as code.
+- **Diagram viewer** — click a Mermaid diagram to zoom, pan and fit it to the
+  window, then press `q` to go back.
 - **LaTeX math** — inline and display math via a built-in LaTeX → Unicode converter
 - **HTML export** — built in, with no external dependencies
 
@@ -392,6 +390,7 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
 |-----|---------|
 | `C-c C-v e` | Reveal raw markup for the element at point |
 | `C-c C-v t` | Toggle horizontal-scroll view (for tables wider than the window) |
+| `C-c C-v d` | Open the Mermaid diagram at point in the diagram viewer |
 
 ### Export (C-c C-e prefix)
 

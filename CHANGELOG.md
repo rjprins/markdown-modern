@@ -5,39 +5,40 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-Thanks to Hemant Kumar ([@gnufied](https://github.com/gnufied)) for these
-changes.
+Thanks to Hemant Kumar ([@gnufied](https://github.com/gnufied)) for local file
+links and the `C-c '` and link click fixes. Thanks to Samuel Michael Vanie
+([@SamuelVanie](https://github.com/SamuelVanie)) for the Mermaid changes.
 
 ### Added
 
-- Focused Mermaid diagram viewer: click an inline diagram or use `C-c C-v d`
-  from its source, then zoom, pan with the keyboard or mouse, fit to the window,
-  and return to the document with `q`.
+- A diagram viewer. Click a Mermaid diagram, or press `C-c C-v d` in its source,
+  to zoom and pan it. Press `f` to fit it to the window and `q` to go back.
 - Local links open files of any type in Emacs, relative to the Markdown file.
   Line fragments such as `#L352` and `#L352-L365` go to that line. `M-,` goes
   back to the Markdown buffer. A missing file reports an error.
 
+### Changed
+
+- A Mermaid diagram that uses a feature the renderer cannot draw, such as a
+  subgraph or a composite state, shows its source instead of a partial diagram.
+  An empty diagram shows its source too.
+
 ### Fixed
 
-- Mermaid flowcharts preserve chained edges, semicolon-separated statements,
-  later labels, circle and subroutine shapes, line styles and all directions.
-  Shared layered routing gives cycles and multiline labels dedicated space.
-- Mermaid class relationships use the correct markers and endpoints; ER
-  relationships support all four cardinalities, non-identifying dashed links
-  and isolated entities. Crow's feet face the entity and attribute constraints
-  have their own space.
-- Mermaid blocks accept tilde and longer backtick fences and refresh cached
-  colors after a theme change. Empty diagrams and recognized unsupported
-  features preserve source instead of producing empty or partial SVGs.
-- Mermaid state diagrams route long transitions around intermediate states,
-  give return arrows and self-loops separate lanes, and reserve space for
-  transition labels. Colons no longer become part of state IDs, and start
-  and end markers remain distinct. State descriptions, multiline labels and
-  diagram directions are supported.
-- Mermaid sequence diagrams keep participant IDs separate from aliases, so
-  messages connect to the labeled lifelines without creating duplicates.
-  Notes honor their targets and placement, `autonumber` numbers messages,
-  and branch headings, multiline labels and self-messages get enough space.
+- Mermaid flowcharts keep chained edges (`A --> B --> C`) and statements
+  separated by `;`. Circle and subroutine shapes, all line styles and all four
+  directions work. A label given after a node's first use is no longer lost.
+- Mermaid sequence diagrams draw a participant with an alias only once. Notes
+  go where the source puts them, and `autonumber` works.
+- Mermaid state diagrams keep transition labels out of state names, and start
+  and end markers are no longer mixed up. Long transitions and loops get their
+  own space. State descriptions and `direction` work.
+- Mermaid class diagrams use the right arrow for each relationship. ER diagrams
+  support all four cardinalities, dashed links and entities without links.
+- Mermaid blocks work with `~~~` and longer fences, and with a `%%` comment
+  before the diagram type. Diagrams pick up new colors after a theme change.
+- Text after list bullets and task checkboxes starts at the same position, also
+  on wrapped lines, with fallback fonts and after a text size change.
 - `C-c '` could open an empty edit buffer when Tree-sitter skipped the code
   block's content node. It now shows the block's contents.
 - Clicking a link label no longer reveals its markup before the link opens.
