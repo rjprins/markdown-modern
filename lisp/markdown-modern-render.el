@@ -2115,15 +2115,19 @@ Read a Mermaid fence between START and END, accepting backticks or tildes."
                (diagram-code (buffer-substring-no-properties content-start content-end))
                (cache-key (md5 (concat diagram-code
                                       (prin1-to-string (markdown-modern-mermaid--theme-colors)))))
-               (svg-string (or (gethash cache-key (markdown-modern-render--mermaid-cache))
-                               (let ((svg (condition-case err
-                                              (markdown-modern-mermaid-render diagram-code)
-                                            (error
-                                             (message "markdown-modern: mermaid render error: %s" (error-message-string err))
-                                             nil))))
-                                 (when svg
-                                   (puthash cache-key svg (markdown-modern-render--mermaid-cache)))
-                                 svg))))
+               (cache (markdown-modern-render--mermaid-cache))
+               (cached (gethash cache-key cache 'missing))
+               ;; Cache failures too: a diagram that cannot be drawn is then
+               ;; parsed and reported once, not on every render.
+               (svg-string (if (not (eq cached 'missing))
+                               cached
+                             (puthash cache-key
+                                      (condition-case err
+                                          (markdown-modern-mermaid-render diagram-code)
+                                        (error
+                                         (message "markdown-modern: mermaid render error: %s" (error-message-string err))
+                                         nil))
+                                      cache))))
           (if svg-string
               (condition-case img-err
                   (markdown-modern-render--display-mermaid-svg start end svg-string cache-key)

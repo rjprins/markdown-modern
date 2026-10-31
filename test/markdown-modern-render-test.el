@@ -971,5 +971,20 @@ closing pipe.  Only the pipe glyphs (`│') may carry a `display'."
     (markdown-modern-render-test--with "~~~mermaid\nflowchart TD\nA --> B\n~~~\n"
       (should (markdown-modern-render-test--ov 'mermaid-fallback)))))
 
+(ert-deftest render/mermaid-failure-reported-once ()
+  "A diagram that cannot be drawn is parsed and reported once, not per render."
+  (let ((calls 0))
+    (cl-letf* ((render (symbol-function 'markdown-modern-mermaid-render))
+               ((symbol-function 'markdown-modern-mermaid-render)
+                (lambda (code) (cl-incf calls) (funcall render code)))
+               ((symbol-function 'message) #'ignore))
+      (markdown-modern-render-test--with
+          "```mermaid\nflowchart TD\nsubgraph S\nA --> B\nend\n```\n"
+        (should (markdown-modern-render-test--ov 'mermaid-fallback))
+        (dotimes (_ 3)
+          (markdown-modern--jit-fontify (point-min) (point-max)))
+        (should (markdown-modern-render-test--ov 'mermaid-fallback))
+        (should (= calls 1))))))
+
 (provide 'markdown-modern-render-test)
 ;;; markdown-modern-render-test.el ends here
