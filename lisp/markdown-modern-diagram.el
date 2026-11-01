@@ -28,6 +28,7 @@
 (require 'markdown-modern-render)
 
 (declare-function markdown-modern--fenced-code-block-content-at "markdown-modern")
+(declare-function image-size "image.c" (spec &optional pixels frame))
 
 (defvar markdown-modern-diagram-mode-map
   (let ((map (make-sparse-keymap)))
