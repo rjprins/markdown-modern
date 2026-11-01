@@ -407,6 +407,8 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
 - Math rendering requires external tools for SVG output
 - Display math must stay within one paragraph; blank lines inside `$$` blocks
   are not recognized by the Markdown grammar.
+- Footnotes show as plain text
+  ([#13](https://github.com/rjprins/markdown-modern/issues/13)).
 - Some complex nested structures may not render perfectly
 
 ## How this fork differs from mark-graf

@@ -22,6 +22,7 @@ Tracked items are possibilities, not delivery commitments.
 - [Consider cell-level reveal when editing tables (#8)](https://github.com/rjprins/markdown-modern/issues/8)
 - [Render inline Markdown inside table cells (#9)](https://github.com/rjprins/markdown-modern/issues/9)
 - [Consider horizontal scrolling for an overlong active table cell (#10)](https://github.com/rjprins/markdown-modern/issues/10)
+- [Render footnotes (#13)](https://github.com/rjprins/markdown-modern/issues/13)
 
 # Completed enhancements
 
