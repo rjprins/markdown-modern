@@ -1278,11 +1278,33 @@ recognize only the checkbox itself as an interactive widget."
       (overlay-put gap 'markdown-modern-type 'list-marker-gap))
     ov))
 
+(defun markdown-modern-render--blank-as-wide-as (text)
+  "Return blank space as wide as TEXT is shown in this buffer.
+A graphical frame measures pixels: in a proportional font a space is
+narrower than a digit."
+  (if (display-graphic-p)
+      (let ((remapping face-remapping-alist))
+        (with-temp-buffer
+          (setq-local face-remapping-alist remapping
+                      display-line-numbers nil
+                      line-prefix nil
+                      wrap-prefix nil)
+          (insert text)
+          (propertize " " 'display
+                      `(space :width (,(car (buffer-text-pixel-size nil nil t)))))))
+    (make-string (string-width text) ?\s)))
+
 (defun markdown-modern-render--list-item (elem)
   "Render list item element ELEM.
 Includes `wrap-prefix' for proper line continuation."
   (let ((start (markdown-modern-node-start elem))
-        (_end (markdown-modern-node-end elem))
+        ;; The item's text can go on over several source lines.  Wrapped
+        ;; lines anywhere in it line up with the text, not the marker.
+        (text-end (or (cl-some (lambda (child)
+                                 (and (eq (markdown-modern-node-type child) 'paragraph)
+                                      (markdown-modern-node-end child)))
+                               (markdown-modern-ts--children elem))
+                      0))
         ;; Get the base indentation from the buffer's line-prefix
         (base-indent (or (and (boundp 'markdown-modern-left-margin)
                               (make-string markdown-modern-left-margin ?\s))
@@ -1304,7 +1326,7 @@ Includes `wrap-prefix' for proper line continuation."
                (checkbox-text (match-string 3))
                (is-checked (string-match-p "[xX]" checkbox-text))
                (_level (/ (length indent) 2))
-               (eol (line-end-position))
+               (content-end (max (line-end-position) text-end))
                ;; Wrap prefix: base indent + list indent + space for checkbox alignment
                (wrap-str (concat base-indent indent
                                  (propertize "  " 'face 'fixed-pitch))))
@@ -1326,8 +1348,8 @@ Includes `wrap-prefix' for proper line continuation."
             (overlay-put ov 'face 'fixed-pitch)
             (overlay-put ov 'markdown-modern-type 'list-marker-slot))
           ;; Add wrap-prefix to content
-          (when (< content-start eol)
-            (let ((ov (markdown-modern-render--get-overlay content-start eol)))
+          (when (< content-start content-end)
+            (let ((ov (markdown-modern-render--get-overlay content-start content-end)))
               (overlay-put ov 'wrap-prefix wrap-str)
               (overlay-put ov 'markdown-modern-type 'list-content)))))
        ;; Unordered list item
@@ -1340,7 +1362,7 @@ Includes `wrap-prefix' for proper line continuation."
                (level (/ (length indent) 2))
                (bullet (nth (mod level (length markdown-modern-render--bullet-chars))
                            markdown-modern-render--bullet-chars))
-               (eol (line-end-position))
+               (content-end (max (line-end-position) text-end))
                ;; Wrap prefix: base indent + list indent + space for bullet alignment
                (wrap-str (concat base-indent indent
                                  (propertize "  " 'face 'fixed-pitch))))
@@ -1355,28 +1377,34 @@ Includes `wrap-prefix' for proper line continuation."
             (overlay-put ov 'face 'fixed-pitch)
             (overlay-put ov 'markdown-modern-type 'list-marker-slot))
           ;; Add wrap-prefix to content
-          (when (< content-start eol)
-            (let ((ov (markdown-modern-render--get-overlay content-start eol)))
+          (when (< content-start content-end)
+            (let ((ov (markdown-modern-render--get-overlay content-start content-end)))
               (overlay-put ov 'wrap-prefix wrap-str)
               (overlay-put ov 'markdown-modern-type 'list-content)))))
        ;; Ordered list item
        ((and (looking-at "^\\([ \t]*\\)\\([0-9]+\\)\\([.):]\\)[ \t]+")
              (= (match-beginning 2) start))
         (let* ((indent (match-string 1))
-               (number (match-string 2))
                (marker-start (match-beginning 2))
                (marker-end (match-end 3))
                (content-start (match-end 0))
-               (eol (line-end-position))
-               ;; Wrap prefix: base indent + list indent + space for number alignment
-               (wrap-str (concat base-indent indent (make-string (+ 2 (length number)) ?\s))))
+               (content-end (max (line-end-position) text-end))
+               ;; Wrap prefix: base indent + list indent + space as wide as
+               ;; the styled number and the gap after it.
+               (wrap-str (concat base-indent indent
+                                 (markdown-modern-render--blank-as-wide-as
+                                  (concat (propertize (buffer-substring-no-properties
+                                                       marker-start marker-end)
+                                                      'face 'markdown-modern-list-number)
+                                          (buffer-substring-no-properties
+                                           marker-end content-start))))))
           ;; Style number
           (let ((ov (markdown-modern-render--get-overlay marker-start marker-end)))
             (overlay-put ov 'face 'markdown-modern-list-number)
             (overlay-put ov 'markdown-modern-type 'list-marker))
           ;; Add wrap-prefix to content
-          (when (< content-start eol)
-            (let ((ov (markdown-modern-render--get-overlay content-start eol)))
+          (when (< content-start content-end)
+            (let ((ov (markdown-modern-render--get-overlay content-start content-end)))
               (overlay-put ov 'wrap-prefix wrap-str)
               (overlay-put ov 'markdown-modern-type 'list-content)))))))))
 

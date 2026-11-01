@@ -46,6 +46,9 @@ links and the `C-c '` and link click fixes. Thanks to Samuel Michael Vanie
   disappears.
 - A line break right before or after inline code now joins like any other
   line break in a paragraph.
+- Wrapped list item text lines up with the text, not the marker, also when
+  the item goes on over several source lines. Numbered items line up in
+  proportional fonts too.
 - Text after list bullets and task checkboxes starts at the same position, also
   on wrapped lines, with fallback fonts and after a text size change.
 - `C-c '` could open an empty edit buffer when Tree-sitter skipped the code

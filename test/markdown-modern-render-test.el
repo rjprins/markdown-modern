@@ -796,10 +796,10 @@ item must lose its old marker first."
           (should (= (car positions) (car (posn-x-y (posn-at-point 7))))))))))
 
 (ert-deftest render/list-marker-wrap-pixel-alignment ()
-  "Wrapped bullet and checkbox text aligns with its first visual line."
+  "Wrapped bullet, checkbox and number text aligns with its first visual line."
   (skip-unless (display-graphic-p))
   (save-window-excursion
-    (dolist (marker '("- " "- [ ] " "- [x] "))
+    (dolist (marker '("- " "- [ ] " "- [x] " "1. " "10.  "))
       (with-temp-buffer
         (switch-to-buffer (current-buffer))
         (insert marker (apply #'concat (make-list 100 "word ")) "\n\n")
@@ -811,6 +811,37 @@ item must lose its old marker first."
         (let ((first-x (car (posn-x-y (posn-at-point)))))
           (vertical-motion 1)
           (should (= first-x (car (posn-x-y (posn-at-point))))))))))
+
+(ert-deftest render/list-item-continuation-wrap-pixel-alignment ()
+  "Text on an item's later source lines also wraps in line with its text."
+  (skip-unless (display-graphic-p))
+  (save-window-excursion
+    (dolist (marker '("- " "- [ ] " "1. "))
+      (with-temp-buffer
+        (switch-to-buffer (current-buffer))
+        (insert marker "first line\n  " (apply #'concat (make-list 100 "word ")) "\n\n")
+        (markdown-modern-mode)
+        (face-remap-add-relative 'variable-pitch :height 1.3)
+        (markdown-modern--jit-fontify (point-min) (point-max))
+        (dolist (scale '(0 2))
+          (text-scale-set scale)
+          (goto-char (1+ (length marker)))
+          (redisplay t)
+          (let ((first-x (car (posn-x-y (posn-at-point)))))
+            (search-forward "word")
+            (vertical-motion 1)
+            (should (> (point) (line-beginning-position)))
+            (should (= first-x (car (posn-x-y (posn-at-point)))))))))))
+
+(ert-deftest render/list-item-continuation-wrap-prefix ()
+  "Every source line of an item's text wraps in line with the text."
+  (markdown-modern-render-test--with "- first line\n  second line\n- next\n"
+    (goto-char (point-min))
+    (search-forward "second")
+    (let ((wrap (get-char-property (point) 'wrap-prefix)))
+      (should wrap)
+      (should (equal-including-properties
+                   wrap (get-char-property 4 'wrap-prefix))))))
 
 (ert-deftest render/list-marker-reveal-pixel-alignment ()
   "Revealing an unordered marker does not move its text."
