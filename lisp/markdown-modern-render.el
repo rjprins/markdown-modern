@@ -492,55 +492,37 @@ When POS is nil, join the lines of every paragraph."
           (dolist (inline (markdown-modern-ts--inline-elements-in content-start end))
             (ignore-errors (markdown-modern-render--render-element inline))))))))
 
+(defun markdown-modern-render--delimited (elem width face type)
+  "Hide the WIDTH-character delimiters of ELEM and show its content in FACE.
+TYPE names the overlays: TYPE-delim for the delimiters, TYPE-content for
+the content.  Take the delimiters from the node's bounds: a regexp can
+end the span at the first delimiter of a nested one, as in ***a***."
+  (let* ((start (markdown-modern-node-start elem))
+         (end (markdown-modern-node-end elem))
+         (content-start (+ start width))
+         (content-end (- end width)))
+    (when (and (< content-start content-end)
+               (memq (char-after start) '(?* ?_))
+               (memq (char-before end) '(?* ?_)))
+      (let ((ov (markdown-modern-render--get-overlay start content-start)))
+        (overlay-put ov 'display "")
+        (overlay-put ov 'markdown-modern-type (intern (format "%s-delim" type))))
+      ;; High priority to override backgrounds.
+      (let ((ov (markdown-modern-render--get-overlay content-start content-end)))
+        (overlay-put ov 'face face)
+        (overlay-put ov 'markdown-modern-type (intern (format "%s-content" type)))
+        (overlay-put ov 'priority 100))
+      (let ((ov (markdown-modern-render--get-overlay content-end end)))
+        (overlay-put ov 'display "")
+        (overlay-put ov 'markdown-modern-type (intern (format "%s-delim" type)))))))
+
 (defun markdown-modern-render--strong (elem)
   "Render strong/bold element ELEM."
-  (let ((start (markdown-modern-node-start elem))
-        (end (markdown-modern-node-end elem)))
-    (save-excursion
-      (goto-char start)
-      (when (looking-at "\\(\\*\\*\\|__\\)\\([^\n\r]*?\\)\\(\\*\\*\\|__\\)")
-        (let ((delim1-end (match-end 1))
-              (content-start (match-beginning 2))
-              (content-end (match-end 2))
-              (delim2-start (match-beginning 3)))
-          ;; Hide opening delimiter
-          (let ((ov (markdown-modern-render--get-overlay start delim1-end)))
-            (overlay-put ov 'display "")
-            (overlay-put ov 'markdown-modern-type 'strong-delim))
-          ;; Apply bold face to content - high priority to override backgrounds
-          (let ((ov (markdown-modern-render--get-overlay content-start content-end)))
-            (overlay-put ov 'face 'markdown-modern-bold)
-            (overlay-put ov 'markdown-modern-type 'strong-content)
-            (overlay-put ov 'priority 100))
-          ;; Hide closing delimiter
-          (let ((ov (markdown-modern-render--get-overlay delim2-start end)))
-            (overlay-put ov 'display "")
-            (overlay-put ov 'markdown-modern-type 'strong-delim)))))))
+  (markdown-modern-render--delimited elem 2 'markdown-modern-bold 'strong))
 
 (defun markdown-modern-render--emphasis (elem)
   "Render emphasis/italic element ELEM."
-  (let ((start (markdown-modern-node-start elem))
-        (end (markdown-modern-node-end elem)))
-    (save-excursion
-      (goto-char start)
-      (when (looking-at "\\([*_]\\)\\([^\n\r]*?\\)\\([*_]\\)")
-        (let ((delim1-end (match-end 1))
-              (content-start (match-beginning 2))
-              (content-end (match-end 2))
-              (delim2-start (match-beginning 3)))
-          ;; Hide opening delimiter
-          (let ((ov (markdown-modern-render--get-overlay start delim1-end)))
-            (overlay-put ov 'display "")
-            (overlay-put ov 'markdown-modern-type 'emphasis-delim))
-          ;; Apply italic face to content - high priority
-          (let ((ov (markdown-modern-render--get-overlay content-start content-end)))
-            (overlay-put ov 'face 'markdown-modern-italic)
-            (overlay-put ov 'markdown-modern-type 'emphasis-content)
-            (overlay-put ov 'priority 100))
-          ;; Hide closing delimiter
-          (let ((ov (markdown-modern-render--get-overlay delim2-start end)))
-            (overlay-put ov 'display "")
-            (overlay-put ov 'markdown-modern-type 'emphasis-delim)))))))
+  (markdown-modern-render--delimited elem 1 'markdown-modern-italic 'emphasis))
 
 (defun markdown-modern-render--strikethrough (elem)
   "Render strikethrough element ELEM."

@@ -42,6 +42,8 @@ links and the `C-c '` and link click fixes. Thanks to Samuel Michael Vanie
   before the diagram type. Diagrams pick up new colors after a theme change.
 - Nested list items show their bullet, number or checkbox again. Since 2.0.0
   only the first level had one.
+- Bold italic text such as `***both***`, and bold inside italic, no longer
+  disappears.
 - Text after list bullets and task checkboxes starts at the same position, also
   on wrapped lines, with fallback fonts and after a text size change.
 - `C-c '` could open an empty edit buffer when Tree-sitter skipped the code

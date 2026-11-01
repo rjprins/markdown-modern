@@ -601,6 +601,28 @@ Undefined labels, footnotes and definitions inside code stay plain text."
 (ert-deftest render/list-after-paragraph () (markdown-modern-render-test--assert-list-after-paragraph))
 (ert-deftest render/strikethrough () (markdown-modern-render-test--assert-strikethrough))
 
+(defun markdown-modern-render-test--visible-text ()
+  "Return the buffer text that no overlay hides."
+  (apply #'string
+         (cl-loop for pos from (point-min) below (point-max)
+                  unless (cl-some (lambda (ov) (equal (overlay-get ov 'display) ""))
+                                  (overlays-at pos))
+                  collect (char-after pos))))
+
+(ert-deftest render/nested-emphasis ()
+  "Bold italic, and bold inside italic, keep their text and both faces."
+  (dolist (case '(("a ***both*** b\n" "a both b\n" "both")
+                  ("a *it **bold** it* b\n" "a it bold it b\n" "bold")
+                  ("a __bold _it_ bold__ b\n" "a bold it bold b\n" "it")))
+    (markdown-modern-render-test--with (nth 0 case)
+      (should (equal (markdown-modern-render-test--visible-text) (nth 1 case)))
+      (goto-char (point-min))
+      (search-forward (nth 2 case))
+      (let ((faces (mapcar (lambda (ov) (overlay-get ov 'face))
+                           (overlays-at (match-beginning 0)))))
+        (should (memq 'markdown-modern-bold faces))
+        (should (memq 'markdown-modern-italic faces))))))
+
 (ert-deftest render/code-block-syntax-highlight ()
   "A code block gets per-token syntax faces when highlighting is enabled."
   (skip-unless (fboundp 'python-mode))
