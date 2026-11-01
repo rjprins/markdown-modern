@@ -821,7 +821,11 @@ POS immediately before or after the markup counts as inside it."
     (dolist (el (ignore-errors (markdown-modern-ts--inline-elements-in start end)))
       (let ((s (markdown-modern-node-start el))
             (e (markdown-modern-node-end el)))
-        (when (and s e (>= pos s) (<= pos e))
+        (when (and s e (>= pos s) (<= pos e)
+                   ;; A reference without a definition is plain text.
+                   (or (not (memq (markdown-modern-node-type el)
+                                  markdown-modern-render--reference-link-types))
+                       (markdown-modern-render--reference-link-target el)))
           (let ((size (- e s)))
             (when (or (null best-size) (< size best-size))
               (setq best (cons s e)
@@ -1007,7 +1011,10 @@ when the edited line becomes a list item."
                     (goto-char (min start end))
                     (forward-line 0)
                     (max (point-min) (1- (point)))))
-           (b (markdown-modern--extend-region-to-blocks above (max start end))))
+           (b (if (markdown-modern-render--link-definitions-changed-p)
+                  ;; Links elsewhere in the buffer may now resolve differently.
+                  (cons (point-min) (point-max))
+                (markdown-modern--extend-region-to-blocks above (max start end)))))
       (if (fboundp 'jit-lock-refontify)
           (jit-lock-refontify (car b) (cdr b))
         (with-silent-modifications

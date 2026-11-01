@@ -53,6 +53,7 @@
 (declare-function markdown-modern-ts--elements-in-region "markdown-modern-ts")
 (declare-function markdown-modern-ts--inline-elements-in "markdown-modern-ts")
 (declare-function markdown-modern-ts--literal-inline-at-p "markdown-modern-ts")
+(declare-function markdown-modern-ts--literal-block-at-p "markdown-modern-ts")
 (declare-function markdown-modern-ts--children "markdown-modern-ts")
 (declare-function markdown-modern-node-type "markdown-modern-ts")
 (declare-function markdown-modern-node-start "markdown-modern-ts")
@@ -60,6 +61,7 @@
 (declare-function markdown-modern-node-level "markdown-modern-ts")
 (declare-function markdown-modern-node-language "markdown-modern-ts")
 (declare-function markdown-modern-node-properties "markdown-modern-ts")
+(declare-function markdown-modern-ts--reference-link-parts "markdown-modern-ts")
 
 ;;; Internal Variables
 
@@ -284,7 +286,12 @@ even when the surrounding inline markup is revealed."
       ('code-span (markdown-modern-render--code-span elem))
       ;; Links and images
       ('link (markdown-modern-render--link elem))
-      ('link-ref (markdown-modern-render--link elem))
+      ('link-ref (markdown-modern-render--reference-link elem))
+      ('link-ref-collapsed (markdown-modern-render--reference-link elem))
+      ('link-shortcut (markdown-modern-render--reference-link elem))
+      ('link-ref-def (markdown-modern-render--link-definition-lines
+                      (markdown-modern-node-start elem)
+                      (markdown-modern-node-end elem)))
       ('image (markdown-modern-render--image elem))
       ('autolink (markdown-modern-render--autolink elem))
       ;; Block elements
@@ -307,14 +314,17 @@ even when the surrounding inline markup is revealed."
 
 (defun markdown-modern-render--paragraph (elem)
   "Render paragraph ELEM by parsing and rendering its inline elements."
-  (let* ((start (markdown-modern-node-start elem))
-         (end (markdown-modern-node-end elem))
-         (inlines (markdown-modern-ts--inline-elements-in start end)))
-    (dolist (inline-elem inlines)
-      (ignore-errors
-        (markdown-modern-render--render-element inline-elem)))
-    (when markdown-modern-join-paragraph-lines
-      (markdown-modern-render--soft-breaks start end inlines))))
+  (let ((start (markdown-modern-node-start elem))
+        (end (markdown-modern-node-end elem)))
+    (if (markdown-modern-render--link-definitions-only-p start end)
+        ;; The parser reads some definitions as a paragraph.
+        (markdown-modern-render--link-definition-lines start end)
+      (let ((inlines (markdown-modern-ts--inline-elements-in start end)))
+        (dolist (inline-elem inlines)
+          (ignore-errors
+            (markdown-modern-render--render-element inline-elem)))
+        (when markdown-modern-join-paragraph-lines
+          (markdown-modern-render--soft-breaks start end inlines))))))
 
 (defun markdown-modern-render--soft-breaks (start end inlines)
   "Display ordinary paragraph newlines in START..END as spaces.
@@ -593,6 +603,24 @@ When POS is nil, join the lines of every paragraph."
     map)
   "Keymap for link overlays.")
 
+(defun markdown-modern-render--link-overlays (start text-start text-end end url)
+  "Draw a link from START to END whose label is TEXT-START..TEXT-END.
+Hide the markup around the label and make the label follow URL."
+  (let ((ov (markdown-modern-render--get-overlay start text-start)))
+    (overlay-put ov 'display "")
+    (overlay-put ov 'markdown-modern-type 'link-delim))
+  (let ((ov (markdown-modern-render--get-overlay text-start text-end)))
+    (overlay-put ov 'face 'markdown-modern-link)
+    (overlay-put ov 'mouse-face 'highlight)
+    (overlay-put ov 'help-echo url)
+    (overlay-put ov 'keymap markdown-modern-render--link-keymap)
+    (overlay-put ov 'follow-link t)
+    (overlay-put ov 'markdown-modern-url url)
+    (overlay-put ov 'markdown-modern-type 'link-text))
+  (let ((ov (markdown-modern-render--get-overlay text-end end)))
+    (overlay-put ov 'display "")
+    (overlay-put ov 'markdown-modern-type 'link-delim)))
+
 (defun markdown-modern-render--link (elem)
   "Render link element ELEM."
   (let ((start (markdown-modern-node-start elem))
@@ -600,29 +628,122 @@ When POS is nil, join the lines of every paragraph."
     (save-excursion
       (goto-char start)
       (when (looking-at "\\[\\([^]]+\\)\\](\\([^)]+\\))")
-        (let ((_text (match-string 1))
-              (url (match-string 2))
-              (text-start (match-beginning 1))
-              (text-end (match-end 1))
-              (_url-start (match-beginning 2))
-              (_url-end (match-end 2)))
-          ;; Hide opening [
-          (let ((ov (markdown-modern-render--get-overlay start (1+ start))))
-            (overlay-put ov 'display "")
-            (overlay-put ov 'markdown-modern-type 'link-delim))
-          ;; Style link text
-          (let ((ov (markdown-modern-render--get-overlay text-start text-end)))
-            (overlay-put ov 'face 'markdown-modern-link)
-            (overlay-put ov 'mouse-face 'highlight)
-            (overlay-put ov 'help-echo url)
-            (overlay-put ov 'keymap markdown-modern-render--link-keymap)
-            (overlay-put ov 'follow-link t)
-            (overlay-put ov 'markdown-modern-url url)
-            (overlay-put ov 'markdown-modern-type 'link-text))
-          ;; Hide ]( and URL and )
-          (let ((ov (markdown-modern-render--get-overlay text-end end)))
-            (overlay-put ov 'display "")
-            (overlay-put ov 'markdown-modern-type 'link-delim)))))))
+        (markdown-modern-render--link-overlays
+         start (match-beginning 1) (match-end 1) end (match-string 2))))))
+
+;;; Reference Links
+
+(defvar-local markdown-modern-render--link-definitions-cache nil
+  "The buffer's reference link definitions as (TICK . ALIST), or nil.
+TICK is the `buffer-chars-modified-tick' they were read at.  ALIST maps
+each normalized label to its URL.  Nil until a reference link or a
+definition is rendered, so other buffers never scan for definitions.")
+
+(defconst markdown-modern-render--link-definition-regexp
+  (concat "^ \\{0,3\\}\\[\\([^]^[][^][]*\\)\\]:"
+          ;; The destination can be on the next line.
+          "[ \t]*\n?[ \t]*"
+          "\\(<[^>\n]*>\\|[^ \t\n<][^ \t\n]*\\)"
+          "\\(?:[ \t]+\\(?:\"[^\"\n]*\"\\|'[^'\n]*'\\|([^)\n]*)\\)\\)?"
+          "[ \t]*$")
+  "Regexp for a link reference definition such as [label]: url \"title\".
+Group 1 is the label and group 2 the destination.  Labels that start
+with ^ are footnotes, not links.")
+
+(defun markdown-modern-render--normalize-link-label (label)
+  "Return LABEL as used to match a link to its definition."
+  (downcase (string-trim (replace-regexp-in-string "[ \t\n]+" " " label))))
+
+(defun markdown-modern-render--scan-link-definitions ()
+  "Return an alist of (LABEL . URL) for the definitions in the buffer.
+Scan the text: the parser reads a definition right after a list, or
+after a definition with a title, as a paragraph."
+  (let ((definitions nil))
+    (save-excursion
+      (save-restriction
+        (widen)
+        (goto-char (point-min))
+        (while (re-search-forward markdown-modern-render--link-definition-regexp
+                                  nil t)
+          (let* ((pos (match-beginning 0))
+                 (label (match-string-no-properties 1))
+                 (url (match-string-no-properties 2))
+                 (label (markdown-modern-render--normalize-link-label label)))
+            ;; The first definition of a label wins.
+            (unless (or (string-empty-p label)
+                        (assoc label definitions)
+                        (markdown-modern-ts--literal-block-at-p pos))
+              (push (cons label (string-trim url "<" ">")) definitions))))))
+    (nreverse definitions)))
+
+(defun markdown-modern-render--link-definitions ()
+  "Return the buffer's reference link definitions as (LABEL . URL)."
+  (let ((tick (buffer-chars-modified-tick)))
+    (unless (eql (car markdown-modern-render--link-definitions-cache) tick)
+      (setq markdown-modern-render--link-definitions-cache
+            (cons tick (markdown-modern-render--scan-link-definitions))))
+    (cdr markdown-modern-render--link-definitions-cache)))
+
+(defun markdown-modern-render--link-definition (label)
+  "Return the URL that LABEL is defined as, or nil."
+  (cdr (assoc (markdown-modern-render--normalize-link-label label)
+              (markdown-modern-render--link-definitions))))
+
+(defun markdown-modern-render--link-definitions-changed-p ()
+  "Return non-nil if the definitions changed since they were last read.
+Return nil while no reference link or definition has been rendered."
+  (when-let* ((cache markdown-modern-render--link-definitions-cache))
+    (not (equal (cdr cache) (markdown-modern-render--link-definitions)))))
+
+(defconst markdown-modern-render--reference-link-types
+  '(link-ref link-ref-collapsed link-shortcut)
+  "Element types of reference links: [text][label], [text][] and [label].")
+
+(defun markdown-modern-render--reference-link-target (elem)
+  "Return (TEXT-START TEXT-END URL) for reference link ELEM, or nil.
+Return nil when the label has no definition: then it is plain text, as
+in CommonMark."
+  (pcase-let ((start (markdown-modern-node-start elem))
+              (`(,text-start ,text-end ,label)
+               (markdown-modern-ts--reference-link-parts elem)))
+    (when-let* ((url (and text-start
+                          (not (string-empty-p (string-trim label)))
+                          ;; The label of a definition line is not a link.
+                          (not (save-excursion
+                                 (goto-char start)
+                                 (forward-line 0)
+                                 (and (looking-at
+                                       markdown-modern-render--link-definition-regexp)
+                                      (= (match-beginning 1) (1+ start)))))
+                          (markdown-modern-render--link-definition label))))
+      (list text-start text-end url))))
+
+(defun markdown-modern-render--reference-link (elem)
+  "Render reference link ELEM when its label has a definition."
+  (when-let* ((target (markdown-modern-render--reference-link-target elem)))
+    (pcase-let ((`(,text-start ,text-end ,url) target))
+      (markdown-modern-render--link-overlays
+       (markdown-modern-node-start elem) text-start text-end
+       (markdown-modern-node-end elem) url))))
+
+(defun markdown-modern-render--link-definition-lines (start end)
+  "Dim the link reference definitions from START to END."
+  (let ((ov (markdown-modern-render--get-overlay start end)))
+    (overlay-put ov 'face 'markdown-modern-link-url)
+    (overlay-put ov 'markdown-modern-type 'link-ref-def))
+  ;; Read the definitions now, so a later edit can tell when they change.
+  (markdown-modern-render--link-definitions))
+
+(defun markdown-modern-render--link-definitions-only-p (start end)
+  "Return non-nil if START..END holds nothing but link definitions."
+  (save-excursion
+    (goto-char start)
+    (forward-line 0)
+    (while (and (< (point) end)
+                (looking-at markdown-modern-render--link-definition-regexp))
+      (goto-char (match-end 0))
+      (skip-chars-forward " \t\n"))
+    (>= (point) end)))
 
 (defun markdown-modern-render--follow-link (url)
   "Follow URL to a local file, a buffer anchor, or a browser.

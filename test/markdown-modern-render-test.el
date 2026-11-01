@@ -275,6 +275,76 @@ Only the text that the edit marks for re-rendering is rendered again."
         (should-not (overlay-get reused 'follow-link))
         (should-not (overlay-get reused 'markdown-modern-url))))))
 
+(defun markdown-modern-render-test--link-urls ()
+  "Return (LABEL . URL) for each rendered link, in buffer order."
+  (mapcar (lambda (ov)
+            (cons (buffer-substring-no-properties (overlay-start ov) (overlay-end ov))
+                  (overlay-get ov 'markdown-modern-url)))
+          (sort (cl-remove-if-not
+                 (lambda (ov) (eq (overlay-get ov 'markdown-modern-type) 'link-text))
+                 (overlays-in (point-min) (point-max)))
+                (lambda (a b) (< (overlay-start a) (overlay-start b))))))
+
+(ert-deftest render/reference-links ()
+  "Reference links render when their label is defined, in any of three forms.
+Undefined labels, footnotes and definitions inside code stay plain text."
+  (markdown-modern-render-test--with
+      (concat "- [Full][Log] and [Collapsed][] and [Short].\n"
+              "- [none][missing] [^1] [in code][code]\n\n"
+              "[log]: ../CHANGELOG.md \"Changes\"\n"
+              "[collapsed]: <https://c.example>\n"
+              "[SHORT]:\n  https://s.example\n\n"
+              "```\n[code]: https://code.example\n```\n")
+    (should (equal (markdown-modern-render-test--link-urls)
+                   '(("Full" . "../CHANGELOG.md")
+                     ("Collapsed" . "https://c.example")
+                     ("Short" . "https://s.example"))))
+    ;; The brackets and the label are hidden.
+    (goto-char (point-min))
+    (search-forward "][Log]")
+    (should (cl-some (lambda (ov)
+                       (and (eq (overlay-get ov 'markdown-modern-type) 'link-delim)
+                            (equal (overlay-get ov 'display) "")
+                            (= (overlay-end ov) (point))))
+                     (overlays-at (1- (point)))))))
+
+(ert-deftest render/reference-link-definitions-dimmed ()
+  "Definitions are dimmed, also where the parser reads them as a paragraph."
+  ;; After a list and after a title, the parser reads a definition as a
+  ;; paragraph.  It must not be joined into one line or shown as a link.
+  (markdown-modern-render-test--with
+      "- item [a][]\n\n[a]: https://a.example \"A\"\n[b]: https://b.example\n"
+    (should (equal (markdown-modern-render-test--link-urls)
+                   '(("a" . "https://a.example"))))
+    (dolist (label '("[a]:" "[b]:"))
+      (goto-char (point-min))
+      (search-forward label)
+      (should (cl-some (lambda (ov)
+                         (eq (overlay-get ov 'face) 'markdown-modern-link-url))
+                       (overlays-at (line-beginning-position)))))
+    (should (= (markdown-modern-render-test--count 'soft-break) 0))))
+
+(ert-deftest render/reference-link-follows-new-definition ()
+  "Typing a definition renders the links that use it elsewhere."
+  (markdown-modern-render-test--with "See [the log][log].\n\n"
+    (should-not (markdown-modern-render-test--link-urls))
+    (goto-char (point-max))
+    (markdown-modern-render-test--type "[log]: https://log.example")
+    (should (equal (markdown-modern-render-test--link-urls)
+                   '(("the log" . "https://log.example"))))))
+
+(ert-deftest render/reference-link-follow-at-point ()
+  "`C-c C-o' on the revealed label of a reference link follows its URL."
+  (markdown-modern-render-test--with "See [the log][log] now.\n\n[log]: https://log.example\n"
+    (goto-char (point-min))
+    (search-forward "[lo")
+    (markdown-modern-render-test--move (point))
+    (let (visited)
+      (cl-letf (((symbol-function 'browse-url)
+                 (lambda (target &rest _) (setq visited target))))
+        (markdown-modern-follow-link-at-point))
+      (should (equal visited "https://log.example")))))
+
 (defun markdown-modern-render-test--assert-code-block ()
   (markdown-modern-render-test--with "```python\nprint(1)\n```\n"
     ;; The opening/closing fences are hidden.

@@ -16,6 +16,9 @@ links and the `C-c '` and link click fixes. Thanks to Samuel Michael Vanie
 - Local links open files of any type in Emacs, relative to the Markdown file.
   Line fragments such as `#L352` and `#L352-L365` go to that line. `M-,` goes
   back to the Markdown buffer. A missing file reports an error.
+- Reference links render. `[text][label]`, `[text][]` and `[label]` show as
+  links when the label is defined, and open with a click or `C-c C-o`.
+  Definition lines such as `[label]: url` are dimmed.
 
 ### Changed
 

@@ -57,6 +57,7 @@
 (declare-function markdown-modern-render--unrender-region "markdown-modern-render")
 (declare-function markdown-modern-render--language-to-mode "markdown-modern-render")
 (declare-function markdown-modern-render--follow-link "markdown-modern-render")
+(declare-function markdown-modern-render--link-definition "markdown-modern-render")
 
 ;; Functions defined in markdown-modern-ts.el
 (declare-function markdown-modern-ts--element-at "markdown-modern-ts")
@@ -742,6 +743,17 @@ revealed lines (by parsing raw markdown syntax at point)."
             (when (and (>= pos (match-beginning 0))
                        (<= pos (match-end 0)))
               (setq url (match-string-no-properties 2))))
+          ;; Check for reference link: [text][label], [text][] or [label]
+          (goto-char bol)
+          (while (and (not url)
+                      (re-search-forward
+                       "\\[\\([^]]+\\)\\]\\(?:\\[\\([^]]*\\)\\]\\)?" eol t))
+            (when (and (>= pos (match-beginning 0))
+                       (<= pos (match-end 0)))
+              (setq url (markdown-modern-render--link-definition
+                         (if (member (match-string-no-properties 2) '(nil ""))
+                             (match-string-no-properties 1)
+                           (match-string-no-properties 2))))))
           ;; Check for autolink: <url>
           (unless url
             (goto-char bol)

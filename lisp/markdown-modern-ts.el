@@ -199,7 +199,8 @@ Requires an Emacs build with Tree-sitter support, Git and a C compiler."
       (list)
       (thematic_break)
       (pipe_table)
-      (html_block)] @block)
+      (html_block)
+      (link_reference_definition)] @block)
   "Query for finding block elements.")
 
 ;;; Node Access Functions
@@ -392,6 +393,7 @@ Optional START and END limit the range."
         (type (treesit-node-type node)))
     (when (member type '("emphasis" "strong_emphasis" "strikethrough"
                         "code_span" "inline_link" "full_reference_link"
+                        "collapsed_reference_link" "shortcut_link"
                         "image" "uri_autolink" "email_autolink" "latex_block"))
       (push node result))
     ;; Code and math contents stay literal, including Markdown delimiters.
@@ -411,6 +413,33 @@ Optional START and END limit the range."
                                '("code_span" "latex_block" "html_tag"))))
         (setq node (treesit-node-parent node)))
       node)))
+
+(defun markdown-modern-ts--literal-block-at-p (pos)
+  "Return non-nil if POS is inside a code block or an HTML block."
+  (when-let* ((parser markdown-modern-ts--parser))
+    (let ((node (treesit-node-on pos (min (1+ pos) (point-max)) parser t)))
+      (while (and node
+                  (not (member (treesit-node-type node)
+                               '("fenced_code_block" "indented_code_block"
+                                 "html_block"))))
+        (setq node (treesit-node-parent node)))
+      node)))
+
+(defun markdown-modern-ts--reference-link-parts (elem)
+  "Return (TEXT-START TEXT-END LABEL) for reference link ELEM, or nil.
+LABEL is the text between the second pair of brackets, or the link
+text when that pair is empty or missing."
+  (let* ((node (markdown-modern-node-treesit-node elem))
+         (child (lambda (type)
+                  (car (treesit-filter-child
+                        node (lambda (c) (equal (treesit-node-type c) type))))))
+         (text (funcall child "link_text"))
+         (label (funcall child "link_label")))
+    (when text
+      (list (treesit-node-start text) (treesit-node-end text)
+            (if label
+                (string-trim (treesit-node-text label t) "\\[" "\\]")
+              (treesit-node-text text t))))))
 
 (provide 'markdown-modern-ts)
 ;;; markdown-modern-ts.el ends here
