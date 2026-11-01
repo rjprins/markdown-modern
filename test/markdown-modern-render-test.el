@@ -601,6 +601,14 @@ Undefined labels, footnotes and definitions inside code stay plain text."
 (ert-deftest render/list-after-paragraph () (markdown-modern-render-test--assert-list-after-paragraph))
 (ert-deftest render/strikethrough () (markdown-modern-render-test--assert-strikethrough))
 
+(ert-deftest render/soft-breaks-next-to-code ()
+  "A newline right before or after inline code joins; one inside it does not."
+  (dolist (case '(("one and\n`TAB` two\n" . 1)
+                  ("with a `x`\nat each\n" . 1)
+                  ("a `multi\nline` b\n" . 0)))
+    (markdown-modern-render-test--with (car case)
+      (should (= (markdown-modern-render-test--count 'soft-break) (cdr case))))))
+
 (defun markdown-modern-render-test--visible-text ()
   "Return the buffer text that no overlay hides."
   (apply #'string

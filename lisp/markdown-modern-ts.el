@@ -407,10 +407,14 @@ Optional START and END limit the range."
 (defun markdown-modern-ts--literal-inline-at-p (pos)
   "Return non-nil if POS is inside inline code, math or an HTML tag."
   (when markdown-modern-ts--inline-parser
+    ;; At a newline `treesit-node-at' can return a span that starts on the
+    ;; next line or ended on the line before, so check the bounds too.
     (let ((node (treesit-node-at pos markdown-modern-ts--inline-parser)))
       (while (and node
-                  (not (member (treesit-node-type node)
-                               '("code_span" "latex_block" "html_tag"))))
+                  (not (and (member (treesit-node-type node)
+                                    '("code_span" "latex_block" "html_tag"))
+                            (<= (treesit-node-start node) pos)
+                            (< pos (treesit-node-end node)))))
         (setq node (treesit-node-parent node)))
       node)))
 
