@@ -3,7 +3,7 @@
 All notable changes to markdown-modern are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [2.1.0] - 2026-11-01
 
 Thanks to Hemant Kumar ([@gnufied](https://github.com/gnufied)) for local file
 links and the `C-c '` and link click fixes. Thanks to Samuel Michael Vanie

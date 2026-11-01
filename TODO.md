@@ -26,6 +26,9 @@ Tracked items are possibilities, not delivery commitments.
 
 # Completed enhancements
 
+- Mermaid diagram viewer with zoom and pan, and local file links that open
+  in Emacs at a line (2.1.0).
+- Reference links and their definitions (2.1.0).
 - Require Tree-sitter for buffer parsing and provide a command to install
   missing grammars ([#4](https://github.com/rjprins/markdown-modern/issues/4), 2.0.0).
 - Reflow ordinary paragraph source newlines as spaces while preserving explicit
