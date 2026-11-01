@@ -1184,11 +1184,15 @@ Includes `wrap-prefix' for proper line continuation."
         (base-indent (or (and (boundp 'markdown-modern-left-margin)
                               (make-string markdown-modern-left-margin ?\s))
                          "")))
+    ;; A nested item starts at its marker, after the indent.  Match from the
+    ;; line start, and only when the marker found there is this item's own.
     (save-excursion
       (goto-char start)
+      (forward-line 0)
       (cond
        ;; Task list item
-       ((looking-at "^\\([ \t]*\\)\\([-*+]\\)[ \t]+\\(\\[[ xX]\\]\\)[ \t]+")
+       ((and (looking-at "^\\([ \t]*\\)\\([-*+]\\)[ \t]+\\(\\[[ xX]\\]\\)[ \t]+")
+             (= (match-beginning 2) start))
         (let* ((indent (match-string 1))
                (marker-start (match-beginning 2))
                (checkbox-start (match-beginning 3))
@@ -1224,7 +1228,8 @@ Includes `wrap-prefix' for proper line continuation."
               (overlay-put ov 'wrap-prefix wrap-str)
               (overlay-put ov 'markdown-modern-type 'list-content)))))
        ;; Unordered list item
-       ((looking-at "^\\([ \t]*\\)\\([-*+]\\)[ \t]+")
+       ((and (looking-at "^\\([ \t]*\\)\\([-*+]\\)[ \t]+")
+             (= (match-beginning 2) start))
         (let* ((indent (match-string 1))
                (marker-start (match-beginning 2))
                (marker-end (match-end 2))
@@ -1252,7 +1257,8 @@ Includes `wrap-prefix' for proper line continuation."
               (overlay-put ov 'wrap-prefix wrap-str)
               (overlay-put ov 'markdown-modern-type 'list-content)))))
        ;; Ordered list item
-       ((looking-at "^\\([ \t]*\\)\\([0-9]+\\)\\([.):]\\)[ \t]+")
+       ((and (looking-at "^\\([ \t]*\\)\\([0-9]+\\)\\([.):]\\)[ \t]+")
+             (= (match-beginning 2) start))
         (let* ((indent (match-string 1))
                (number (match-string 2))
                (marker-start (match-beginning 2))

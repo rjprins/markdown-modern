@@ -600,6 +600,31 @@ item must lose its old marker first."
       (should (= (markdown-modern-render-test--markers-at 7) 1))
       (should (= (markdown-modern-render-test--markers-at third) 1)))))
 
+(ert-deftest render/nested-list-items ()
+  "Nested items get their own marker, and bullets change glyph per level."
+  (markdown-modern-render-test--with
+      (concat "- one\n  - two\n    - three\n- back\n\n"
+              "1. First\n   1. Nested\n\n"
+              "- [ ] task\n  - [x] nested task\n")
+    (let ((glyphs nil))
+      (dolist (item '("- one" "- two" "- three" "- back"))
+        (goto-char (point-min))
+        (search-forward item)
+        (let ((pos (match-beginning 0)))
+          (should (= (markdown-modern-render-test--markers-at pos) 1))
+          (push (cl-some (lambda (ov) (overlay-get ov 'before-string))
+                         (overlays-at pos))
+                glyphs)))
+      (setq glyphs (mapcar (lambda (s) (string-trim (substring-no-properties s)))
+                           (nreverse glyphs)))
+      (should (equal (nth 0 glyphs) (nth 3 glyphs)))
+      (should-not (equal (nth 0 glyphs) (nth 1 glyphs)))
+      (should-not (equal (nth 1 glyphs) (nth 2 glyphs))))
+    (goto-char (point-min))
+    (search-forward "   1. Nested")
+    (should (= (markdown-modern-render-test--markers-at (+ (match-beginning 0) 3)) 1))
+    (should (= (markdown-modern-render-test--count 'checkbox) 2))))
+
 (ert-deftest render/list-markers-stable-during-cursor-motion ()
   "Walking through lists repeatedly must not accumulate rendered markers."
   (dolist (text '("- first\n- second\n- third\n\n"
