@@ -393,6 +393,26 @@ Finishing without typing leaves the block as it was."
                   #'markdown-modern-code-edit-abort)
                  '("```sh\necho a\n```\n" nil))))
 
+(ert-deftest integration/code-edit-indents-within-the-block ()
+  "Indentation in the editor sees the code block, not the Markdown file.
+The `)' of a numbered list item made Lisp indentation put the code at the
+top level."
+  (should (equal (car (markdown-modern-integration-test--edit-code
+                       "1) Item\n\n```emacs-lisp\n(defun f ()\n  (message \"hi\"))\n```\n"
+                       (lambda ()
+                         ;; Fontify as redisplay does, which fills the syntax
+                         ;; cache for the narrowed buffer.
+                         (font-lock-ensure)
+                         (goto-char (point-min))
+                         (search-forward "(message")
+                         (syntax-ppss (point))
+                         (indent-according-to-mode)
+                         (end-of-line)
+                         (let ((electric-indent-mode t))
+                           (newline 1 t)))
+                       #'markdown-modern-code-edit-finish))
+                 "1) Item\n\n```emacs-lisp\n(defun f ()\n  (message \"hi\"))\n\n```\n")))
+
 (ert-deftest integration/code-edit-gives-back-the-window ()
   "Finishing or aborting closes the window the editor opened."
   (dolist (finish '(markdown-modern-code-edit-finish markdown-modern-code-edit-abort))

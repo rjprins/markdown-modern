@@ -971,6 +971,7 @@ the block."
               (cons (copy-marker content-start) (copy-marker content-end t)))
         (setq markdown-modern-code-edit--original-content original)
         (setq markdown-modern-code-edit--unmodified-hash unmodified-hash)
+        (markdown-modern-code-edit--indent-in-block)
         ;; Enable the minor mode
         (markdown-modern-code-edit-mode 1)
         ;; Header line with hints
@@ -981,6 +982,21 @@ the block."
         (add-hook 'kill-buffer-hook #'markdown-modern-code-edit--on-kill nil t))
       ;; Show the edit buffer
       (pop-to-buffer edit-buf))))
+
+(defun markdown-modern-code-edit--indent-in-block ()
+  "Make indentation in this code edit buffer see only the code block.
+`indent-according-to-mode' widens the buffer first, and in this indirect
+buffer that shows the whole Markdown file to the language's indentation.
+`RET' then re-indented the line before it as if it were at the top level.
+Wrap `indent-line-function' to narrow to the block again."
+  (let ((indent indent-line-function)
+        (bounds markdown-modern-code-edit--content-bounds))
+    (unless (memq indent indent-line-ignored-functions)
+      (setq-local indent-line-function
+                  (lambda ()
+                    (save-restriction
+                      (narrow-to-region (car bounds) (cdr bounds))
+                      (funcall indent)))))))
 
 (defun markdown-modern-code-edit--leave (edit-buf source-pos)
   "Close code edit buffer EDIT-BUF and go back to its source buffer.

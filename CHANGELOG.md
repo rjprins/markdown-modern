@@ -52,6 +52,9 @@ on [Keep a Changelog](https://keepachangelog.com/).
   puts point where it was in the code. Aborting no longer marks the file
   modified. The editor buffer is named `*MdM-Edit:LANGUAGE*` and no longer
   says that jit-lock does not work in it.
+- In the `C-c '` editor, `RET` and `TAB` indent the code by the code block
+  alone. Indentation saw the whole Markdown file, so text before the block,
+  such as the `)` of a `1)` list, could move a line to the left edge.
 - Rendering a shell code block no longer shows "Setting up indent for shell
   type" in the echo area.
 - Text whose parse changes because of an edit elsewhere is drawn again. After
