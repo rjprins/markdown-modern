@@ -73,6 +73,8 @@ on [Keep a Changelog](https://keepachangelog.com/).
 - Bold text keeps the styles around and inside it: `~~struck **bold**~~` is
   struck through, `***bold italic***` is italic, and code inside bold keeps
   its colour. The bold face inherited `default`, which overrode them.
+- Indented code blocks (four spaces deep) show as code, in the code font
+  and with the code background. They showed as plain text.
 - In a list nested four spaces deep, the first item under each parent shows a
   bullet instead of a raw `-`, and its wrapped text lines up.
 - Bullets follow the nesting level however deep it is indented, so a

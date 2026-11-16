@@ -984,6 +984,19 @@ faces around and inside it."
     (should (eq (face-attribute 'markdown-modern-bold attribute nil t)
                 'unspecified))))
 
+(ert-deftest render/indented-code-block ()
+  "An indented code block gets the code block face on each of its lines."
+  (markdown-modern-render-test--with "Text.\n\n    code one\n\n    code two\n\nAfter.\n"
+    (dolist (text '("code one" "code two"))
+      (goto-char (point-min))
+      (search-forward text)
+      (should (eq (get-char-property (match-beginning 0) 'face)
+                  'markdown-modern-code-block)))
+    (goto-char (point-min))
+    (search-forward "After")
+    (should-not (eq (get-char-property (match-beginning 0) 'face)
+                    'markdown-modern-code-block))))
+
 (ert-deftest render/list-marker-reveal-pixel-alignment ()
   "Revealing an unordered marker does not move its text."
   (skip-unless (display-graphic-p))

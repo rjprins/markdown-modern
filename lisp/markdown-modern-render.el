@@ -299,6 +299,7 @@ even when the surrounding inline markup is revealed."
       ('autolink (markdown-modern-render--autolink elem))
       ;; Block elements
       ('code-block (markdown-modern-render--code-block elem))
+      ('code-block-indented (markdown-modern-render--indented-code-block elem))
       ('blockquote (markdown-modern-render--blockquote elem))
       ('list (markdown-modern-render--list elem))
       ('list-item (markdown-modern-render--list-item elem))
@@ -1057,6 +1058,25 @@ Dispatches to mermaid renderer for mermaid code blocks."
               (overlay-put ov 'display "")
               (overlay-put ov 'markdown-modern-type 'code-fence)
               (overlay-put ov 'priority 100)))))))))
+
+(defun markdown-modern-render--indented-code-block (elem)
+  "Render indented code block ELEM with the code block background.
+The indentation stays, so revealing the block moves no text."
+  (let ((end (save-excursion
+               ;; The block can take in the blank lines after it.
+               (goto-char (markdown-modern-node-end elem))
+               (skip-chars-backward " \t\r\n" (markdown-modern-node-start elem))
+               (line-end-position))))
+    (save-excursion
+      (goto-char (markdown-modern-node-start elem))
+      (beginning-of-line)
+      (while (< (point) end)
+        (let ((ov (markdown-modern-render--get-overlay
+                   (point) (min (1+ (line-end-position)) (1+ end)))))
+          (overlay-put ov 'face 'markdown-modern-code-block)
+          (overlay-put ov 'markdown-modern-type 'code-block-content)
+          (overlay-put ov 'priority 10))
+        (forward-line 1)))))
 
 (defun markdown-modern-render--highlight-code (start end language)
   "Apply syntax highlighting to code from START to END for LANGUAGE."
