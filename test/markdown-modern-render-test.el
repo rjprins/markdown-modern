@@ -903,6 +903,49 @@ child's node, so its marker does not start where the node does."
       (should (equal-including-properties
                    wrap (get-char-property 4 'wrap-prefix))))))
 
+(ert-deftest render/list-item-continuation-line-prefix ()
+  "A later source line of an item shows the wrap prefix, not its indent.
+Lines of a nested item are left alone."
+  (markdown-modern-render-test--with
+      "- first line\n  second line\nlazy line\n  - nested\n    more\n- next\n"
+    (let ((wrap (get-char-property 4 'wrap-prefix)))
+      (goto-char (point-min))
+      (search-forward "second")
+      (let ((bol (line-beginning-position)))
+        (should (equal-including-properties
+                 (get-char-property bol 'line-prefix) wrap))
+        (should (equal (get-char-property bol 'display) "")))
+      (search-forward "lazy")
+      (should (equal-including-properties
+               (get-char-property (line-beginning-position) 'line-prefix) wrap))
+      (should-not (get-char-property (line-beginning-position) 'display))
+      (search-forward "- nested")
+      (should-not (equal-including-properties
+                   (get-char-property (line-beginning-position) 'line-prefix)
+                   wrap))
+      (search-forward "more")
+      (should-not (equal-including-properties
+                   (get-char-property (line-beginning-position) 'line-prefix)
+                   wrap)))))
+
+(ert-deftest render/list-item-continuation-line-pixel-alignment ()
+  "A later source line of an item starts where the item's text starts."
+  (skip-unless (display-graphic-p))
+  (save-window-excursion
+    (dolist (case '(("- " "  ") ("- [ ] " "      ") ("1. " "   ") ("10. " "    ")))
+      (with-temp-buffer
+        (switch-to-buffer (current-buffer))
+        (insert (car case) "first line\n" (cadr case) "second line\n\n")
+        (markdown-modern-mode)
+        (face-remap-add-relative 'variable-pitch :height 1.3)
+        (markdown-modern--jit-fontify (point-min) (point-max))
+        (goto-char (point-max))
+        (redisplay t)
+        (let ((first-x (car (posn-x-y (posn-at-point (1+ (length (car case))))))))
+          (goto-char (point-min))
+          (search-forward "second")
+          (should (= first-x (car (posn-x-y (posn-at-point (match-beginning 0)))))))))))
+
 (ert-deftest render/list-marker-reveal-pixel-alignment ()
   "Revealing an unordered marker does not move its text."
   (skip-unless (display-graphic-p))

@@ -62,6 +62,9 @@ on [Keep a Changelog](https://keepachangelog.com/).
 - Tables fit the window again after it is split or resized. They kept the
   old width, so a wide table wrapped into a broken box until point entered
   it.
+- The later source lines of a list item start where its text starts. They
+  showed their indentation in the proportional font, so they started left
+  or right of the item's first line.
 - In a list nested four spaces deep, the first item under each parent shows a
   bullet instead of a raw `-`, and its wrapped text lines up.
 - Bullets follow the nesting level however deep it is indented, so a

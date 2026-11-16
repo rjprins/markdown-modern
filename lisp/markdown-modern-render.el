@@ -1378,7 +1378,8 @@ Includes `wrap-prefix' for proper line continuation."
           (when (< content-start content-end)
             (let ((ov (markdown-modern-render--get-overlay content-start content-end)))
               (overlay-put ov 'wrap-prefix wrap-str)
-              (overlay-put ov 'markdown-modern-type 'list-content)))))
+              (overlay-put ov 'markdown-modern-type 'list-content)))
+          (markdown-modern-render--list-continuation-lines elem start wrap-str)))
        ;; Unordered list item
        ((and (looking-at "^\\([ \t]*\\)\\([-*+]\\)[ \t]+")
              (= (match-beginning 2) start))
@@ -1407,7 +1408,8 @@ Includes `wrap-prefix' for proper line continuation."
           (when (< content-start content-end)
             (let ((ov (markdown-modern-render--get-overlay content-start content-end)))
               (overlay-put ov 'wrap-prefix wrap-str)
-              (overlay-put ov 'markdown-modern-type 'list-content)))))
+              (overlay-put ov 'markdown-modern-type 'list-content)))
+          (markdown-modern-render--list-continuation-lines elem start wrap-str)))
        ;; Ordered list item
        ((and (looking-at "^\\([ \t]*\\)\\([0-9]+\\)\\([.):]\\)[ \t]+")
              (= (match-beginning 2) start))
@@ -1433,7 +1435,39 @@ Includes `wrap-prefix' for proper line continuation."
           (when (< content-start content-end)
             (let ((ov (markdown-modern-render--get-overlay content-start content-end)))
               (overlay-put ov 'wrap-prefix wrap-str)
-              (overlay-put ov 'markdown-modern-type 'list-content)))))))))
+              (overlay-put ov 'markdown-modern-type 'list-content)))
+          (markdown-modern-render--list-continuation-lines elem start wrap-str)))))))
+
+(defun markdown-modern-render--list-continuation-lines (elem marker-start prefix)
+  "Line up the later source lines of list item ELEM with its text.
+MARKER-START is the position of the item's marker.  Each line of the item's
+own paragraphs after the first shows PREFIX, the item's `wrap-prefix', in
+place of its indentation.  The indentation is in the buffer's font, which
+is proportional under `variable-pitch-mode', so it never matched the marker.
+Lines of nested items are left to those items."
+  (let ((first-line (save-excursion (goto-char marker-start)
+                                    (line-beginning-position))))
+    (dolist (child (markdown-modern-ts--children elem))
+      (when (eq (markdown-modern-node-type child) 'paragraph)
+        (let ((end (markdown-modern-node-end child)))
+          (save-excursion
+            (goto-char (markdown-modern-node-start child))
+            (beginning-of-line)
+            (when (= (point) first-line)
+              (forward-line 1))
+            (while (and (< (point) end) (not (eobp)))
+              (let ((bol (point)))
+                (skip-chars-forward " \t" (line-end-position))
+                ;; The paragraph can end after the indentation of the line
+                ;; that follows it, such as a nested item's.
+                (when (and (< (point) end) (not (eolp)))
+                  (let ((ov (markdown-modern-render--get-overlay
+                             bol (if (> (point) bol) (point) (1+ bol)))))
+                    (when (> (point) bol)
+                      (overlay-put ov 'display ""))
+                    (overlay-put ov 'line-prefix prefix)
+                    (overlay-put ov 'markdown-modern-type 'list-continuation))))
+              (forward-line 1))))))))
 
 (defun markdown-modern-render--hr (elem)
   "Render horizontal rule element ELEM.
