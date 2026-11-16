@@ -100,6 +100,9 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Removed
 
+- `markdown-modern-list-item-bounds`, `markdown-modern-list-level-at-point`
+  and `markdown-modern-list-marker-at-point`. The list commands no longer use
+  them; they find items in the parse tree.
 - `markdown-modern-manage-text-width`. The reading width is now always on and
   no longer sets `fill-column` or turns on `visual-fill-column-mode`.
 

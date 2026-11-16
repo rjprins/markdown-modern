@@ -135,42 +135,6 @@ block, not in the list."
       (cons (markdown-modern-node-start elem)
             (markdown-modern-node-end elem)))))
 
-;;; List Utilities
-
-(defun markdown-modern-list-item-bounds ()
-  "Return (START . END) bounds of current list item, or nil."
-  (save-excursion
-    (beginning-of-line)
-    (when (looking-at "^\\([ \t]*\\)\\([-*+]\\|[0-9]+[.)]\\)[ \t]+")
-      (let ((start (point))
-            (indent (length (match-string 1))))
-        ;; Find end of list item (next item at same or lower indent, or blank line)
-        (forward-line 1)
-        (while (and (not (eobp))
-                    (not (looking-at "^[ \t]*$"))
-                    (or (looking-at "^[ \t]+[^-*+0-9]")  ; continuation
-                        (and (looking-at "^\\([ \t]*\\)[-*+0-9]")
-                             (> (length (match-string 1)) indent))))
-          (forward-line 1))
-        (cons start (point))))))
-
-(defun markdown-modern-list-level-at-point ()
-  "Return the nesting level of list item at point (0-based)."
-  (save-excursion
-    (beginning-of-line)
-    (when (looking-at "^\\([ \t]*\\)[-*+0-9]")
-      (/ (length (match-string 1)) 2))))
-
-(defun markdown-modern-list-marker-at-point ()
-  "Return the list marker type at point (:unordered, :ordered, :task)."
-  (save-excursion
-    (beginning-of-line)
-    (cond
-     ((looking-at "^[ \t]*[-*+][ \t]+\\[[ xX]\\]") :task)
-     ((looking-at "^[ \t]*[-*+][ \t]+") :unordered)
-     ((looking-at "^[ \t]*[0-9]+[.)][ \t]+") :ordered)
-     (t nil))))
-
 ;;; Table Utilities
 
 (defun markdown-modern--table-row-line-p ()
