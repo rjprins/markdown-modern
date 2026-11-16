@@ -642,6 +642,10 @@ LOOKING-AT are as described there."
   (add-hook 'post-command-hook #'markdown-modern--update-reveal nil t)
   (setq markdown-modern--chars-tick (buffer-chars-modified-tick))
   (add-hook 'after-change-functions #'markdown-modern--after-change nil t)
+  ;; An edit can change how text far from it parses, as when a new table
+  ;; row ends one table and starts another.  Re-render what changed.
+  (treesit-parser-add-notifier markdown-modern-ts--parser
+                               #'markdown-modern--after-reparse)
   (add-hook 'text-scale-mode-hook #'markdown-modern--on-text-scale nil t)
   ;; Keep the reading width in every window that shows the buffer.  The
   ;; buffer-local hooks get the window as argument.  Margins change only the
@@ -1187,6 +1191,21 @@ when the edited line becomes a list item."
           (jit-lock-refontify (car b) (cdr b))
         (with-silent-modifications
           (put-text-property (car b) (cdr b) 'fontified nil))))))
+
+(defun markdown-modern--after-reparse (ranges parser)
+  "Mark the blocks around RANGES for re-rendering.
+RANGES are the ranges where the parse tree of PARSER changed.  This is a
+tree-sitter notifier: the after-change hook renders only the block around
+an edit again, but an edit can also change how distant text parses."
+  (let ((buffer (treesit-parser-buffer parser)))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (when markdown-modern--rendering-enabled
+          (dolist (range ranges)
+            (let* ((start (max (point-min) (min (car range) (point-max))))
+                   (end (max start (min (cdr range) (point-max))))
+                   (b (markdown-modern--extend-region-to-blocks start end)))
+              (jit-lock-refontify (car b) (cdr b)))))))))
 
 ;;; Imenu Support
 

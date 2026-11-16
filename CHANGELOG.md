@@ -54,6 +54,11 @@ on [Keep a Changelog](https://keepachangelog.com/).
   says that jit-lock does not work in it.
 - Rendering a shell code block no longer shows "Setting up indent for shell
   type" in the echo area.
+- Text whose parse changes because of an edit elsewhere is drawn again. After
+  `TAB` added an empty row to a table, the next table stayed raw text even
+  once the row had content. Tree-sitter reads a row of empty cells as the
+  line under a table header, so until you type in it, the tables below show
+  as text.
 - In a list nested four spaces deep, the first item under each parent shows a
   bullet instead of a raw `-`, and its wrapped text lines up.
 - Bullets follow the nesting level however deep it is indented, so a

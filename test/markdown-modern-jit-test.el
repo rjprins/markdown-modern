@@ -50,6 +50,29 @@
     (should (= 0 (length (markdown-modern-jit-test--markdown-modern-overlays
                           (point-min) (point-max)))))))
 
+(ert-deftest jit/reparse-re-renders-distant-blocks ()
+  "A change in how distant text parses renders that text again.
+An empty table row parses as a delimiter row, so the next table becomes part
+of another one.  Typing in the row fixes the parse, and the next table must
+then be drawn again."
+  (with-temp-buffer
+    (insert "| a | b |\n|---|---|\n| 1 | 2 |\n\ntext\n\n| c | d |\n|---|---|\n| 3 | 4 |\n")
+    (markdown-modern-mode)
+    (cl-flet ((second-table-drawn-p ()
+                (jit-lock-fontify-now)
+                (save-excursion
+                  (goto-char (point-min))
+                  (search-forward "| c")
+                  (markdown-modern-jit-test--markdown-modern-overlays
+                   (line-beginning-position) (line-end-position)))))
+      (should (second-table-drawn-p))
+      (goto-char (point-min))
+      (search-forward "| 2")
+      (markdown-modern-table-next-cell)
+      (second-table-drawn-p)
+      (insert "z")
+      (should (second-table-drawn-p)))))
+
 ;;; Block-level region extension
 
 (ert-deftest jit/extend-region-covers-fenced-block ()
