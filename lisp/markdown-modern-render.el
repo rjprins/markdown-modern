@@ -1471,18 +1471,31 @@ Lines of nested items are left to those items."
 
 (defun markdown-modern-render--hr (elem)
   "Render horizontal rule element ELEM.
-Uses a conservative fixed count to ensure the rule never wraps."
-  (let* ((start (markdown-modern-node-start elem))
-         (end (markdown-modern-node-end elem))
-         ;; Use a fixed safe count.  Box-drawing chars like ─ can render
-         ;; wider than Emacs reports, especially on Windows.  40 chars is
-         ;; safely under any reasonable column width.
-         (count 40))
-    (let ((ov (markdown-modern-render--get-overlay start end)))
+In a graphical frame the rule is a line across the text area, so it never
+wraps, whatever the window width or text size.  A terminal shows a row of
+`markdown-modern-render--hr-char' that fits the window."
+  (let ((ov (markdown-modern-render--get-overlay
+             (markdown-modern-node-start elem) (markdown-modern-node-end elem))))
+    (if (display-graphic-p)
+        (progn
+          (overlay-put ov 'display '(space :align-to (- right 1)))
+          (overlay-put ov 'face '(:inherit markdown-modern-hr :strike-through t)))
       (overlay-put ov 'display
-                   (propertize (make-string count markdown-modern-render--hr-char)
-                              'face 'markdown-modern-hr))
-      (overlay-put ov 'markdown-modern-type 'hr))))
+                   (propertize (make-string (markdown-modern-render--hr-width)
+                                            markdown-modern-render--hr-char)
+                               'face 'markdown-modern-hr)))
+    (overlay-put ov 'markdown-modern-type 'hr)))
+
+(defun markdown-modern-render--hr-width ()
+  "Return how many characters a rule takes in a terminal.
+That is the reading width, or less to fit the window."
+  (let ((win (get-buffer-window (current-buffer)))
+        (width (or (bound-and-true-p markdown-modern-text-width) 80)))
+    (max 3 (if win
+               (min width (- (window-body-width win)
+                             (or (bound-and-true-p markdown-modern-left-margin) 0)
+                             1))
+             width))))
 
 (defun markdown-modern-render--process-cell-text (text base-face)
   "Process TEXT for inline formatting like **bold**, with BASE-FACE as default."

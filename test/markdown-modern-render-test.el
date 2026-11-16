@@ -946,6 +946,36 @@ Lines of a nested item are left alone."
           (search-forward "second")
           (should (= first-x (car (posn-x-y (posn-at-point (match-beginning 0)))))))))))
 
+(ert-deftest render/hr-fits-window ()
+  "A rule never wraps: in a terminal it is no wider than the window."
+  (save-window-excursion
+    (delete-other-windows)
+    (with-temp-buffer
+      (switch-to-buffer (current-buffer))
+      (insert "a\n\n---\n\nb\n")
+      (markdown-modern-mode)
+      (markdown-modern--jit-fontify (point-min) (point-max))
+      (let ((display (get-char-property (1+ (search-backward "---")) 'display)))
+        (if (display-graphic-p)
+            (should (equal display '(space :align-to (- right 1))))
+          (should (< (+ (string-width display) markdown-modern-left-margin)
+                     (window-body-width))))))))
+
+(ert-deftest render/hr-pixel-no-wrap-when-scaled ()
+  "A rule stays on one screen line at a large text size."
+  (skip-unless (display-graphic-p))
+  (save-window-excursion
+    (with-temp-buffer
+      (switch-to-buffer (current-buffer))
+      (insert "a\n\n---\n\nb\n")
+      (markdown-modern-mode)
+      (text-scale-set 4)
+      (markdown-modern--jit-fontify (point-min) (point-max))
+      (redisplay t)
+      (goto-char (point-min))
+      (search-forward "---")
+      (should (= 1 (count-screen-lines (match-beginning 0) (match-end 0)))))))
+
 (ert-deftest render/list-marker-reveal-pixel-alignment ()
   "Revealing an unordered marker does not move its text."
   (skip-unless (display-graphic-p))
