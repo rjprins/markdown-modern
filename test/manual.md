@@ -15,7 +15,8 @@ marked "Regression".
 
 Try: put point on each heading. The `#` markers appear at the heading's size.
 `C-c C-n` and `C-c C-p` move between headings, `C-c C-u` goes to the parent.
-`TAB` on a heading folds it.
+`TAB` on a heading folds it, and `TAB` again shows it in steps. `S-TAB`
+folds the whole file. Regression: `TAB` inserted spaces instead.
 
 ## Inline formatting
 
@@ -23,30 +24,33 @@ This has **bold**, *italic*, ***bold italic***, `inline code` and
 ~~strikethrough~~. Underscores work too: __bold__ and _italic_.
 
 Combined: **bold with `code` inside**, *italic with a [link](https://example.com)*,
-and ~~struck **bold**~~.
+and ~~struck **bold**~~. Regression: the bold part was not struck through,
+and the code inside bold lost its colour.
 
-Escaped characters stay literal: \*not italic\*, \`not code\`, \# not a heading.
+Escaped characters stay literal and hide their backslash: \*not italic\*,
+\`not code\`, \# not a heading. Point next to one shows the backslash.
 
 Try: move point into each element. Only that element shows its delimiters, and
 its style stays. Move away and it is drawn again.
 
 ## Paragraphs and line breaks
 
-This paragraph is wrapped over several source lines. They should show as one
-flowing paragraph that fills the window width. The file itself keeps the
-line breaks. Type a character in here and the source lines show, with a `↵`
-at each newline that will show as a space.
+This paragraph is wrapped over several source lines. They show as written,
+one screen line per source line, and wrap at the reading width when longer.
+With `markdown-modern-join-paragraph-lines` on, they show as one flowing
+paragraph instead, and typing in it shows the source lines with a `↵` at each
+newline that will show as a space.
 
 This line ends with two spaces for a hard break.  
 So this line starts on its own line.
 
-This line ends with a backslash for a hard break.\
+This line ends with a backslash for a hard break, which is hidden.\
 So does this one.
 
 A blank line keeps paragraphs apart.
 
-Try: type in the first paragraph, then move out and pause. The lines join
-again.
+Try: with line joining on, type in the first paragraph, then move out and
+pause. The lines join again.
 
 ## Links
 
@@ -123,8 +127,12 @@ Task list:
 Try:
 
 - Point on a bullet shows `- `, and the text does not move.
-- `M-RET` adds an item. `C-c <up>` and `C-c <down>` move an item.
-  `C-c <left>` and `C-c <right>` change its level.
+- `M-RET` adds an item after the item at point and its nested items.
+  `C-c <up>` and `C-c <down>` move an item with its nested items.
+  `C-c <left>` and `C-c <right>` change its level, also with `TAB` and
+  `S-TAB`. Regression: these worked on single lines, so they split items.
+- The second line of this item starts where the text of its first line
+  starts. Regression: it started a little left of it.
 - `SPC` on a checkbox toggles it. `Backspace` on it removes the checkbox.
 - Bullets and checkboxes start their text at the same column, also after
   `C-x C-+`.
@@ -181,7 +189,9 @@ const greet = (name) => `Hello, ${name}!`;
 Try: move into a block, it shows its fences. `C-c '` opens the code in its own
 buffer with the language's mode. `C-c '` again saves, `C-c C-k` aborts.
 Regression: after `C-c '` on the block in the list item, the list must still
-have one bullet.
+have one bullet. In the `C-c '` buffer, `M->` and a new line stay inside the
+block, and leaving closes the window it opened. The indented block shows as
+code.
 
 ## Tables
 
@@ -199,8 +209,12 @@ have one bullet.
 Try: put point in a row. Only that row becomes editable, and its borders stay
 in line with the box while you type. `TAB` and `S-TAB` move between cells, and
 `TAB` in the last cell adds a row. `C-c C-v t` toggles horizontal scrolling.
+Regression: after `TAB` added a row, the next table stayed raw text. Split the
+window side by side: the wide table fits the narrower window.
 
 ## Horizontal rules
+
+Try: `C-x C-+` a few times. Each rule stays on one line.
 
 ---
 
