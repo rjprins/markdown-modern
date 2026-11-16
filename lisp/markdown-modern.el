@@ -643,7 +643,9 @@ LOOKING-AT are as described there."
   (setq markdown-modern--chars-tick (buffer-chars-modified-tick))
   (add-hook 'after-change-functions #'markdown-modern--after-change nil t)
   ;; An edit can change how text far from it parses, as when a new table
-  ;; row ends one table and starts another.  Re-render what changed.
+  ;; row ends one table and starts another.  Re-render what changed.  Parse
+  ;; first: the first parse changes everything and needs no notice.
+  (treesit-parser-root-node markdown-modern-ts--parser)
   (treesit-parser-add-notifier markdown-modern-ts--parser
                                #'markdown-modern--after-reparse)
   (add-hook 'text-scale-mode-hook #'markdown-modern--on-text-scale nil t)
@@ -652,6 +654,8 @@ LOOKING-AT are as described there."
   ;; body size, so a second run computes the same margins and stops there.
   (add-hook 'window-size-change-functions #'markdown-modern--update-text-width nil t)
   (add-hook 'window-buffer-change-functions #'markdown-modern--update-text-width nil t)
+  ;; Run after the margin is set, which changes the width tables fit.
+  (add-hook 'window-size-change-functions #'markdown-modern--refit-tables 90 t)
   (when markdown-modern-advise-window-splittable-p
     (advice-add 'window-splittable-p :around
                 #'markdown-modern--window-splittable-p))
@@ -749,6 +753,23 @@ There is no margin while lines are truncated, so they scroll at full width."
             (unless (= new-right right)
               (set-window-margins win (car margins) new-right))))))))
 
+(defun markdown-modern--refit-tables (&optional window)
+  "Draw the tables again if WINDOW's size changed the width they fit.
+WINDOW defaults to the selected window.  Tables are drawn to fit the width
+of a window that shows the buffer, so a split or resize can leave them too
+wide or too narrow."
+  (let ((win (or window (selected-window))))
+    (when (window-live-p win)
+      (with-current-buffer (window-buffer win)
+        (when (and (derived-mode-p 'markdown-modern-mode)
+                   markdown-modern--rendering-enabled
+                   markdown-modern-render--table-display-width
+                   (not markdown-modern-table-max-width)
+                   (/= markdown-modern-render--table-display-width
+                       (markdown-modern-render--table-display-width)))
+          (setq markdown-modern-render--table-display-width nil)
+          (jit-lock-refontify))))))
+
 (defun markdown-modern--update-text-width-everywhere ()
   "Update the reading width in every window that shows the current buffer."
   (dolist (win (get-buffer-window-list nil nil t))
@@ -769,6 +790,7 @@ There is no margin while lines are truncated, so they scroll at full width."
   (remove-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer t)
   (remove-hook 'window-size-change-functions #'markdown-modern--update-text-width t)
   (remove-hook 'window-buffer-change-functions #'markdown-modern--update-text-width t)
+  (remove-hook 'window-size-change-functions #'markdown-modern--refit-tables t)
 
   ;; Reset state
   (setq markdown-modern--revealed-region nil)

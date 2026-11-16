@@ -1554,6 +1554,10 @@ to the frame's character width when no window/font info is available."
                  1)))
     (max 1 (round (* base scale)))))
 
+(defvar-local markdown-modern-render--table-display-width nil
+  "The table width, in columns, that tables in this buffer were drawn for.
+nil until a table is drawn.  See `markdown-modern-render--table-display-width'.")
+
 (defun markdown-modern-render--table-display-width ()
   "Available width for tables, in fixed-pitch character columns.
 Computed from the window's body pixel width divided by the fixed-pitch
@@ -1610,7 +1614,8 @@ character capacity (see `markdown-modern-render--table-display-width')."
     ;; minimum (then wrap).
     (when (> num-cols 0)
       (let* ((available-total (or markdown-modern-table-max-width
-                                  (markdown-modern-render--table-display-width)))
+                                  (setq markdown-modern-render--table-display-width
+                                        (markdown-modern-render--table-display-width))))
              (border-overhead (+ 1 num-cols (* 2 num-cols)))
              (available (max num-cols (- available-total border-overhead)))
              (floors (mapcar (lambda (w) (min w markdown-modern-table-min-column-width))

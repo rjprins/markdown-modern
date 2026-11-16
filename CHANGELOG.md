@@ -59,6 +59,9 @@ on [Keep a Changelog](https://keepachangelog.com/).
   once the row had content. Tree-sitter reads a row of empty cells as the
   line under a table header, so until you type in it, the tables below show
   as text.
+- Tables fit the window again after it is split or resized. They kept the
+  old width, so a wide table wrapped into a broken box until point entered
+  it.
 - In a list nested four spaces deep, the first item under each parent shows a
   bullet instead of a raw `-`, and its wrapped text lines up.
 - Bullets follow the nesting level however deep it is indented, so a

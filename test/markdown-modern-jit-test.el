@@ -73,6 +73,24 @@ then be drawn again."
       (insert "z")
       (should (second-table-drawn-p)))))
 
+(ert-deftest jit/window-resize-refits-tables ()
+  "Tables are drawn again when a window resize changes the width they fit."
+  (save-window-excursion
+    (delete-other-windows)
+    (with-temp-buffer
+      (insert "| a | b |\n|---|---|\n| 1 | 2 |\n\ntext\n")
+      (switch-to-buffer (current-buffer))
+      (markdown-modern-mode)
+      (jit-lock-fontify-now)
+      (should markdown-modern-render--table-display-width)
+      (should (get-text-property 1 'fontified))
+      ;; Nothing changed: nothing to draw again.
+      (markdown-modern--refit-tables)
+      (should (get-text-property 1 'fontified))
+      (split-window-right)
+      (markdown-modern--refit-tables)
+      (should-not (get-text-property 1 'fontified)))))
+
 ;;; Block-level region extension
 
 (ert-deftest jit/extend-region-covers-fenced-block ()
