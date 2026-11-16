@@ -396,9 +396,14 @@ prefix), the marker with the next number for an ordered list, the space
 after it, and an empty checkbox for a task item."
   (let* ((marker (treesit-node-child item 0))
          (start (markdown-modern--list-item-marker-start item))
-         (prefix (save-excursion (goto-char start)
-                                 (buffer-substring-no-properties
-                                  (line-beginning-position) start)))
+         ;; The text before the marker: indentation and quote markers, or
+         ;; the marker of a parent item on the same line, as in "- - a",
+         ;; which becomes indentation.
+         (prefix (replace-regexp-in-string
+                  "[^> \t]" " "
+                  (save-excursion (goto-char start)
+                                  (buffer-substring-no-properties
+                                   (line-beginning-position) start))))
          (text (buffer-substring-no-properties
                 start (save-excursion (goto-char (treesit-node-end marker))
                                       (min (point) (line-end-position)))))
@@ -560,6 +565,10 @@ item: in SECOND when POINT-IN-SECOND is non-nil, else in FIRST."
     (unless (string-suffix-p "\n" text-b)
       (setq text-b (concat text-b "\n")
             text-a (string-remove-suffix "\n" text-a)))
+    ;; Point on a blank line after the item stays with the item.
+    (setq offset (max 0 (min offset (1- (length (if point-in-second
+                                                     text-b
+                                                   text-a))))))
     (goto-char (car a))
     (delete-region (car a) (cdr b))
     (insert text-b gap text-a)

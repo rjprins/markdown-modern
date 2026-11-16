@@ -272,6 +272,16 @@ Use [ and ] to mark region boundaries in INITIAL."
   "- a\n\n- |b\n\n- c" "- a\n\n- c\n\n- |b"
   (markdown-modern-move-item-down))
 
+(mg-cmd-test list-move-from-blank-line
+  "Moving from the blank line after an item keeps point in the item."
+  "- a\n|\n- b\n" "- b\n\n- a|\n"
+  (markdown-modern-move-item-down))
+
+(mg-cmd-test list-item-nested-on-parent-line
+  "A new item after one nested on its parent's line is indented, not bulleted twice."
+  "- - a|\n" "- - a\n  - |\n"
+  (markdown-modern-insert-list-item))
+
 (ert-deftest cmd/list-move-stays-in-list ()
   "An item does not move past the end of its list into the next one."
   (with-temp-buffer
