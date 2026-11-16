@@ -306,7 +306,11 @@ Uses built-in converter (no external dependencies)."
 ;; display math and paragraphs.  It recurses into quotes and list items.  An
 ;; inline pass then renders the text of each paragraph, heading and table
 ;; cell.  It sets code spans, math, raw HTML and backslash escapes aside
-;; first, so the emphasis and link rules never see them.
+;; first, so the emphasis and link rules never see them, and leaves link
+;; destinations alone.  Then it turns each link into one placeholder, with
+;; its text rendered on its own, and last it renders emphasis.  Each
+;; emphasis span is rendered on its own too, so spans nest and never
+;; cross a link or another span.
 
 (defvar markdown-modern-export--link-refs nil
   "Hash table of link reference definitions, bound during a conversion.
@@ -363,6 +367,17 @@ Keys are normalized labels, values are (URL . TITLE).")
           "\\(?:[ \t]+\\(?:\"\\([^\"]*\\)\"\\|'\\([^']*\\)'\\|(\\([^)]*\\))\\)\\)?"
           "[ \t]*\\'")
   "Regexp for a link reference definition.")
+
+(defconst markdown-modern-export--entity-re
+  "&\\(?:#[0-9]\\{1,7\\}\\|#[xX][0-9a-fA-F]\\{1,6\\}\\|[A-Za-z][A-Za-z0-9]\\{0,31\\}\\);"
+  "Regexp for an HTML entity or numeric character reference.")
+
+(defconst markdown-modern-export--link-dest-re
+  (concat "([ \t\n]*\\([^ \t\n()]*\\(?:([^ \t\n()]*)[^ \t\n()]*\\)*\\)"
+          "\\(?:[ \t\n]+\\(?:\"\\([^\"]*\\)\"\\|'\\([^']*\\)'\\)\\)?"
+          "[ \t\n]*)")
+  "Regexp for the destination and title of an inline link, after its ].
+Group 1 is the destination, group 2 or 3 the title.")
 
 (defun markdown-modern-export--markdown-to-html (markdown)
   "Convert MARKDOWN string to HTML."
@@ -833,17 +848,10 @@ paragraphs are not wrapped in <p>."
       (let ((case-fold-search nil))
         (insert text)
         (markdown-modern-export--inline-protect stash)
-        (markdown-modern-export--inline-links stash)
-        (markdown-modern-export--emphasis "***" "<strong><em>" "</em></strong>")
-        (markdown-modern-export--emphasis "___" "<strong><em>" "</em></strong>" t)
-        (markdown-modern-export--emphasis "**" "<strong>" "</strong>")
-        (markdown-modern-export--emphasis "__" "<strong>" "</strong>" t)
-        (markdown-modern-export--emphasis "*" "<em>" "</em>")
-        (markdown-modern-export--emphasis "_" "<em>" "</em>" t)
-        (markdown-modern-export--emphasis "~~" "<del>" "</del>")
         (goto-char (point-min))
         (while (re-search-forward " \\{2,\\}\n" nil t)
-          (replace-match "<br>\n" t t))
+          (replace-match (concat (funcall stash "<br>") "\n") t t))
+        (markdown-modern-export--inline-spans stash)
         ;; Put back what was set aside.  A slot can hold other slots.
         (goto-char (point-min))
         (while (re-search-forward "\uE000\\([0-9]+\\)\uE001" nil t)
@@ -855,13 +863,19 @@ paragraphs are not wrapped in <p>."
 (defun markdown-modern-export--inline-protect (stash)
   "Set aside code, math, raw HTML and escapes in the current buffer.
 Each is replaced with a placeholder from the function STASH, which
-takes the final HTML.  Escape other <, > and & characters."
+takes the final HTML.  Escape other <, > and & characters.  Skip
+the destination and title of inline links, which
+`markdown-modern-export--inline-links' reads as written."
   (goto-char (point-min))
-  (while (re-search-forward "[\\`$<>&]" nil t)
+  (while (re-search-forward "[]\\`$<>&]" nil t)
     (let ((start (match-beginning 0))
           (char (char-before)))
       (goto-char start)
       (pcase char
+        (?\]
+         (if (looking-at (concat "\\]" markdown-modern-export--link-dest-re))
+             (goto-char (match-end 0))
+           (forward-char 1)))
         (?\\
          (cond
           ((looking-at "\\\\\\([!-/:-@[-`{-~]\\)")
@@ -924,7 +938,7 @@ takes the final HTML.  Escape other <, > and & characters."
          (delete-char 1)
          (insert "&gt;"))
         (?&
-         (if (looking-at "&\\(?:#[0-9]\\{1,7\\}\\|#[xX][0-9a-fA-F]\\{1,6\\}\\|[A-Za-z][A-Za-z0-9]\\{0,31\\}\\);")
+         (if (looking-at markdown-modern-export--entity-re)
              (goto-char (match-end 0))
            (delete-char 1)
            (insert "&amp;")))))))
@@ -937,10 +951,33 @@ takes the final HTML.  Escape other <, > and & characters."
   "Return TEXT with its double quotes escaped for an HTML attribute."
   (string-replace "\"" "&quot;" text))
 
+(defun markdown-modern-export--link-attribute (text)
+  "Return the link destination or title TEXT as an HTML attribute value.
+Backslash escapes give their character.  Escape <, >, double quotes
+and any & that does not start an entity."
+  (replace-regexp-in-string
+   (concat markdown-modern-export--entity-re "\\|[&<>\"]")
+   (lambda (match)
+     (pcase match
+       ("&" "&amp;")
+       ("<" "&lt;")
+       (">" "&gt;")
+       ("\"" "&quot;")
+       (_ match)))
+   (replace-regexp-in-string "\\\\\\([!-/:-@[-`{-~]\\)" "\\1" text t)
+   t t))
+
+(defun markdown-modern-export--inline-spans (stash)
+  "Render links and emphasis in the accessible part of the buffer.
+Each link and emphasis span becomes a placeholder from the function
+STASH."
+  (markdown-modern-export--inline-links stash)
+  (markdown-modern-export--emphasis stash))
+
 (defun markdown-modern-export--inline-links (stash)
-  "Convert links and images in the current buffer to HTML.
-Tags are replaced with placeholders from the function STASH, so
-URLs do not get emphasis."
+  "Convert links and images in the accessible part of the buffer to HTML.
+Each becomes a placeholder from the function STASH.  The text of a
+link is rendered on its own, so emphasis never pairs across the link."
   (goto-char (point-min))
   (while (re-search-forward "!?\\[" nil t)
     (let ((start (match-beginning 0))
@@ -953,12 +990,10 @@ URLs do not get emphasis."
           (setq text (match-string 2))
           (goto-char text-end)
           (cond
-           ((looking-at (concat "([ \t\n]*\\([^ \t\n()]*\\(?:([^ \t\n()]*)[^ \t\n()]*\\)*\\)"
-                                "\\(?:[ \t\n]+\\(?:\"\\([^\"]*\\)\"\\|'\\([^']*\\)'\\)\\)?"
-                                "[ \t\n]*)"))
-            (setq url (markdown-modern-export--attribute (match-string 1))
+           ((looking-at markdown-modern-export--link-dest-re)
+            (setq url (markdown-modern-export--link-attribute (match-string 1))
                   title (let ((title (or (match-string 2) (match-string 3))))
-                          (and title (markdown-modern-export--attribute title)))
+                          (and title (markdown-modern-export--link-attribute title)))
                   end (match-end 0)))
            (t
             (let* ((full (looking-at "\\[\\([^]]*\\)\\]"))
@@ -975,39 +1010,75 @@ URLs do not get emphasis."
           (if (not url)
               (goto-char (1+ start))
             (let ((title-attr (if title (format " title=\"%s\"" title) "")))
-              (delete-region start end)
-              (goto-char start)
               (if image
-                  (insert
-                   (funcall stash
-                            (format "<img src=\"%s\" alt=\"%s\"%s>"
-                                    (if (and markdown-modern-export-embed-images
-                                             (file-exists-p url))
-                                        (markdown-modern-export--image-to-base64 url)
-                                      url)
-                                    (markdown-modern-export--attribute text)
-                                    title-attr)))
-                (insert (funcall stash (format "<a href=\"%s\"%s>" url title-attr)))
-                ;; Leave point before the text, so images inside it convert.
-                (save-excursion (insert text "</a>"))))))))))
+                  (progn
+                    (delete-region start end)
+                    (goto-char start)
+                    (insert
+                     (funcall stash
+                              (format "<img src=\"%s\" alt=\"%s\"%s>"
+                                      (if (and markdown-modern-export-embed-images
+                                               (file-exists-p url))
+                                          (markdown-modern-export--image-to-base64 url)
+                                        url)
+                                      (markdown-modern-export--attribute text)
+                                      title-attr))))
+                ;; Render the text on its own, between the brackets.
+                (delete-region (1- text-end) end)
+                (delete-region start (1+ start))
+                (let (html)
+                  (save-restriction
+                    (narrow-to-region start (- text-end 2))
+                    (markdown-modern-export--inline-spans stash)
+                    (setq html (buffer-string))
+                    (delete-region (point-min) (point-max)))
+                  (goto-char start)
+                  (insert (funcall stash (format "<a href=\"%s\"%s>%s</a>"
+                                                 url title-attr html))))))))))))
 
-(defun markdown-modern-export--emphasis (delim open close &optional word-bound)
-  "Wrap text between DELIM pairs in the current buffer in OPEN and CLOSE.
-The text must not start or end with whitespace or DELIM's character.
-With WORD-BOUND, DELIM must not touch a letter or digit outside, so
-snake_case words stay as they are."
-  (let* ((char (substring delim 0 1))
-         (content (format "\\([^%s[:space:]]\\(?:[[:ascii:][:nonascii:]]*?[^%s[:space:]]\\)?\\)"
-                          char char))
-         (quoted (regexp-quote delim))
-         (re (if word-bound
-                 (concat "\\(?:^\\|[^[:alnum:]_]\\)\\(" quoted content quoted
-                         "\\)\\(?:[^[:alnum:]_]\\|$\\)")
-               (concat quoted content quoted))))
-    (goto-char (point-min))
-    (while (re-search-forward re nil t)
-      (replace-match (concat open (match-string (if word-bound 2 1)) close)
-                     t t nil (if word-bound 1 0)))))
+(defconst markdown-modern-export--emphasis-delimiters
+  '(("***" "<strong><em>" "</em></strong>")
+    ("___" "<strong><em>" "</em></strong>" t)
+    ("**" "<strong>" "</strong>")
+    ("__" "<strong>" "</strong>" t)
+    ("*" "<em>" "</em>")
+    ("_" "<em>" "</em>" t)
+    ("~~" "<del>" "</del>"))
+  "Emphasis delimiters with their opening and closing tags, longest first.
+A fourth element t means the delimiter must not touch a letter or
+digit outside, so snake_case words stay as they are.")
+
+(defun markdown-modern-export--emphasis (stash)
+  "Render emphasis in the accessible part of the buffer.
+A span runs from a delimiter to the first one that can close it.  Its
+text must not start or end with whitespace or the delimiter's
+character.  The text is rendered on its own and the span becomes a
+placeholder from the function STASH, so spans found later nest around
+it and never cross it."
+  (pcase-dolist (`(,delim ,open ,close ,word-bound)
+                 markdown-modern-export--emphasis-delimiters)
+    (let* ((char (substring delim 0 1))
+           (len (length delim))
+           (quoted (regexp-quote delim))
+           (span (format "\\(%s\\([^%s[:space:]]\\(?:[[:ascii:][:nonascii:]]*?[^%s[:space:]]\\)??\\)%s\\)"
+                         quoted char char quoted))
+           (re (if word-bound
+                   (concat "\\(?:^\\|[^[:alnum:]_]\\)" span "\\(?:[^[:alnum:]_]\\|$\\)")
+                 span)))
+      (goto-char (point-min))
+      (while (re-search-forward re nil t)
+        (let ((start (match-beginning 1))
+              (text-end (match-end 2))
+              html)
+          (delete-region text-end (match-end 1))
+          (delete-region start (+ start len))
+          (save-restriction
+            (narrow-to-region start (- text-end len))
+            (markdown-modern-export--emphasis stash)
+            (setq html (buffer-string))
+            (delete-region (point-min) (point-max)))
+          (goto-char start)
+          (insert (funcall stash (concat open html close))))))))
 
 (defun markdown-modern-export--image-to-base64 (path)
   "Convert image at PATH to base64 data URI."

@@ -96,10 +96,13 @@ on [Keep a Changelog](https://keepachangelog.com/).
   nested HTML.
 - HTML export honours backslash escapes and hard line breaks (two trailing
   spaces or a trailing backslash). Math is exported as written, without
-  emphasis inside, and underscores inside words stay as they are.
+  emphasis inside, and underscores inside words stay as they are. Two
+  emphasis spans in one paragraph stay two spans, and nested emphasis exports
+  as nested HTML.
 - HTML export escapes `<` and `&` in text and keeps raw HTML such as
   `<details>` and `<kbd>`. Link titles, reference links, autolinks and table
-  column alignment export too.
+  column alignment export too. Link addresses are kept as written, without
+  math or emphasis inside, and emphasis does not pair across a link.
 
 ### Removed
 

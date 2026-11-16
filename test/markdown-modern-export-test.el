@@ -411,6 +411,47 @@
   "Underscores inside words are not emphasis."
   (should (equal (mg-export "snake_case_name") "<p>snake_case_name</p>")))
 
+(ert-deftest export/emphasis-pairs-each-span ()
+  "Two emphasis spans in one paragraph stay two spans."
+  (dolist (case '(("*a* and *b*" . "<em>a</em> and <em>b</em>")
+                  ("_a_ and _b_" . "<em>a</em> and <em>b</em>")
+                  ("**a** and **b**" . "<strong>a</strong> and <strong>b</strong>")
+                  ("__a__ and __b__" . "<strong>a</strong> and <strong>b</strong>")
+                  ("~~a~~ and ~~b~~" . "<del>a</del> and <del>b</del>")
+                  ("_a_ _b_" . "<em>a</em> <em>b</em>")))
+    (should (equal (mg-export (car case)) (concat "<p>" (cdr case) "</p>")))))
+
+(ert-deftest export/emphasis-nesting ()
+  "Emphasis nests, and spans that overlap still give nested HTML."
+  (dolist (case '(("***a***" . "<strong><em>a</em></strong>")
+                  ("**a *b* c**" . "<strong>a <em>b</em> c</strong>")
+                  ("*a **b** c*" . "<em>a <strong>b</strong> c</em>")
+                  ("_a_b c_" . "<em>a_b c</em>")
+                  ("__init__" . "<strong>init</strong>")
+                  ("2*3*4" . "2<em>3</em>4")
+                  ("a * b * c" . "a * b * c")))
+    (should (equal (mg-export (car case)) (concat "<p>" (cdr case) "</p>"))))
+  (dolist (text '("**a *b** c*" "*a **b* c**" "*a *b* c*"))
+    (should (mg-balanced-p (mg-export text)))))
+
+(ert-deftest export/link-destination-is-literal ()
+  "Math, emphasis and escapes are not applied inside a link destination."
+  (should (equal (mg-export "[a](http://x/$foo$bar)")
+                 "<p><a href=\"http://x/$foo$bar\">a</a></p>"))
+  (should (equal (mg-export "[a](http://x/*b*_c_ \"t $x$ *y*\")")
+                 "<p><a href=\"http://x/*b*_c_\" title=\"t $x$ *y*\">a</a></p>"))
+  (should (equal (mg-export "[a](http://x/?a=1&b=2&amp;c=\\_)")
+                 "<p><a href=\"http://x/?a=1&amp;b=2&amp;c=_\">a</a></p>")))
+
+(ert-deftest export/emphasis-stays-out-of-links ()
+  "Emphasis does not pair across a link, but works inside its text."
+  (should (equal (mg-export "[*a](u) b*") "<p><a href=\"u\">*a</a> b*</p>"))
+  (should (equal (mg-export "*b [a*](u)") "<p>*b <a href=\"u\">a*</a></p>"))
+  (should (equal (mg-export "*[a](u)* and [*b* $x$](v)")
+                 "<p><em><a href=\"u\">a</a></em> and <a href=\"v\"><em>b</em> <span class=\"math inline\">$x$</span></a></p>"))
+  (should (equal (mg-export "[![i](p.png) *t*](u)")
+                 "<p><a href=\"u\"><img src=\"p.png\" alt=\"i\"> <em>t</em></a></p>")))
+
 (ert-deftest export/link-title ()
   "A link title becomes a title attribute."
   (mg-html-contains "[GitHub](https://github.com \"GitHub home\")"
