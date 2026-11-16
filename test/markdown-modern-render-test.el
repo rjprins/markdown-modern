@@ -1025,6 +1025,20 @@ A backslash inside code stays."
     (search-forward "\\*")
     (should (markdown-modern--markup-element-at (point)))))
 
+(ert-deftest render/backslash-does-not-hide-emphasis-at-point ()
+  "Emphasis around or next to an escape or hard break is revealed at point."
+  (markdown-modern-render-test--with "foo\\\n**bar** baz\n"
+    (goto-char (point-min))
+    (search-forward "**")
+    (should (equal (markdown-modern--markup-element-at (match-beginning 0))
+                   (cons (match-beginning 0)
+                         (progn (search-forward "**") (point))))))
+  (markdown-modern-render-test--with "x *a\\*b* y\n"
+    (goto-char (point-min))
+    (search-forward "\\")
+    (should (equal (markdown-modern--markup-element-at (match-beginning 0))
+                   '(3 . 9)))))
+
 (ert-deftest render/list-marker-reveal-pixel-alignment ()
   "Revealing an unordered marker does not move its text."
   (skip-unless (display-graphic-p))

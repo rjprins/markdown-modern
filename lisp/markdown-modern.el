@@ -1009,22 +1009,29 @@ the true rendered extent."
 (defun markdown-modern--inline-element-at (pos start end)
   "Return (S . E) of the smallest inline markup element at POS within START..END.
 Returns nil if POS is not within any inline markup.  Boundary-inclusive, so
-POS immediately before or after the markup counts as inside it."
+POS immediately before or after the markup counts as inside it.  A
+backslash escape or hard line break counts only when no other markup is at
+POS: it is the smallest element wherever it is, and would keep the
+delimiters of emphasis around or next to it hidden."
   (let ((best nil)
-        (best-size nil))
+        (best-size nil)
+        (backslash nil))
     (dolist (el (ignore-errors (markdown-modern-ts--inline-elements-in start end)))
       (let ((s (markdown-modern-node-start el))
-            (e (markdown-modern-node-end el)))
+            (e (markdown-modern-node-end el))
+            (type (markdown-modern-node-type el)))
         (when (and s e (>= pos s) (<= pos e)
                    ;; A reference without a definition is plain text.
-                   (or (not (memq (markdown-modern-node-type el)
+                   (or (not (memq type
                                   markdown-modern-render--reference-link-types))
                        (markdown-modern-render--reference-link-target el)))
-          (let ((size (- e s)))
-            (when (or (null best-size) (< size best-size))
-              (setq best (cons s e)
-                    best-size size))))))
-    best))
+          (if (memq type '(escape hard-break))
+              (setq backslash (or backslash (cons s e)))
+            (let ((size (- e s)))
+              (when (or (null best-size) (< size best-size))
+                (setq best (cons s e)
+                      best-size size)))))))
+    (or best backslash)))
 
 (defconst markdown-modern--reveal-block-types
   '(heading code-block code-block-indented blockquote table hr html-block)
