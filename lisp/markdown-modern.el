@@ -601,6 +601,14 @@ WINDOW defaults to the selected window.  See `markdown-modern-text-width'."
                             (default-font-width)))
                  (new-right (markdown-modern--text-width-right-margin
                              available-px font-px char-px)))
+            ;; Draw the fringes at the window edge, not between the text and
+            ;; the margin, where the right one would show as a bar.
+            (unless (nth 2 (window-fringes win))
+              (set-window-fringes win left-fringe-width right-fringe-width t))
+            ;; Let a split shrink the margin; the hooks then refit both
+            ;; windows.  Otherwise a wide margin makes the window too small to
+            ;; split side by side.
+            (set-window-parameter win 'min-margins '(0 . 0))
             (unless (= new-right right)
               (set-window-margins win (car margins) new-right))))))))
 
@@ -643,11 +651,14 @@ WINDOW defaults to the selected window.  See `markdown-modern-text-width'."
   (setq-local line-prefix nil)
   (setq-local wrap-prefix nil)
 
-  ;; Give back the right margins that the reading width took, unless another
-  ;; mode manages them.
+  ;; Give back the right margins and fringe placement that the reading width
+  ;; took, unless another mode manages them.
   (unless (markdown-modern--other-width-manager-p)
     (dolist (win (get-buffer-window-list nil nil t))
-      (set-window-margins win (car (window-margins win)) right-margin-width)))
+      (set-window-margins win (car (window-margins win)) right-margin-width)
+      (set-window-fringes win left-fringe-width right-fringe-width
+                          fringes-outside-margins)
+      (set-window-parameter win 'min-margins nil)))
 
   ;; Clear overlays
   (markdown-modern-render--clear-all)

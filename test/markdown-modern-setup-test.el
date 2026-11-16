@@ -148,6 +148,30 @@
           (should-not (memq #'markdown-modern--update-text-width
                             window-size-change-functions)))))))
 
+(ert-deftest setup/text-width-fringes-and-split ()
+  "The fringes go outside the margin, and a wide margin does not block a split."
+  (let ((markdown-modern-text-width 40)
+        (markdown-modern-left-margin 4)
+        (fringe-calls nil))
+    (save-window-excursion
+      (with-temp-buffer
+        (switch-to-buffer (current-buffer))
+        (delete-other-windows)
+        (set-window-margins nil nil nil)
+        ;; Batch frames have no fringes to read back, so record the calls.
+        (cl-letf (((symbol-function 'set-window-fringes)
+                   (lambda (_window _left &optional _right outside &rest _)
+                     (push outside fringe-calls))))
+          (markdown-modern-mode)
+          (should (equal fringe-calls '(t)))
+          (should (equal (window-parameter nil 'min-margins) '(0 . 0)))
+          ;; The margin leaves 44 of 80 columns, too few for two windows of
+          ;; that width unless the split may shrink the margin.
+          (should (split-window-right))
+          (fundamental-mode)
+          (should (equal (car fringe-calls) fringes-outside-margins))
+          (should-not (window-parameter nil 'min-margins)))))))
+
 (ert-deftest setup/text-width-nil-or-other-manager-leaves-margins ()
   "No margin without a reading width or under another width mode."
   (save-window-excursion
