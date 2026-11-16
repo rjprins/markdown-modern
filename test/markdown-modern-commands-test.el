@@ -212,9 +212,133 @@ Use [ and ] to mark region boundaries in INITIAL."
   (markdown-modern-promote-item))
 
 (mg-cmd-test list-demote
-  "Demote list item increases indent"
-  "|- item" "|  - item"
+  "Demote nests an item under the one above, with its own nested items."
+  "- a\n- |b\n  - c\n" "- a\n  - |b\n    - c\n"
   (markdown-modern-demote-item))
+
+(mg-cmd-test list-demote-ordered
+  "Demote lines an item up with the text of a numbered item above."
+  "1. a\n2. |b\n" "1. a\n   2. |b\n"
+  (markdown-modern-demote-item))
+
+(ert-deftest cmd/list-demote-first-item ()
+  "The first item of a list has nothing to nest under."
+  (with-temp-buffer
+    (insert "- a\n- b\n")
+    (goto-char (point-min))
+    (markdown-modern-ts--init)
+    (should-error (markdown-modern-demote-item) :type 'user-error)
+    (should (equal (buffer-string) "- a\n- b\n"))))
+
+(mg-cmd-test list-promote-with-children
+  "Promote moves nested items and continuation lines along."
+  "- a\n  - |b\n    more\n    - c\n" "- a\n- |b\n  more\n  - c\n"
+  (markdown-modern-promote-item))
+
+(mg-cmd-test list-move-up-past-subtree
+  "Moving up passes the whole item above, nested items included."
+  "- a\n  - a1\n- b|ack\n- d\n" "- b|ack\n- a\n  - a1\n- d\n"
+  (markdown-modern-move-item-up))
+
+(mg-cmd-test list-move-down-keeps-continuation-lines
+  "Moving down takes nested items along and passes whole items."
+  "- x\n  - th|ree\n    - four\n  - other\n    text\n- y\n"
+  "- x\n  - other\n    text\n  - th|ree\n    - four\n- y\n"
+  (markdown-modern-move-item-down))
+
+(mg-cmd-test list-move-loose-list
+  "Moving keeps the blank lines between items in place."
+  "- a\n\n- |b\n\n- c" "- a\n\n- c\n\n- |b"
+  (markdown-modern-move-item-down))
+
+(ert-deftest cmd/list-move-stays-in-list ()
+  "An item does not move past the end of its list into the next one."
+  (with-temp-buffer
+    (insert "1. a\n2. b\n\n1) c\n")
+    (goto-char (point-min))
+    (search-forward "b")
+    (markdown-modern-ts--init)
+    (should-error (markdown-modern-move-item-down) :type 'user-error)
+    (should (equal (buffer-string) "1. a\n2. b\n\n1) c\n"))))
+
+(mg-cmd-test list-item-after-nested-items
+  "A new item goes after the nested items of the item at point."
+  "- one|\n  - two\n- back\n" "- one\n  - two\n- |\n- back\n"
+  (markdown-modern-insert-list-item))
+
+(mg-cmd-test list-item-after-continuation-lines
+  "A new item goes after the continuation lines of a numbered item."
+  "10. ten wi|th\n    more text\n" "10. ten with\n    more text\n11. |\n"
+  (markdown-modern-insert-list-item))
+
+(mg-cmd-test list-item-from-continuation-line
+  "On a continuation line the new item continues the numbered list."
+  "1. one\n   mo|re\n" "1. one\n   more\n2. |\n"
+  (markdown-modern-insert-list-item))
+
+(mg-cmd-test list-item-keeps-parenthesis
+  "A list numbered with parentheses keeps them."
+  "1) one|\n" "1) one\n2) |\n"
+  (markdown-modern-insert-list-item))
+
+(mg-cmd-test list-item-task
+  "After a task item comes an unchecked task item."
+  "  * [x] done|\n" "  * [x] done\n  * [ ] |\n"
+  (markdown-modern-insert-list-item))
+
+(mg-cmd-test list-item-loose
+  "In a loose list the new item gets blank lines around it."
+  "- a|\n\n- b\n" "- a\n\n- |\n\n- b\n"
+  (markdown-modern-insert-list-item))
+
+(mg-cmd-test list-item-in-blockquote
+  "A list in a quote continues inside the quote."
+  "> - a|\n> - b\n" "> - a\n> - |\n> - b\n"
+  (markdown-modern-insert-list-item))
+
+(ert-deftest cmd/context-predicates-see-enclosing-blocks ()
+  "The context checks find the block around point, not the innermost node."
+  (with-temp-buffer
+    (insert "## Head\n\n- item [l](u)\n\n> quote\n\n```\ncode\n```\n")
+    (markdown-modern-ts--init)
+    (goto-char (point-min))
+    (should (markdown-modern-in-heading-p))
+    (end-of-line)
+    (should (markdown-modern-in-heading-p))
+    (search-forward "ite")
+    (should (markdown-modern-in-list-p))
+    (should-not (markdown-modern-in-heading-p))
+    (search-forward "[l")
+    (should (markdown-modern-in-link-p))
+    (search-forward "quo")
+    (should (markdown-modern-in-blockquote-p))
+    (search-forward "cod")
+    (should (markdown-modern-in-code-block-p))))
+
+(ert-deftest cmd/tab-on-list-item-nests-it ()
+  "TAB on a list item nests it instead of inserting whitespace."
+  (with-temp-buffer
+    (insert "- a\n- b\n")
+    (markdown-modern-ts--init)
+    (goto-char (point-max))
+    (forward-line -1)
+    (end-of-line)
+    (markdown-modern-tab)
+    (should (equal (buffer-string) "- a\n  - b\n"))))
+
+(ert-deftest cmd/tab-on-heading-folds ()
+  "TAB on a heading folds its section; a # line in code is not a heading."
+  (with-temp-buffer
+    (insert "# A\n\ntext\n\n```sh\n# comment\n```\n\n# B\n\nmore\n")
+    (markdown-modern-mode)
+    (goto-char (point-min))
+    (markdown-modern-tab)
+    (should (invisible-p (save-excursion (search-forward "text"))))
+    (should (invisible-p (save-excursion (search-forward "# comment"))))
+    (should-not (invisible-p (save-excursion (search-forward "# B")
+                                             (match-beginning 0))))
+    (should (equal (buffer-string)
+                   "# A\n\ntext\n\n```sh\n# comment\n```\n\n# B\n\nmore\n"))))
 
 ;;; Blockquote Tests
 

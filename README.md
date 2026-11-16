@@ -242,15 +242,16 @@ Use `M-,` (`xref-go-back`) to return to the Markdown buffer.
 | `C-c C-n` | `markdown-modern-next-heading` | Next heading |
 | `C-c C-p` | `markdown-modern-prev-heading` | Previous heading |
 | `C-c C-u` | `markdown-modern-up-heading` | Parent heading |
-| `TAB` | Context-sensitive | Cycle visibility / table nav |
+| `TAB` | Context-sensitive | Fold a heading, nest a list item, next table cell |
+| `S-TAB` | Context-sensitive | Fold all headings, un-nest a list item, previous table cell |
 
 ### Lists
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `M-RET` | `markdown-modern-insert-list-item` | New list item |
-| `C-c <up/down>` | Move item | Reorder list items |
-| `C-c <left/right>` | Promote/demote | Change indentation |
+| `M-RET` | `markdown-modern-insert-list-item` | New item after the item at point and its nested items |
+| `C-c <up/down>` | Move item | Swap an item, with its nested items, with the one above or below |
+| `C-c <left/right>` | Promote/demote | Change an item's level, with its nested items |
 | `C-c C-x C-b` | `markdown-modern-toggle-checkbox` | Toggle task checkbox |
 | `SPC` (on a checkbox) | `markdown-modern-space-or-toggle-checkbox` | Toggle the checkbox under point |
 | `Backspace`/`Delete` (on a checkbox) | `markdown-modern-checkbox-delete-{backward,forward}` | Remove the checkbox, keep the list item |

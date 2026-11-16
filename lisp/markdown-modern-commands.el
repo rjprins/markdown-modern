@@ -25,6 +25,8 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'subr-x)
+(require 'treesit)
 
 ;; Functions defined in other markdown-modern files
 (declare-function markdown-modern-in-heading-p "markdown-modern-elements")
@@ -34,8 +36,6 @@
 (declare-function markdown-modern-in-list-p "markdown-modern-elements")
 (declare-function markdown-modern-table-bounds "markdown-modern-elements")
 (declare-function markdown-modern-table-column-at-point "markdown-modern-elements")
-(declare-function markdown-modern-list-item-bounds "markdown-modern-elements")
-(declare-function markdown-modern-list-marker-at-point "markdown-modern-elements")
 (declare-function markdown-modern-heading-level-at-point "markdown-modern-elements")
 (declare-function markdown-modern--at-line-start-p "markdown-modern-elements")
 (declare-function markdown-modern--ensure-blank-line-before "markdown-modern-elements")
@@ -47,6 +47,7 @@
 (defvar markdown-modern--rendering-enabled)
 (defvar markdown-modern--full-render-done-p)
 (defvar markdown-modern--code-edit-buffer)
+(defvar markdown-modern-ts--parser)
 
 ;; Functions defined in markdown-modern.el
 (declare-function markdown-modern--fenced-code-block-content-at "markdown-modern")
@@ -65,10 +66,8 @@
 (declare-function markdown-modern-node-end "markdown-modern-ts")
 
 ;; Functions from outline.el (may not be loaded)
-(declare-function outline-toggle-children "outline")
-(declare-function outline-hide-body "outline")
-(declare-function outline-hide-sublevels "outline")
-(declare-function outline-show-all "outline")
+(declare-function outline-cycle "outline")
+(declare-function outline-cycle-buffer "outline")
 
 ;;; Style Insertion Commands
 
@@ -330,55 +329,120 @@
 
 ;;; List Commands
 
+;;; List items in the parse tree
+
+(defun markdown-modern--list-item-node (&optional pos)
+  "Return the innermost list_item node around POS, or nil.
+POS defaults to point.  On a line's indentation, look at its first
+character instead, so point before a nested marker belongs to that item.
+At the end of a line, look at its last character."
+  (when-let* ((parser markdown-modern-ts--parser))
+    (save-excursion
+      (goto-char (or pos (point)))
+      (let ((indent-end (save-excursion (back-to-indentation) (point))))
+        (cond
+         ((and (< (point) indent-end) (not (eolp))) (goto-char indent-end))
+         ((and (eolp) (not (bolp))) (backward-char))))
+      (let ((node (treesit-node-on (point) (min (1+ (point)) (point-max))
+                                   parser t)))
+        (treesit-parent-until
+         node (lambda (n) (equal (treesit-node-type n) "list_item")) t)))))
+
+(defun markdown-modern--list-item-region (item)
+  "Return (START . END) of the whole source lines of list ITEM.
+START is the start of the item's first line.  END is the start of the line
+after its last non-blank line, or the end of the buffer.  Nested items are
+part of the item; blank lines after it are not."
+  (save-excursion
+    (let ((start (progn (goto-char (treesit-node-start item))
+                        (line-beginning-position))))
+      (goto-char (treesit-node-end item))
+      ;; The node ends after the indentation of the line that follows it.
+      (unless (or (bolp) (eobp))
+        (beginning-of-line))
+      (when (bolp)
+        (while (and (> (point) start)
+                    (save-excursion (forward-line -1)
+                                    (looking-at-p "[ \t]*$")))
+          (forward-line -1)))
+      (cons start (point)))))
+
+(defun markdown-modern--list-item-sibling (item direction)
+  "Return the list item next to ITEM in its list, or nil.
+DIRECTION is -1 for the previous item and 1 for the next one."
+  (let ((sibling (if (< direction 0)
+                     (treesit-node-prev-sibling item t)
+                   (treesit-node-next-sibling item t))))
+    (and sibling (equal (treesit-node-type sibling) "list_item") sibling)))
+
+(defun markdown-modern--list-item-marker-start (item)
+  "Return the position of the bullet or number of list ITEM.
+The marker node can include the indentation before it."
+  (save-excursion
+    (goto-char (treesit-node-start (treesit-node-child item 0)))
+    (skip-chars-forward " \t")
+    (point)))
+
+(defun markdown-modern--list-item-column (item)
+  "Return the column where list ITEM's marker starts."
+  (save-excursion
+    (goto-char (markdown-modern--list-item-marker-start item))
+    (current-column)))
+
+(defun markdown-modern--list-item-marker (item)
+  "Return the marker of list ITEM as it would start a new sibling item.
+This is the text before the marker on its line (indentation, or a quote
+prefix), the marker with the next number for an ordered list, the space
+after it, and an empty checkbox for a task item."
+  (let* ((marker (treesit-node-child item 0))
+         (start (markdown-modern--list-item-marker-start item))
+         (prefix (save-excursion (goto-char start)
+                                 (buffer-substring-no-properties
+                                  (line-beginning-position) start)))
+         (text (buffer-substring-no-properties
+                start (save-excursion (goto-char (treesit-node-end marker))
+                                      (min (point) (line-end-position)))))
+         (task (cl-some (lambda (child)
+                          (string-prefix-p "task_list_marker"
+                                           (treesit-node-type child)))
+                        (treesit-node-children item))))
+    (when (string-match "\\`\\([0-9]+\\)\\([.)]\\)" text)
+      (setq text (concat (number-to-string
+                          (1+ (string-to-number (match-string 1 text))))
+                         (substring text (match-end 1)))))
+    (unless (string-match-p "[ \t]\\'" text)
+      (setq text (concat text " ")))
+    (concat prefix text (if task "[ ] " ""))))
+
 ;;;###autoload
 (defun markdown-modern-insert-list-item ()
-  "Insert a new list item.
-Continues the current list type or creates a new unordered list."
+  "Insert a new list item after the item at point.
+The new item goes after the whole item, nested items included, and continues
+its list: the same bullet, the next number, an empty checkbox after a task.
+Outside a list, start an unordered list."
   (interactive)
-  (let ((marker-type (markdown-modern-list-marker-at-point))
-        (at-empty-line (save-excursion
-                         (beginning-of-line)
-                         (looking-at "^[ \t]*$"))))
-    (cond
-     ;; If at empty line without existing list marker, just insert list marker
-     ((and (not marker-type) at-empty-line)
-      (beginning-of-line)
-      (delete-region (point) (line-end-position))
-      (insert "- "))
-     ;; Otherwise add new line and continue list
-     (t
+  (if-let* ((item (markdown-modern--list-item-node)))
+      (let* ((region (markdown-modern--list-item-region item))
+             (end (cdr region))
+             (marker (markdown-modern--list-item-marker item))
+             ;; In a loose list a blank line separates the items.
+             (loose (and (markdown-modern--list-item-sibling item 1)
+                         (save-excursion
+                           (goto-char end)
+                           (and (not (eobp)) (looking-at-p "[ \t]*$"))))))
+        (goto-char end)
+        (cond
+         (loose (insert "\n" marker)
+                (save-excursion (insert "\n")))
+         ((and (eobp) (not (bolp)))
+          (insert "\n" marker))
+         (t (insert marker)
+            (save-excursion (insert "\n")))))
+    (if (save-excursion (beginning-of-line) (looking-at-p "[ \t]*$"))
+        (progn (delete-region (line-beginning-position) (line-end-position))
+               (insert "- "))
       (end-of-line)
-      (insert "\n")
-      (cond
-       ((eq marker-type :task)
-        (let ((indent (save-excursion
-                        (forward-line -1)
-                        (if (looking-at "^\\([ \t]*\\)")
-                            (match-string 1)
-                          ""))))
-          (insert indent "- [ ] ")))
-       ((eq marker-type :unordered)
-        (let ((indent (save-excursion
-                        (forward-line -1)
-                        (if (looking-at "^\\([ \t]*\\)\\([-*+]\\)")
-                            (concat (match-string 1) (match-string 2) " ")
-                          "- "))))
-          (insert indent)))
-       ((eq marker-type :ordered)
-        (let* ((prev-line (save-excursion
-                            (forward-line -1)
-                            (buffer-substring-no-properties
-                             (line-beginning-position)
-                             (line-end-position))))
-               (num (if (string-match "^[ \t]*\\([0-9]+\\)" prev-line)
-                        (1+ (string-to-number (match-string 1 prev-line)))
-                      1))
-               (indent (if (string-match "^\\([ \t]*\\)" prev-line)
-                           (match-string 1 prev-line)
-                         "")))
-          (insert (format "%s%d. " indent num))))
-       (t
-        (insert "- ")))))))
+      (insert "\n- "))))
 
 ;;;###autoload
 (defun markdown-modern-toggle-checkbox ()
@@ -462,48 +526,94 @@ characters forward."
 
 ;;;###autoload
 (defun markdown-modern-move-item-up ()
-  "Move current list item up."
+  "Move the list item at point above the item before it.
+Nested items move with it."
   (interactive)
-  (when-let* ((bounds (markdown-modern-list-item-bounds)))
-    (let ((start (car bounds))
-          (end (cdr bounds)))
-      (when (> start (point-min))
-        (let ((text (buffer-substring start end)))
-          (delete-region start end)
-          (forward-line -1)
-          (beginning-of-line)
-          (insert text))))))
+  (let* ((item (or (markdown-modern--list-item-node)
+                   (user-error "Not in a list item")))
+         (prev (or (markdown-modern--list-item-sibling item -1)
+                   (user-error "No item above this one"))))
+    (markdown-modern--swap-list-items prev item t)))
 
 ;;;###autoload
 (defun markdown-modern-move-item-down ()
-  "Move current list item down."
+  "Move the list item at point below the item after it.
+Nested items move with it."
   (interactive)
-  (when-let* ((bounds (markdown-modern-list-item-bounds)))
-    (let ((start (car bounds))
-          (end (cdr bounds)))
-      (when (< end (point-max))
-        (let ((text (buffer-substring start end)))
-          (delete-region start end)
-          (forward-line 1)
-          (end-of-line)
-          (insert "\n" (string-trim-right text)))))))
+  (let* ((item (or (markdown-modern--list-item-node)
+                   (user-error "Not in a list item")))
+         (next (or (markdown-modern--list-item-sibling item 1)
+                   (user-error "No item below this one"))))
+    (markdown-modern--swap-list-items item next nil)))
+
+(defun markdown-modern--swap-list-items (first second point-in-second)
+  "Swap list items FIRST and SECOND, which follow each other in one list.
+Blank lines between them stay where they are.  Point stays in the moved
+item: in SECOND when POINT-IN-SECOND is non-nil, else in FIRST."
+  (let* ((a (markdown-modern--list-item-region first))
+         (b (markdown-modern--list-item-region second))
+         (offset (- (point) (car (if point-in-second b a))))
+         (text-a (buffer-substring-no-properties (car a) (cdr a)))
+         (gap (buffer-substring-no-properties (cdr a) (car b)))
+         (text-b (buffer-substring-no-properties (car b) (cdr b))))
+    ;; The last item of the buffer can lack a final newline.
+    (unless (string-suffix-p "\n" text-b)
+      (setq text-b (concat text-b "\n")
+            text-a (string-remove-suffix "\n" text-a)))
+    (goto-char (car a))
+    (delete-region (car a) (cdr b))
+    (insert text-b gap text-a)
+    (goto-char (+ (car a) offset
+                  (if point-in-second 0 (+ (length text-b) (length gap)))))))
+
+(defun markdown-modern--shift-list-item (item columns)
+  "Indent the lines of list ITEM by COLUMNS, or outdent when negative.
+Outdenting removes at most the whitespace a line has."
+  (let ((region (markdown-modern--list-item-region item)))
+    (save-excursion
+      (goto-char (car region))
+      (let ((end (copy-marker (cdr region))))
+        (while (< (point) end)
+          (unless (looking-at-p "[ \t]*$")
+            (if (> columns 0)
+                (insert (make-string columns ?\s))
+              (let ((indent (current-indentation)))
+                (indent-line-to (max 0 (+ indent columns))))))
+          (forward-line 1))
+        (set-marker end nil)))))
 
 ;;;###autoload
 (defun markdown-modern-promote-item ()
-  "Decrease indentation of current list item."
+  "Move the list item at point out one level.
+Nested items and continuation lines move with it.  A top-level item that is
+indented moves to the left edge."
   (interactive)
-  (save-excursion
-    (beginning-of-line)
-    (when (looking-at "^  ")
-      (delete-char 2))))
+  (let* ((item (or (markdown-modern--list-item-node)
+                   (user-error "Not in a list item")))
+         (parent (treesit-parent-until
+                  (treesit-node-parent item)
+                  (lambda (n) (equal (treesit-node-type n) "list_item"))))
+         (column (markdown-modern--list-item-column item))
+         (target (if parent (markdown-modern--list-item-column parent) 0)))
+    (when (<= column target)
+      (user-error "Already at the top level"))
+    (markdown-modern--shift-list-item item (- target column))))
 
 ;;;###autoload
 (defun markdown-modern-demote-item ()
-  "Increase indentation of current list item."
+  "Nest the list item at point under the item before it.
+Nested items and continuation lines move with it."
   (interactive)
-  (save-excursion
-    (beginning-of-line)
-    (insert "  ")))
+  (let* ((item (or (markdown-modern--list-item-node)
+                   (user-error "Not in a list item")))
+         (prev (or (markdown-modern--list-item-sibling item -1)
+                   (user-error "No item above to nest this one under")))
+         ;; Line up with the text of the item above, as CommonMark wants.
+         (target (save-excursion
+                   (goto-char (treesit-node-end (treesit-node-child prev 0)))
+                   (current-column))))
+    (markdown-modern--shift-list-item
+     item (- target (markdown-modern--list-item-column item)))))
 
 ;;; Table Commands
 
@@ -681,28 +791,15 @@ In the last cell of the last row, add an empty row and move into it."
 
 ;;;###autoload
 (defun markdown-modern-cycle-visibility ()
-  "Cycle visibility of current heading subtree."
+  "Cycle the heading at point: folded, its subheadings, everything."
   (interactive)
-  ;; Simplified - just toggle children visibility
-  (outline-toggle-children))
+  (outline-cycle))
 
 ;;;###autoload
 (defun markdown-modern-cycle-global-visibility ()
-  "Cycle global visibility of all headings."
+  "Cycle the whole buffer: top headings, all headings, everything."
   (interactive)
-  ;; Simplified global cycling
-  (cond
-   ((and (boundp 'markdown-modern--visibility-state)
-         (eq markdown-modern--visibility-state 'all))
-    (outline-hide-body)
-    (setq-local markdown-modern--visibility-state 'headings))
-   ((and (boundp 'markdown-modern--visibility-state)
-         (eq markdown-modern--visibility-state 'headings))
-    (outline-hide-sublevels 1)
-    (setq-local markdown-modern--visibility-state 'top))
-   (t
-    (outline-show-all)
-    (setq-local markdown-modern--visibility-state 'all))))
+  (outline-cycle-buffer))
 
 ;;; Element Reveal Command
 

@@ -29,6 +29,21 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `TAB` on a heading folds it again, and `S-TAB` folds the whole buffer.
+  `TAB` on a list item nests it. Both inserted spaces instead, because the
+  check for a heading or list item looked only at the innermost syntax node.
+  A `#` line in a code block no longer counts as a heading when folding.
+- `C-c <up>` and `C-c <down>` move a whole list item, with its nested items
+  and continuation lines, past the whole item next to it. They moved single
+  lines, which could split items and orphan nested ones. An item no longer
+  moves into the next list.
+- `C-c <left>` and `C-c <right>` change the level of an item together with
+  its nested items and continuation lines. The first item of a list is not
+  nested, since there is no item above to nest it under.
+- `M-RET` adds the new item after the whole item at point, so it no longer
+  lands between an item's first line and the rest of its text, or between
+  an item and its nested items. It keeps `)` after a number, continues a
+  numbered list from a continuation line, and keeps a loose list loose.
 - In a list nested four spaces deep, the first item under each parent shows a
   bullet instead of a raw `-`, and its wrapped text lines up.
 - Bullets follow the nesting level however deep it is indented, so a

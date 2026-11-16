@@ -57,6 +57,7 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
+(require 'outline)
 
 ;; Load submodules
 (require 'markdown-modern-ts)
@@ -563,6 +564,49 @@ single source of truth shared between point-motion reveal and jit-lock.")
     map)
   "Keymap for `markdown-modern-mode'.")
 
+;;; Folding
+
+(defconst markdown-modern--outline-heading-regexp "#\\{1,6\\}\\(?:[ \t]\\|$\\)"
+  "Regexp for the start of an ATX heading line, without the line start.")
+
+(defun markdown-modern--outline-heading-p (pos)
+  "Return non-nil if POS is in an ATX heading in the parse tree.
+A line that starts with `#' inside a code block is not a heading."
+  (when-let* ((parser markdown-modern-ts--parser)
+              (node (treesit-node-on pos (min (1+ pos) (point-max)) parser t)))
+    (treesit-parent-until
+     node (lambda (n) (equal (treesit-node-type n) "atx_heading")) t)))
+
+(defun markdown-modern--outline-search (&optional bound move backward looking-at)
+  "Find the next heading for outline, skipping `#' lines in code blocks.
+This is the `outline-search-function'.  BOUND, MOVE, BACKWARD and
+LOOKING-AT are as described there."
+  (let ((regexp (concat "^" markdown-modern--outline-heading-regexp)))
+    (if looking-at
+        (and (looking-at regexp)
+             (markdown-modern--outline-heading-p (point)))
+      (let ((start (point))
+            (found nil))
+        (while (and (not found)
+                    (if backward
+                        (re-search-backward regexp bound t)
+                      (re-search-forward regexp bound t)))
+          (when (markdown-modern--outline-heading-p (match-beginning 0))
+            (setq found t)))
+        (unless found
+          (goto-char (if move
+                         (or bound (if backward (point-min) (point-max)))
+                       start)))
+        found))))
+
+(defun markdown-modern--outline-level ()
+  "Return the level of the heading at point, for `outline-level'."
+  (save-excursion
+    (beginning-of-line)
+    (if (looking-at "#+")
+        (- (match-end 0) (match-beginning 0))
+      1)))
+
 (defun markdown-modern--setup-buffer ()
   "Set up the current buffer for markdown-modern-mode."
   (markdown-modern-ts--init)
@@ -612,7 +656,13 @@ single source of truth shared between point-motion reveal and jit-lock.")
   (add-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer nil t)
 
   ;; Set up imenu
-  (setq-local imenu-create-index-function #'markdown-modern-imenu-create-index))
+  (setq-local imenu-create-index-function #'markdown-modern-imenu-create-index)
+
+  ;; Folding with outline: TAB on a heading, S-TAB for the buffer.
+  (setq-local outline-regexp markdown-modern--outline-heading-regexp)
+  (setq-local outline-search-function #'markdown-modern--outline-search)
+  (setq-local outline-level #'markdown-modern--outline-level)
+  (add-to-invisibility-spec '(outline . t)))
 
 (defun markdown-modern--text-width-right-margin (available-px text-px char-px)
   "Return the right margin that leaves TEXT-PX of AVAILABLE-PX for the text.

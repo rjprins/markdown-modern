@@ -25,6 +25,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'treesit)
 
 ;; Functions defined in other markdown-modern files
 (declare-function markdown-modern-ts--containing-block "markdown-modern-ts")
@@ -41,31 +42,71 @@
   (when-let* ((elem (markdown-modern-ts--element-at (point))))
     (markdown-modern-node-type elem)))
 
+(defvar markdown-modern-ts--parser)
+(declare-function markdown-modern-ts--map-node-type "markdown-modern-ts")
+(declare-function markdown-modern-ts--inline-elements-in "markdown-modern-ts")
+
+(defun markdown-modern--node-types-around (parser &optional pos)
+  "Return the types of the PARSER nodes around POS, innermost first.
+POS defaults to point.  At the end of a line, look at its last character,
+so that point after the text still counts as inside it.  Types are mapped
+as in `markdown-modern-ts--node-type-map'."
+  (when parser
+    (let* ((pos (or pos (point)))
+           (pos (if (and (> pos (point-min))
+                         (save-excursion
+                           (goto-char pos)
+                           (and (eolp) (not (bolp)))))
+                    (1- pos)
+                  pos))
+           (node (treesit-node-on pos (min (1+ pos) (point-max)) parser t))
+           (types nil))
+      (while node
+        (push (markdown-modern-ts--map-node-type (treesit-node-type node)) types)
+        (setq node (treesit-node-parent node)))
+      (nreverse types))))
+
+(defun markdown-modern--inside-block-p (types)
+  "Return non-nil if point is inside a block of one of TYPES.
+The innermost syntax node at point is usually a marker or inline text, so
+look at all the blocks that contain it."
+  (cl-some (lambda (type) (memq type types))
+           (markdown-modern--node-types-around markdown-modern-ts--parser)))
+
 (defun markdown-modern-in-heading-p ()
   "Return non-nil if point is in a heading."
-  (eq (markdown-modern-element-at-point) 'heading))
+  (markdown-modern--inside-block-p '(heading)))
 
 (defun markdown-modern-in-code-block-p ()
   "Return non-nil if point is in a code block."
-  (memq (markdown-modern-element-at-point) '(code-block code-block-indented)))
+  (markdown-modern--inside-block-p '(code-block code-block-indented)))
 
 (defun markdown-modern-in-list-p ()
   "Return non-nil if point is in a list or list item."
-  (memq (markdown-modern-element-at-point) '(list list-item)))
+  (markdown-modern--inside-block-p '(list list-item)))
 
 (defun markdown-modern-in-table-p ()
   "Return non-nil if point is in a table."
-  (or (memq (markdown-modern-element-at-point)
-            '(table table-header table-row table-cell))
+  (or (markdown-modern--inside-block-p
+       '(table table-header table-row table-cell))
       (markdown-modern--table-row-below-separator-p)))
 
 (defun markdown-modern-in-blockquote-p ()
   "Return non-nil if point is in a blockquote."
-  (eq (markdown-modern-element-at-point) 'blockquote))
+  (markdown-modern--inside-block-p '(blockquote)))
 
 (defun markdown-modern-in-link-p ()
   "Return non-nil if point is in a link."
-  (memq (markdown-modern-element-at-point) '(link link-ref link-ref-collapsed)))
+  (when-let* ((block (markdown-modern-ts--containing-block (point))))
+    (let ((pos (point)))
+      (cl-some (lambda (elem)
+                 (and (memq (markdown-modern-node-type elem)
+                            '(link link-ref link-ref-collapsed))
+                      (<= (markdown-modern-node-start elem) pos)
+                      (< pos (markdown-modern-node-end elem))))
+               (markdown-modern-ts--inline-elements-in
+                (markdown-modern-node-start block)
+                (markdown-modern-node-end block))))))
 
 ;;; Heading Utilities
 
