@@ -61,6 +61,9 @@
 (declare-function markdown-modern-node-level "markdown-modern-ts")
 (declare-function markdown-modern-node-language "markdown-modern-ts")
 (declare-function markdown-modern-node-properties "markdown-modern-ts")
+(declare-function markdown-modern-node-treesit-node "markdown-modern-ts")
+(declare-function treesit-node-type "treesit.c")
+(declare-function treesit-node-parent "treesit.c")
 (declare-function markdown-modern-ts--reference-link-parts "markdown-modern-ts")
 
 ;;; Internal Variables
@@ -1294,6 +1297,20 @@ narrower than a digit."
                       `(space :width (,(car (buffer-text-pixel-size nil nil t)))))))
     (make-string (string-width text) ?\s)))
 
+(defun markdown-modern-render--list-depth (elem indent)
+  "Return how many lists list item ELEM is nested in, 0 at the top level.
+Count the lists in the parse tree: the indent alone does not tell the level,
+as nested items may be indented two or four spaces.  Without a parse tree,
+assume two spaces of INDENT per level."
+  (if-let* ((node (markdown-modern-node-treesit-node elem)))
+      (let ((depth -1))
+        (while node
+          (when (equal (treesit-node-type node) "list")
+            (setq depth (1+ depth)))
+          (setq node (treesit-node-parent node)))
+        (max 0 depth))
+    (/ (length indent) 2)))
+
 (defun markdown-modern-render--list-item (elem)
   "Render list item element ELEM.
 Includes `wrap-prefix' for proper line continuation."
@@ -1365,7 +1382,7 @@ Includes `wrap-prefix' for proper line continuation."
                (marker-start (match-beginning 2))
                (marker-end (match-end 2))
                (content-start (match-end 0))
-               (level (/ (length indent) 2))
+               (level (markdown-modern-render--list-depth elem indent))
                (bullet (nth (mod level (length markdown-modern-render--bullet-chars))
                            markdown-modern-render--bullet-chars))
                (content-end (max (line-end-position) text-end))

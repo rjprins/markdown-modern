@@ -767,6 +767,24 @@ child's node, so its marker does not start where the node does."
       (should (= (markdown-modern-render-test--markers-at (match-beginning 0)) 1)))
     (should (= (markdown-modern-render-test--count 'checkbox) 2))))
 
+(ert-deftest render/nested-list-bullets-follow-depth ()
+  "Bullets change per nesting level, however deep each level is indented."
+  (let ((glyphs
+         (lambda (text items)
+           (markdown-modern-render-test--with text
+             (mapcar (lambda (item)
+                       (goto-char (point-min))
+                       (search-forward item)
+                       (string-trim
+                        (substring-no-properties
+                         (cl-some (lambda (ov) (overlay-get ov 'before-string))
+                                  (overlays-at (match-beginning 0))))))
+                     items)))))
+    (should (equal (funcall glyphs "- one\n    - two\n        - three\n"
+                            '("- one" "- two" "- three"))
+                   (funcall glyphs "- one\n  - two\n    - three\n"
+                            '("- one" "- two" "- three"))))))
+
 (ert-deftest render/list-markers-stable-during-cursor-motion ()
   "Walking through lists repeatedly must not accumulate rendered markers."
   (dolist (text '("- first\n- second\n- third\n\n"

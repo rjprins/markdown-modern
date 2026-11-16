@@ -18,6 +18,13 @@ on [Keep a Changelog](https://keepachangelog.com/).
   `markdown-modern-join-paragraph-lines` now defaults to `nil`; set it to `t`
   to show single newlines as spaces again.
 
+### Fixed
+
+- In a list nested four spaces deep, the first item under each parent shows a
+  bullet instead of a raw `-`, and its wrapped text lines up.
+- Bullets follow the nesting level however deep it is indented, so a
+  second-level item nested four spaces deep shows `○`, not `■`.
+
 ### Removed
 
 - `markdown-modern-manage-text-width`. The reading width is now always on and
