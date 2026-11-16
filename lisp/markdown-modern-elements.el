@@ -82,8 +82,14 @@ look at all the blocks that contain it."
   (markdown-modern--inside-block-p '(code-block code-block-indented)))
 
 (defun markdown-modern-in-list-p ()
-  "Return non-nil if point is in a list or list item."
-  (markdown-modern--inside-block-p '(list list-item)))
+  "Return non-nil if point is in the text of a list item.
+Point in a code block, HTML block or table inside an item is in that
+block, not in the list."
+  (memq (cl-find-if (lambda (type)
+                      (memq type '(list list-item code-block code-block-indented
+                                        html-block table)))
+                    (markdown-modern--node-types-around markdown-modern-ts--parser))
+        '(list list-item)))
 
 (defun markdown-modern-in-table-p ()
   "Return non-nil if point is in a table."

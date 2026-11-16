@@ -326,6 +326,18 @@ Use [ and ] to mark region boundaries in INITIAL."
     (markdown-modern-tab)
     (should (equal (buffer-string) "- a\n  - b\n"))))
 
+(ert-deftest cmd/tab-in-code-block-in-list-item ()
+  "TAB in a code block inside a list item does not nest the item."
+  (with-temp-buffer
+    (insert "- a\n- b\n\n  ```\n  code\n  ```\n")
+    (markdown-modern-ts--init)
+    (goto-char (point-min))
+    (search-forward "co")
+    (should-not (markdown-modern-in-list-p))
+    (should (markdown-modern-in-code-block-p))
+    (markdown-modern-tab)
+    (should (string-prefix-p "- a\n- b\n" (buffer-string)))))
+
 (ert-deftest cmd/tab-on-heading-folds ()
   "TAB on a heading folds its section; a # line in code is not a heading."
   (with-temp-buffer
