@@ -3,7 +3,7 @@
 All notable changes to markdown-modern are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [2.2.0] - 2026-11-16
 
 ### Changed
 

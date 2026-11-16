@@ -26,6 +26,10 @@ Tracked items are possibilities, not delivery commitments.
 
 # Completed enhancements
 
+- A reading width: text wraps at 80 columns however wide the window is, and
+  paragraphs show their lines as written (2.2.0).
+- `C-c '` edits a copy of a code block in its own buffer, as org-mode does
+  (2.2.0).
 - Mermaid diagram viewer with zoom and pan, and local file links that open
   in Emacs at a line (2.1.0).
 - Reference links and their definitions (2.1.0).
