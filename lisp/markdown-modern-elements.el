@@ -46,32 +46,38 @@
 (declare-function markdown-modern-ts--map-node-type "markdown-modern-ts")
 (declare-function markdown-modern-ts--inline-elements-in "markdown-modern-ts")
 
-(defun markdown-modern--node-types-around (parser &optional pos)
-  "Return the types of the PARSER nodes around POS, innermost first.
-POS defaults to point.  At the end of a line, look at its last character,
-so that point after the text still counts as inside it.  Types are mapped
-as in `markdown-modern-ts--node-type-map'."
-  (when parser
-    (let* ((pos (or pos (point)))
-           (pos (if (and (> pos (point-min))
-                         (save-excursion
-                           (goto-char pos)
-                           (and (eolp) (not (bolp)))))
-                    (1- pos)
-                  pos))
-           (node (treesit-node-on pos (min (1+ pos) (point-max)) parser t))
-           (types nil))
-      (while node
-        (push (markdown-modern-ts--map-node-type (treesit-node-type node)) types)
-        (setq node (treesit-node-parent node)))
-      (nreverse types))))
+(defun markdown-modern--block-node-at (&optional pos)
+  "Return the innermost block parse tree node around POS, or nil.
+POS defaults to point.  On a line's indentation, look at its first
+character, so point before a nested list marker belongs to that item.  At
+the end of a line, look at its last character, so point after the text
+still counts as inside it."
+  (when-let* ((parser markdown-modern-ts--parser))
+    (save-excursion
+      (goto-char (or pos (point)))
+      (let ((indent-end (save-excursion (back-to-indentation) (point))))
+        (cond
+         ((and (< (point) indent-end) (not (eolp))) (goto-char indent-end))
+         ((and (eolp) (not (bolp))) (backward-char))))
+      (treesit-node-on (point) (min (1+ (point)) (point-max)) parser t))))
+
+(defun markdown-modern--node-types-around (&optional pos)
+  "Return the types of the block nodes around POS, innermost first.
+POS is as for `markdown-modern--block-node-at'.  Types are mapped as in
+`markdown-modern-ts--node-type-map'."
+  (let ((node (markdown-modern--block-node-at pos))
+        (types nil))
+    (while node
+      (push (markdown-modern-ts--map-node-type (treesit-node-type node)) types)
+      (setq node (treesit-node-parent node)))
+    (nreverse types)))
 
 (defun markdown-modern--inside-block-p (types)
   "Return non-nil if point is inside a block of one of TYPES.
 The innermost syntax node at point is usually a marker or inline text, so
 look at all the blocks that contain it."
   (cl-some (lambda (type) (memq type types))
-           (markdown-modern--node-types-around markdown-modern-ts--parser)))
+           (markdown-modern--node-types-around)))
 
 (defun markdown-modern-in-heading-p ()
   "Return non-nil if point is in a heading."
@@ -88,7 +94,7 @@ block, not in the list."
   (memq (cl-find-if (lambda (type)
                       (memq type '(list list-item code-block code-block-indented
                                         html-block table)))
-                    (markdown-modern--node-types-around markdown-modern-ts--parser))
+                    (markdown-modern--node-types-around))
         '(list list-item)))
 
 (defun markdown-modern-in-table-p ()

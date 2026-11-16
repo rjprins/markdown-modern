@@ -50,7 +50,6 @@
 (defvar markdown-modern-math-block-scale)
 
 ;; Functions defined in markdown-modern-ts.el
-(declare-function markdown-modern--table-pipes "markdown-modern-commands")
 (declare-function markdown-modern-ts--elements-in-region "markdown-modern-ts")
 (declare-function markdown-modern-ts--inline-elements-in "markdown-modern-ts")
 (declare-function markdown-modern-ts--literal-inline-at-p "markdown-modern-ts")
@@ -1540,21 +1539,28 @@ That is the reading width, or less to fit the window."
         (setq result (replace-match styled t t result))))
     result))
 
+(defun markdown-modern-render--unescaped-pipes (string)
+  "Return the indexes of the `|' characters in STRING that are not escaped.
+A pipe after an odd number of backslashes is cell text, not a border."
+  (let ((pipes nil)
+        (i 0))
+    (while (< i (length string))
+      (pcase (aref string i)
+        (?\\ (setq i (1+ i)))
+        (?| (push i pipes)))
+      (setq i (1+ i)))
+    (nreverse pipes)))
+
 (defun markdown-modern-render--table-parse-row (line)
   "Parse LINE into list of cell contents (without | delimiters)."
   (when (string-match "^[ \t]*|\\(.*\\)|[ \t]*$" line)
     (let ((inner (match-string 1 line))
           (cells nil)
-          (cell-start 0)
-          (i 0))
-      ;; A pipe after an odd number of backslashes is escaped: cell text.
-      (while (< i (length inner))
-        (pcase (aref inner i)
-          (?\\ (setq i (1+ i)))
-          (?| (push (substring inner cell-start i) cells)
-              (setq cell-start (1+ i))))
-        (setq i (1+ i)))
-      (nreverse (cons (substring inner (min cell-start (length inner))) cells)))))
+          (cell-start 0))
+      (dolist (pipe (markdown-modern-render--unescaped-pipes inner))
+        (push (substring inner cell-start pipe) cells)
+        (setq cell-start (1+ pipe)))
+      (nreverse (cons (substring inner cell-start) cells)))))
 
 (defun markdown-modern-render--strip-markdown (text)
   "Strip markdown formatting markers from TEXT."
@@ -1855,8 +1861,9 @@ row, recomputing the padding for the cell's new content width."
       (overlay-put ov 'priority 200)
       (overlay-put ov 'markdown-modern-type 'table-edit))
     ;; Collect the pipe positions, then glyph each one.
-    ;; An escaped pipe is cell text, not a border.
-    (setq pipes (save-excursion (goto-char bol) (markdown-modern--table-pipes)))
+    (setq pipes (mapcar (lambda (i) (+ bol i))
+                        (markdown-modern-render--unescaped-pipes
+                         (buffer-substring-no-properties bol eol))))
     (dolist (p pipes)
       (markdown-modern-render--table-edit-overlay p (1+ p) 'display glyph))
     ;; Pad each cell (between consecutive pipes) to `width' + 2 display columns.

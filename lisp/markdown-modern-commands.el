@@ -34,6 +34,7 @@
 (declare-function markdown-modern--table-row-line-p "markdown-modern-elements")
 (declare-function markdown-modern--table-separator-line-p "markdown-modern-elements")
 (declare-function markdown-modern-in-list-p "markdown-modern-elements")
+(declare-function markdown-modern--block-node-at "markdown-modern-elements")
 (declare-function markdown-modern-table-bounds "markdown-modern-elements")
 (declare-function markdown-modern-table-column-at-point "markdown-modern-elements")
 (declare-function markdown-modern-heading-level-at-point "markdown-modern-elements")
@@ -54,6 +55,7 @@
 
 ;; Functions defined in markdown-modern-render.el
 (declare-function markdown-modern-render--render-region "markdown-modern-render")
+(declare-function markdown-modern-render--unescaped-pipes "markdown-modern-render")
 (declare-function markdown-modern-render--clear-all "markdown-modern-render")
 (declare-function markdown-modern-render--unrender-region "markdown-modern-render")
 (declare-function markdown-modern-render--language-to-mode "markdown-modern-render")
@@ -333,20 +335,11 @@
 
 (defun markdown-modern--list-item-node (&optional pos)
   "Return the innermost list_item node around POS, or nil.
-POS defaults to point.  On a line's indentation, look at its first
-character instead, so point before a nested marker belongs to that item.
-At the end of a line, look at its last character."
-  (when-let* ((parser markdown-modern-ts--parser))
-    (save-excursion
-      (goto-char (or pos (point)))
-      (let ((indent-end (save-excursion (back-to-indentation) (point))))
-        (cond
-         ((and (< (point) indent-end) (not (eolp))) (goto-char indent-end))
-         ((and (eolp) (not (bolp))) (backward-char))))
-      (let ((node (treesit-node-on (point) (min (1+ (point)) (point-max))
-                                   parser t)))
-        (treesit-parent-until
-         node (lambda (n) (equal (treesit-node-type n) "list_item")) t)))))
+POS is as for `markdown-modern--block-node-at'."
+  (treesit-parent-until
+   (markdown-modern--block-node-at pos)
+   (lambda (n) (equal (treesit-node-type n) "list_item"))
+   t))
 
 (defun markdown-modern--list-item-region (item)
   "Return (START . END) of the whole source lines of list ITEM.
@@ -744,21 +737,10 @@ Elsewhere: cycle global visibility."
 
 (defun markdown-modern--table-pipes ()
   "Return the positions of the unescaped `|' characters on the current line."
-  (save-excursion
-    (let ((eol (line-end-position))
-          (pipes nil))
-      (beginning-of-line)
-      (while (search-forward "|" eol t)
-        (let ((pipe (1- (point)))
-              (slashes 0))
-          (save-excursion
-            (goto-char pipe)
-            (while (eq (char-before) ?\\)
-              (cl-incf slashes)
-              (backward-char)))
-          (when (cl-evenp slashes)
-            (push pipe pipes))))
-      (nreverse pipes))))
+  (let ((bol (line-beginning-position)))
+    (mapcar (lambda (i) (+ bol i))
+            (markdown-modern-render--unescaped-pipes
+             (buffer-substring-no-properties bol (line-end-position))))))
 
 (defun markdown-modern--table-enter-cell (pipe next-pipe)
   "Move into the cell between PIPE and NEXT-PIPE.
