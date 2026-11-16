@@ -105,5 +105,12 @@
   (should (equal (markdown-modern-render--latex-to-unicode "a, \\ldots, z")
                  "a, \u2026, z")))
 
+(ert-deftest latex/nested-script ()
+  "A script inside a script shows no stray marker."
+  (should (equal (markdown-modern-render--latex-to-unicode "e^{-x^2}")
+                 "e\u207B\u02E3\u00B2"))
+  (should (equal (markdown-modern-render--latex-to-unicode "a_{i_1}")
+                 "a\u1D62\u2081")))
+
 (provide 'markdown-modern-latex-test)
 ;;; markdown-modern-latex-test.el ends here

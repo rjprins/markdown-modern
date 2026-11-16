@@ -2093,10 +2093,14 @@ PREFIX is the script marker (\"^\" or \"_\") used for unconvertible chars."
     (while (< i len)
       (let* ((ch (aref str i))
              (mapped (cdr (assq ch map))))
-        (if mapped
-            (setq result (concat result (string mapped)))
-          ;; No mapping: keep prefix + char for visibility
-          (setq result (concat result prefix (string ch)))))
+        (cond
+         (mapped
+          (setq result (concat result (string mapped))))
+         ;; A nested script marker, as in e^{-x^2}: the text is raised
+         ;; or lowered already.
+         ((memq ch '(?^ ?_)))
+         ;; No mapping: keep prefix + char for visibility
+         (t (setq result (concat result prefix (string ch))))))
       (setq i (1+ i)))
     result))
 

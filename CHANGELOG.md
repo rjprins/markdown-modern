@@ -68,6 +68,8 @@ on [Keep a Changelog](https://keepachangelog.com/).
 - Horizontal rules span the text and never wrap. They were 40 line
   characters, which wrapped onto a second line at a large text size or in a
   narrow window. A terminal still shows characters, as many as fit.
+- Math with a script inside a script, such as `e^{-x^2}`, no longer shows a
+  stray `^`.
 - In a list nested four spaces deep, the first item under each parent shows a
   bullet instead of a raw `-`, and its wrapped text lines up.
 - Bullets follow the nesting level however deep it is indented, so a
