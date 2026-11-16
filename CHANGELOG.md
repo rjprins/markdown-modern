@@ -44,6 +44,16 @@ on [Keep a Changelog](https://keepachangelog.com/).
   lands between an item's first line and the rest of its text, or between
   an item and its nested items. It keeps `)` after a number, continues a
   numbered list from a continuation line, and keeps a loose list loose.
+- Code typed at the end of the `C-c '` editor stays in the code block.
+  The editor ended on the empty line before the closing fence, so a new line
+  typed there joined the fence and left the block unclosed. An empty block
+  gets a line to type on.
+- Finishing or aborting the `C-c '` editor closes the window it opened and
+  puts point where it was in the code. Aborting no longer marks the file
+  modified. The editor buffer is named `*MdM-Edit:LANGUAGE*` and no longer
+  says that jit-lock does not work in it.
+- Rendering a shell code block no longer shows "Setting up indent for shell
+  type" in the echo area.
 - In a list nested four spaces deep, the first item under each parent shows a
   bullet instead of a raw `-`, and its wrapped text lines up.
 - Bullets follow the nesting level however deep it is indented, so a

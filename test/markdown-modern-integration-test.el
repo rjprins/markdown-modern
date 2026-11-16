@@ -295,7 +295,7 @@ the inline grammar still parses them as such inside the code_span."
                 (should (derived-mode-p 'python-mode))
                 (should (buffer-narrowed-p))
                 (should (equal (buffer-substring-no-properties (point-min) (point-max))
-                               "x\n"))
+                               "x"))
                 (with-current-buffer source
                   (should (markdown-modern--fenced-code-block-at 12)))
                 (goto-char (point-min))
@@ -314,12 +314,12 @@ the inline grammar still parses them as such inside the code_span."
 (ert-deftest integration/code-edit-shows-current-block ()
   "The editor shows only the chosen block's content, excluding its fences."
   (dolist (case '(("```emacs-lisp\n(message \"second\")\n(+ 1 2)\n```\n\nafter\n"
-                   "second" "(message \"second\")\n(+ 1 2)\n")
+                   "second" "(message \"second\")\n(+ 1 2)")
                   ("~~~~emacs-lisp\n(message \"second\")\n```\n~~~~\n\nafter\n"
-                   "second" "(message \"second\")\n```\n")
+                   "second" "(message \"second\")\n```")
                   ("```emacs-lisp\n```\n\nafter\n" "emacs-lisp" "")
                   ("```emacs-lisp\n(message \"second\")\n"
-                   "second" "(message \"second\")\n")))
+                   "second" "(message \"second\")")))
     (save-window-excursion
       (with-temp-buffer
         (insert "before\n\n```emacs-lisp\n(message \"first\")\n```\n\nbetween\n\n")
@@ -341,6 +341,74 @@ the inline grammar still parses them as such inside the code_span."
                 (markdown-modern-code-edit-abort))
             (when (buffer-live-p edit)
               (kill-buffer edit))))))))
+
+(defun markdown-modern-integration-test--edit-code (text edit finish)
+  "Open the code editor on the block in TEXT, call EDIT, then FINISH.
+Return the source text and whether the source is modified, in a list."
+  (save-window-excursion
+    (with-temp-buffer
+      (insert text)
+      (markdown-modern-mode)
+      (set-buffer-modified-p nil)
+      (goto-char (point-min))
+      (search-forward "```")
+      (forward-line 1)
+      (let ((source (current-buffer)))
+        (switch-to-buffer source)
+        (markdown-modern-edit-code-block)
+        (funcall edit)
+        (funcall finish)
+        (with-current-buffer source
+          (list (buffer-string) (buffer-modified-p)))))))
+
+(ert-deftest integration/code-edit-text-at-end-stays-in-block ()
+  "A line added at the end of the editor goes before the closing fence."
+  (should (equal (markdown-modern-integration-test--edit-code
+                  "```sh\necho a\n```\n"
+                  (lambda () (goto-char (point-max)) (insert "\necho b"))
+                  #'markdown-modern-code-edit-finish)
+                 '("```sh\necho a\necho b\n```\n" t))))
+
+(ert-deftest integration/code-edit-empty-block ()
+  "Code typed into an empty block lands on its own line, not on the fence.
+Finishing without typing leaves the block as it was."
+  (should (equal (markdown-modern-integration-test--edit-code
+                  "```sh\n```\n"
+                  (lambda () (insert "echo a"))
+                  #'markdown-modern-code-edit-finish)
+                 '("```sh\necho a\n```\n" t)))
+  (should (equal (markdown-modern-integration-test--edit-code
+                  "```sh\n```\n" #'ignore #'markdown-modern-code-edit-finish)
+                 '("```sh\n```\n" nil)))
+  (should (equal (markdown-modern-integration-test--edit-code
+                  "```sh\n```\n" (lambda () (insert "x"))
+                  #'markdown-modern-code-edit-abort)
+                 '("```sh\n```\n" nil))))
+
+(ert-deftest integration/code-edit-abort-leaves-source-unmodified ()
+  "Aborting an edit leaves an unmodified source unmodified."
+  (should (equal (markdown-modern-integration-test--edit-code
+                  "```sh\necho a\n```\n"
+                  (lambda () (insert "rm -rf "))
+                  #'markdown-modern-code-edit-abort)
+                 '("```sh\necho a\n```\n" nil))))
+
+(ert-deftest integration/code-edit-gives-back-the-window ()
+  "Finishing or aborting closes the window the editor opened."
+  (dolist (finish '(markdown-modern-code-edit-finish markdown-modern-code-edit-abort))
+    (save-window-excursion
+      (delete-other-windows)
+      (with-temp-buffer
+        (insert "```sh\necho a\n```\n")
+        (markdown-modern-mode)
+        (switch-to-buffer (current-buffer))
+        (goto-char 8)
+        (let ((source (current-buffer)))
+          (markdown-modern-edit-code-block)
+          (funcall finish)
+          (should (= (length (window-list)) 1))
+          (should (eq (window-buffer) source))
+          (should (eq (current-buffer) source)))))))
 
 (ert-deftest integration/large-document-performance ()
   "Large document exports in reasonable time."

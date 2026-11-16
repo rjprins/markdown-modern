@@ -1068,10 +1068,14 @@ Dispatches to mermaid renderer for mermaid code blocks."
       ;; ranges -- do NOT create overlays here, this is the wrong buffer.
       (with-temp-buffer
         (insert text)
-        (delay-mode-hooks
-          (condition-case nil
-              (funcall mode)
-            (error nil)))
+        ;; Some modes report their set-up, as sh-mode does its shell.  That
+        ;; would show in the echo area on every render.
+        (let ((inhibit-message t)
+              (message-log-max nil))
+          (delay-mode-hooks
+            (condition-case nil
+                (funcall mode)
+              (error nil))))
         (font-lock-ensure)
         (let ((pos (point-min)))
           (while (< pos (point-max))
