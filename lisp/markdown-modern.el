@@ -133,15 +133,19 @@ Like the content column of a Markdown renderer: text wraps at this width
 instead of at the window edge, however wide the window is.  A column is the
 average character width of the buffer's default font, so under
 `variable-pitch-mode' it is a proportional character, as in `writeroom-mode'.
-`markdown-modern-left-margin' comes on top.  The width follows text scaling.
+`markdown-modern-left-margin', line numbers and a left window margin come
+on top.  The width follows text scaling.
 
-markdown-modern makes room with a right window margin.  It leaves the margins
-alone while `visual-fill-column-mode' or `olivetti-mode' manages them.  Set to
-nil to use the full window width."
+markdown-modern makes room with a right window margin, and drops it while
+lines are truncated.  It leaves the margins alone while
+`visual-fill-column-mode' or `olivetti-mode' manages them, or when another
+package has set the right margin.  Set to nil to use the full window width."
   :type '(choice (natnum :tag "Columns")
                  (const :tag "Full window width" nil))
   :safe (lambda (value) (or (null value) (natnump value)))
   :group 'markdown-modern)
+
+(defvar markdown-modern--right-margins)
 
 (make-obsolete-variable 'markdown-modern-manage-text-width
                         'markdown-modern-text-width "2.2.0")
@@ -566,49 +570,84 @@ single source of truth shared between point-motion reveal and jit-lock.")
   ;; Set up imenu
   (setq-local imenu-create-index-function #'markdown-modern-imenu-create-index))
 
-(defun markdown-modern--text-width-right-margin (available-px font-px char-px)
-  "Return the right margin that limits the text to the reading width.
-AVAILABLE-PX is the pixel width of the text area plus both margins.  FONT-PX
-is the column width of the buffer's default font, and CHAR-PX the frame's
-column width, the unit of window margins.  The text keeps
-`markdown-modern-text-width' plus `markdown-modern-left-margin' columns; a
-window narrower than that gets no margin."
-  (let ((text-px (* (+ markdown-modern-text-width markdown-modern-left-margin)
-                    font-px)))
-    (max 0 (floor (- available-px text-px) (max 1 char-px)))))
+(defun markdown-modern--text-width-right-margin (available-px text-px char-px)
+  "Return the right margin that leaves TEXT-PX of AVAILABLE-PX for the text.
+AVAILABLE-PX is the pixel width of the text area and the right margin.
+CHAR-PX is the frame's column width, the unit of window margins.  A window
+narrower than TEXT-PX gets no margin."
+  (max 0 (floor (- available-px text-px) (max 1 char-px))))
 
-(defun markdown-modern--other-width-manager-p ()
-  "Return non-nil when another mode manages the window margins."
-  (or (bound-and-true-p visual-fill-column-mode)
-      (bound-and-true-p olivetti-mode)))
+(defun markdown-modern--text-width-px (window)
+  "Return the pixel width of WINDOW's text area at the reading width.
+That is `markdown-modern-text-width' plus `markdown-modern-left-margin'
+columns of the buffer's default font, plus the line numbers if shown.  Call
+it with WINDOW's buffer current."
+  (let ((font-px (if (eq (window-frame window) (selected-frame))
+                     (default-font-width)
+                   ;; Selecting the frame makes its selected window's buffer
+                   ;; current, so measure in WINDOW's buffer again.
+                   (let ((buffer (current-buffer)))
+                     (with-selected-frame (window-frame window)
+                       (with-current-buffer buffer (default-font-width)))))))
+    (+ (* (+ markdown-modern-text-width markdown-modern-left-margin) font-px)
+       (if display-line-numbers
+           (with-selected-window window (line-number-display-width t))
+         0))))
+
+(defvar-local markdown-modern--right-margins nil
+  "Right margins markdown-modern set in windows of this buffer, newest first.
+A right margin that is not one of these belongs to another package.  A split
+copies the margin into the new window, so the window alone cannot tell.")
+
+(defun markdown-modern--own-right-margin-p (window)
+  "Return non-nil if markdown-modern may set WINDOW's right margin.
+That is when the margin is unset or one that markdown-modern set, and no
+mode known to manage margins is on."
+  (and (not (bound-and-true-p visual-fill-column-mode))
+       (not (bound-and-true-p olivetti-mode))
+       (let ((right (or (cdr (window-margins window)) 0)))
+         (or (zerop right) (memq right markdown-modern--right-margins)))))
 
 (defun markdown-modern--update-text-width (&optional window)
   "Set the right margin of WINDOW so its text keeps the reading width.
-WINDOW defaults to the selected window.  See `markdown-modern-text-width'."
+WINDOW defaults to the selected window.  See `markdown-modern-text-width'.
+There is no margin while lines are truncated, so they scroll at full width."
   (let ((win (or window (selected-window))))
     (when (window-live-p win)
       (with-current-buffer (window-buffer win)
         (when (and markdown-modern-text-width
                    (derived-mode-p 'markdown-modern-mode)
-                   (not (markdown-modern--other-width-manager-p)))
+                   (markdown-modern--own-right-margin-p win))
+          ;; Right after a split, both windows keep the old margin, which can
+          ;; be wider than the window.  The text area then measures 0, so
+          ;; clear the margin to measure.
+          (when (zerop (window-body-width win t))
+            (set-window-margins win (car (window-margins win)) 0))
           (let* ((margins (window-margins win))
-                 (left (or (car margins) 0))
                  (right (or (cdr margins) 0))
                  (char-px (frame-char-width (window-frame win)))
-                 (available-px (+ (window-body-width win t)
-                                  (* char-px (+ left right))))
-                 (font-px (with-selected-frame (window-frame win)
-                            (default-font-width)))
-                 (new-right (markdown-modern--text-width-right-margin
-                             available-px font-px char-px)))
-            ;; Draw the fringes at the window edge, not between the text and
-            ;; the margin, where the right one would show as a bar.
-            (unless (nth 2 (window-fringes win))
-              (set-window-fringes win left-fringe-width right-fringe-width t))
-            ;; Let a split shrink the margin; the hooks then refit both
-            ;; windows.  Otherwise a wide margin makes the window too small to
-            ;; split side by side.
-            (set-window-parameter win 'min-margins '(0 . 0))
+                 (new-right
+                  (if truncate-lines
+                      0
+                    (markdown-modern--text-width-right-margin
+                     ;; The text area and the right margin; a left margin
+                     ;; belongs to another package and does not count.
+                     (+ (window-body-width win t) (* right char-px))
+                     (markdown-modern--text-width-px win)
+                     char-px))))
+            (when (> new-right 0)
+              ;; Draw the fringes at the window edge, not between the text
+              ;; and the margin, where the right one would show as a bar.
+              (unless (nth 2 (window-fringes win))
+                (set-window-fringes win left-fringe-width right-fringe-width t))
+              ;; Let a split shrink the margin; the hooks then refit both
+              ;; windows.  Otherwise a wide margin makes the window too small
+              ;; to split side by side.
+              (set-window-parameter win 'min-margins '(0 . 0))
+              (unless (memq new-right markdown-modern--right-margins)
+                (setq markdown-modern--right-margins
+                      (seq-take (cons new-right markdown-modern--right-margins)
+                                16))))
             (unless (= new-right right)
               (set-window-margins win (car margins) new-right))))))))
 
@@ -653,8 +692,8 @@ WINDOW defaults to the selected window.  See `markdown-modern-text-width'."
 
   ;; Give back the right margins and fringe placement that the reading width
   ;; took, unless another mode manages them.
-  (unless (markdown-modern--other-width-manager-p)
-    (dolist (win (get-buffer-window-list nil nil t))
+  (dolist (win (get-buffer-window-list nil nil t))
+    (when (markdown-modern--own-right-margin-p win)
       (set-window-margins win (car (window-margins win)) right-margin-width)
       (set-window-fringes win left-fringe-width right-fringe-width
                           fringes-outside-margins)
@@ -735,6 +774,7 @@ does not impose `visual-line-mode' on a buffer that was not using it."
         (when (and (cdr markdown-modern--saved-wrap-state)
                    (fboundp 'visual-fill-column-mode))
           (visual-fill-column-mode 1))
+        (markdown-modern--update-text-width-everywhere)
         (message "markdown-modern: line wrapping restored"))
     ;; Switch to horizontal scroll: truncation can't coexist with these.
     (setq markdown-modern--saved-wrap-state
@@ -746,6 +786,7 @@ does not impose `visual-line-mode' on a buffer that was not using it."
     (when (bound-and-true-p visual-line-mode) (visual-line-mode -1))
     (setq truncate-lines t)
     (setq-local auto-hscroll-mode 'current-line)
+    (markdown-modern--update-text-width-everywhere)
     (message "markdown-modern: horizontal scroll on (lines no longer wrap)")))
 
 ;;; Fenced Code Block Helpers

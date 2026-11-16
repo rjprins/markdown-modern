@@ -11,8 +11,11 @@ on [Keep a Changelog](https://keepachangelog.com/).
   Paragraphs, tables and code blocks wrap at `markdown-modern-text-width`
   columns (now 80) instead of at the window edge. The width is measured in the
   buffer's font, as in writeroom-mode, and follows text scaling. Set it to `nil`
-  for the full window width. markdown-modern leaves the margins alone while
-  `visual-fill-column-mode` or `olivetti-mode` is on.
+  for the full window width. Line numbers and another package's left margin
+  come on top, and the horizontal-scroll view (`C-c C-v t`) uses the whole
+  window. markdown-modern leaves the margins alone while
+  `visual-fill-column-mode` or `olivetti-mode` is on, or when another package
+  has set the right margin.
 - Paragraphs show their lines as written by default, so line commands such as
   `C-k` act on what you see and nothing changes while you type.
   `markdown-modern-join-paragraph-lines` now defaults to `nil`; set it to `t`

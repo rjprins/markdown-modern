@@ -110,15 +110,13 @@
       (should-not markdown-modern-ts--inline-parser))))
 
 (ert-deftest setup/text-width-right-margin ()
-  "The right margin leaves the reading width plus the left margin."
-  (let ((markdown-modern-text-width 80)
-        (markdown-modern-left-margin 4))
-    ;; 84 columns of 10 px leave 2500 - 840 px, in 10 px frame columns.
-    (should (= (markdown-modern--text-width-right-margin 2500 10 10) 166))
-    ;; A proportional font: 84 * 14 = 1176 px, the rest in 16 px columns.
-    (should (= (markdown-modern--text-width-right-margin 1280 14 16) 6))
-    ;; A window narrower than the reading width gets no margin.
-    (should (= (markdown-modern--text-width-right-margin 500 10 10) 0))))
+  "The right margin leaves the text width; the rest goes to the margin."
+  ;; 840 px of text leave 2500 - 840 px, in 10 px frame columns.
+  (should (= (markdown-modern--text-width-right-margin 2500 840 10) 166))
+  ;; 84 columns of a 14 px font, the rest in 16 px columns.
+  (should (= (markdown-modern--text-width-right-margin 1280 1176 16) 6))
+  ;; A window narrower than the reading width gets no margin.
+  (should (= (markdown-modern--text-width-right-margin 500 840 10) 0)))
 
 (defun markdown-modern-setup-test--right-margin ()
   "Return the right margin of the selected window, 0 when unset."
@@ -171,6 +169,78 @@
           (fundamental-mode)
           (should (equal (car fringe-calls) fringes-outside-margins))
           (should-not (window-parameter nil 'min-margins)))))))
+
+;; The tests below run in an 80-column batch window with
+;; `markdown-modern-setup-test--with-window'.  A batch column is one pixel.
+
+(defmacro markdown-modern-setup-test--with-window (text-width &rest body)
+  "Show a markdown-modern buffer with TEXT-WIDTH in one window, run BODY."
+  (declare (indent 1))
+  `(let ((markdown-modern-text-width ,text-width)
+         (markdown-modern-left-margin 4))
+     (save-window-excursion
+       (with-temp-buffer
+         (switch-to-buffer (current-buffer))
+         (delete-other-windows)
+         (set-window-margins nil nil nil)
+         (set-window-parameter nil 'min-margins nil)
+         (insert "Some text\n")
+         (markdown-modern-mode)
+         ,@body))))
+
+(ert-deftest setup/text-width-ignores-left-margin ()
+  "A left margin from another package does not narrow the text."
+  (markdown-modern-setup-test--with-window 40
+    (set-window-margins nil 2 (cdr (window-margins)))
+    (markdown-modern--update-text-width)
+    (should (equal (window-margins) '(2 . 34)))
+    (should (= (window-body-width) 44))))
+
+(ert-deftest setup/text-width-counts-line-numbers ()
+  "Line numbers come on top of the reading width."
+  (markdown-modern-setup-test--with-window 40
+    (setq-local display-line-numbers t)
+    (cl-letf (((symbol-function 'line-number-display-width) (lambda (&rest _) 5)))
+      (markdown-modern--update-text-width))
+    (should (= (window-body-width) 49))))
+
+(ert-deftest setup/text-width-settles-after-split ()
+  "After a split, one update gives each window its final margin."
+  (markdown-modern-setup-test--with-window 20
+    (should (= (window-body-width) 24))
+    (let ((new (split-window-right)))
+      ;; Both halves still carry the old margin, wider than the window.
+      (dolist (win (list (selected-window) new))
+        (markdown-modern--update-text-width win)
+        (should (= (window-body-width win) 24))))))
+
+(ert-deftest setup/text-width-off-while-truncating ()
+  "Truncated lines scroll at the full window width."
+  (markdown-modern-setup-test--with-window 40
+    (should (> (markdown-modern-setup-test--right-margin) 0))
+    (markdown-modern-toggle-truncate-lines)
+    (should (= (markdown-modern-setup-test--right-margin) 0))
+    (markdown-modern-toggle-truncate-lines)
+    (should (= (window-body-width) 44))))
+
+(ert-deftest setup/text-width-leaves-foreign-margin ()
+  "A right margin set by another package stays."
+  (markdown-modern-setup-test--with-window 40
+    (set-window-margins nil nil 7)
+    (markdown-modern--update-text-width)
+    (should (= (markdown-modern-setup-test--right-margin) 7))
+    (fundamental-mode)
+    (should (= (markdown-modern-setup-test--right-margin) 7))))
+
+(ert-deftest setup/text-width-narrow-window-keeps-fringes ()
+  "A window too narrow for a margin keeps its fringes as they are."
+  (let ((fringe-calls nil))
+    (cl-letf (((symbol-function 'set-window-fringes)
+               (lambda (&rest args) (push args fringe-calls))))
+      (markdown-modern-setup-test--with-window 100
+        (should (= (markdown-modern-setup-test--right-margin) 0))
+        (should-not fringe-calls)
+        (should-not (window-parameter nil 'min-margins))))))
 
 (ert-deftest setup/text-width-nil-or-other-manager-leaves-margins ()
   "No margin without a reading width or under another width mode."
