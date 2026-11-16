@@ -109,5 +109,58 @@
       (should-not markdown-modern-ts--parser)
       (should-not markdown-modern-ts--inline-parser))))
 
+(ert-deftest setup/text-width-right-margin ()
+  "The right margin leaves the reading width plus the left margin."
+  (let ((markdown-modern-text-width 80)
+        (markdown-modern-left-margin 4))
+    ;; 84 columns of 10 px leave 2500 - 840 px, in 10 px frame columns.
+    (should (= (markdown-modern--text-width-right-margin 2500 10 10) 166))
+    ;; A proportional font: 84 * 14 = 1176 px, the rest in 16 px columns.
+    (should (= (markdown-modern--text-width-right-margin 1280 14 16) 6))
+    ;; A window narrower than the reading width gets no margin.
+    (should (= (markdown-modern--text-width-right-margin 500 10 10) 0))))
+
+(defun markdown-modern-setup-test--right-margin ()
+  "Return the right margin of the selected window, 0 when unset."
+  (or (cdr (window-margins)) 0))
+
+(ert-deftest setup/text-width-sets-and-restores-right-margin ()
+  "The mode keeps the reading width and gives the margin back on exit."
+  (let ((markdown-modern-text-width 40)
+        (markdown-modern-left-margin 4))
+    (save-window-excursion
+      (with-temp-buffer
+        (switch-to-buffer (current-buffer))
+        (set-window-margins nil nil nil)
+        (let ((available (window-body-width)))
+          (insert "Some text\n")
+          (markdown-modern-mode)
+          (should (memq #'markdown-modern--update-text-width
+                        window-size-change-functions))
+          (should (= (markdown-modern-setup-test--right-margin)
+                     (- available 44)))
+          (should (= (window-body-width) 44))
+          ;; A second run finds the same margin.
+          (markdown-modern--update-text-width)
+          (should (= (window-body-width) 44))
+          (fundamental-mode)
+          (should (= (markdown-modern-setup-test--right-margin) 0))
+          (should-not (memq #'markdown-modern--update-text-width
+                            window-size-change-functions)))))))
+
+(ert-deftest setup/text-width-nil-or-other-manager-leaves-margins ()
+  "No margin without a reading width or under another width mode."
+  (save-window-excursion
+    (with-temp-buffer
+      (switch-to-buffer (current-buffer))
+      (set-window-margins nil nil nil)
+      (let ((markdown-modern-text-width nil))
+        (markdown-modern-mode)
+        (should (= (markdown-modern-setup-test--right-margin) 0)))
+      (let ((markdown-modern-text-width 40))
+        (setq-local visual-fill-column-mode t)
+        (markdown-modern--update-text-width)
+        (should (= (markdown-modern-setup-test--right-margin) 0))))))
+
 (provide 'markdown-modern-setup-test)
 ;;; markdown-modern-setup-test.el ends here

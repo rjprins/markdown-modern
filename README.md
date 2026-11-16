@@ -173,20 +173,22 @@ revealed so you can edit it in place, and re-rendered once the cursor leaves:
   becomes editable, with its borders kept aligned to the box and re-flowing live
   as you type. The rest of the box stays drawn.
 
-Ordinary newlines within a paragraph render as spaces, so prose flows to the
-window width even when the source is wrapped across several lines. The file's
-text stays unchanged. When you type in a paragraph, it shows its source lines,
-so a new line you type stays on its own line. A `↵` marks each newline that
-will display as a space. Once you leave the paragraph and pause, its lines join
-again. Moving the cursor does not split or join
-paragraphs. To also show the source lines of the paragraph the cursor rests in,
-set `markdown-modern-paragraph-reveal-delay` to a number of seconds. Two
-trailing spaces or an unescaped backslash keep an explicit Markdown hard break.
-Blank lines keep paragraphs separate.
+Paragraphs show their lines as written, so line commands such as `C-k` act on
+what you see. Text wraps at the reading width (`markdown-modern-text-width`, 80
+columns), so a long line flows like rendered Markdown and a file wrapped at a
+fixed width keeps its lines.
 
-To show every paragraph with its lines as written, set
-`markdown-modern-join-paragraph-lines` to `nil`. You can also set it for one
-file, as a file-local variable.
+To display single newlines in a paragraph as spaces, as a Markdown renderer
+does, set `markdown-modern-join-paragraph-lines` to `t`. You can also set it for
+one file, as a file-local variable. A paragraph then flows to the reading width
+even when the source is wrapped across several lines. The file's text stays
+unchanged. When you type in a paragraph, it shows its source lines, so a new
+line you type stays on its own line. A `↵` marks each newline that will display
+as a space. Once you leave the paragraph and pause, its lines join again. To
+also show the source lines of the paragraph the cursor rests in, set
+`markdown-modern-paragraph-reveal-delay` to a number of seconds. Two trailing
+spaces or an unescaped backslash keep an explicit Markdown hard break. Blank
+lines keep paragraphs separate.
 
 Task checkboxes are the exception: they are treated as interactive widgets, not
 markup to reveal. Point on a checkbox keeps the rendered `☐`/`☑`; `SPC` toggles
@@ -298,15 +300,14 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
 | `markdown-modern-variable-pitch` | `t` | Enable `variable-pitch-mode` (proportional prose; code/tables stay fixed-pitch) |
 | `markdown-modern-visual-line` | `t` | Enable `visual-line-mode` (soft word-wrap) |
 | `markdown-modern-left-margin` | `4` | Left margin width, in characters |
-| `markdown-modern-join-paragraph-lines` | `t` | Display single newlines in a paragraph as spaces, as Markdown renders them; `nil` = show lines as written |
+| `markdown-modern-join-paragraph-lines` | `nil` | Display single newlines in a paragraph as spaces, as Markdown renders them; `nil` = show lines as written |
 | `markdown-modern-paragraph-reveal-delay` | `nil` | Seconds the cursor rests in a paragraph before it shows its source lines; `nil` = only while you edit it |
 
 ### Reading width
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `markdown-modern-manage-text-width` | `nil` | Let markdown-modern constrain the reading width; when `nil` it leaves `fill-column` and wrapping to your config |
-| `markdown-modern-text-width` | `90` | Reading width in characters (used only when `manage-text-width` is non-nil) |
+| `markdown-modern-text-width` | `80` | Maximum reading width, in columns of the buffer's default font (proportional characters under `variable-pitch-mode`, as in writeroom-mode). Text wraps there instead of at the window edge; `nil` = full window width. Left alone while `visual-fill-column-mode` or `olivetti-mode` is on |
 | `markdown-modern-table-max-width` | `nil` | Cap rendered table width; `nil` = fit to the window (over-wide columns wrap onto multiple lines so they never wrap the buffer). Set a large number for natural width + horizontal scroll (`C-c C-v t`) |
 | `markdown-modern-table-min-column-width` | `8` | Narrowest a column is shrunk to before its content wraps onto multiple lines |
 | `markdown-modern-table-max-cell-lines` | `nil` | Max wrapped lines per cell (`nil` = unlimited); content past the cap ends with `…` |
@@ -354,8 +355,7 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
        :lisp-dir "lisp")
   :mode ("\\.\\(md\\|markdown\\)\\'" . markdown-modern-mode)
   :custom
-  ;; Constrain the reading width (off by default):
-  (markdown-modern-manage-text-width t)
+  ;; A wider reading column (default 80; nil = full window width):
   (markdown-modern-text-width 100)
   :config
   (set-face-attribute 'markdown-modern-heading-1 nil :foreground "#2aa198"))
@@ -425,11 +425,11 @@ The main changes are in editing, rendering and parser setup:
   long cells wrap inside the table.
 - **Task checkboxes act as widgets.** `SPC` toggles the checkbox under the cursor;
   `Backspace` or `Delete` removes it and leaves a plain list item.
-- **Paragraphs follow Markdown's soft-break behavior.** Ordinary source newlines
-  display as spaces without changing the file. Explicit hard breaks stay visible.
-  A paragraph you type in shows its real lines, with a `↵` where they will join,
-  so a new line stays on its own line. Set
-  `markdown-modern-join-paragraph-lines` to `nil` to show lines as written.
+- **Paragraphs keep their source lines.** A Markdown renderer shows single
+  newlines in a paragraph as spaces; markdown-modern shows them as written, so
+  line commands act on what you see. Set `markdown-modern-join-paragraph-lines`
+  to `t` to join them. A paragraph you type in then shows its real lines, with a
+  `↵` where they will join.
 - **Tree-sitter is required.** Both Markdown grammars drive buffer parsing.
   There is no regex parser fallback or opt-in switch. A dedicated command installs
   missing grammars and setup errors explain what is needed.

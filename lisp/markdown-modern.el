@@ -127,24 +127,24 @@
   :type 'integer
   :group 'markdown-modern-media)
 
-(defcustom markdown-modern-text-width 90
-  "Maximum width in characters for rendered text content.
-Only takes effect when `markdown-modern-manage-text-width' is non-nil.
-Set to nil to use the full window width."
-  :type '(choice (integer :tag "Character width")
+(defcustom markdown-modern-text-width 80
+  "Maximum width of the rendered text, in columns.
+Like the content column of a Markdown renderer: text wraps at this width
+instead of at the window edge, however wide the window is.  A column is the
+average character width of the buffer's default font, so under
+`variable-pitch-mode' it is a proportional character, as in `writeroom-mode'.
+`markdown-modern-left-margin' comes on top.  The width follows text scaling.
+
+markdown-modern makes room with a right window margin.  It leaves the margins
+alone while `visual-fill-column-mode' or `olivetti-mode' manages them.  Set to
+nil to use the full window width."
+  :type '(choice (natnum :tag "Columns")
                  (const :tag "Full window width" nil))
+  :safe (lambda (value) (or (null value) (natnump value)))
   :group 'markdown-modern)
 
-(defcustom markdown-modern-manage-text-width nil
-  "Whether markdown-modern constrains the visual text width itself.
-When non-nil, `markdown-modern-mode' sets `fill-column' to
-`markdown-modern-text-width' and turns on `visual-line-mode' (and
-`visual-fill-column-mode' if available) to constrain reading width.  When nil
-\(the default), markdown-modern does not touch `fill-column', leaving width to
-your own configuration.  Line wrapping is controlled separately by
-`markdown-modern-visual-line'."
-  :type 'boolean
-  :group 'markdown-modern)
+(make-obsolete-variable 'markdown-modern-manage-text-width
+                        'markdown-modern-text-width "2.2.0")
 
 (defcustom markdown-modern-visual-line t
   "Whether `markdown-modern-mode' enables `visual-line-mode'.
@@ -161,12 +161,14 @@ to keep a fixed-pitch buffer."
   :type 'boolean
   :group 'markdown-modern)
 
-(defcustom markdown-modern-join-paragraph-lines t
+(defcustom markdown-modern-join-paragraph-lines nil
   "Whether the source lines of a paragraph display joined.
 Markdown treats a single newline inside a paragraph as a space.  When
 non-nil, such newlines display as spaces, so a paragraph that the file wraps
-at a fixed width flows to the window width.  Explicit hard breaks and blank
-lines stay.  When nil, paragraphs show their lines as written.  After
+at a fixed width flows to the reading width (`markdown-modern-text-width').
+Explicit hard breaks and blank lines stay.  Editing a paragraph shows its
+source lines again.  When nil (the default), paragraphs show their lines as
+written, so line commands such as \\[kill-line] act on what you see.  After
 changing this, run `markdown-modern-mode' again in open buffers."
   :type 'boolean
   :safe #'booleanp
@@ -534,21 +536,6 @@ single source of truth shared between point-motion reveal and jit-lock.")
     (setq-local line-prefix indent-str)
     (setq-local wrap-prefix indent-str))
 
-  ;; Constrain reading width only when explicitly opted in -- otherwise
-  ;; leave `fill-column' and line wrapping to the user's configuration.
-  (when (and markdown-modern-manage-text-width markdown-modern-text-width)
-    (setq-local fill-column markdown-modern-text-width)
-    (visual-line-mode 1)
-    ;; Use visual-fill-column if available for proper width limiting
-    (if (fboundp 'visual-fill-column-mode)
-        (progn
-          (setq-local visual-fill-column-width markdown-modern-text-width)
-          (setq-local visual-fill-column-center-text nil)
-          (visual-fill-column-mode 1))
-      ;; Fallback: use window margins to constrain width
-      (markdown-modern--apply-text-width)
-      (add-hook 'window-size-change-functions #'markdown-modern--on-window-size-change)))
-
   ;; Optional visual modes (enabled by default; configurable).
   (when markdown-modern-visual-line
     (visual-line-mode 1))
@@ -567,30 +554,64 @@ single source of truth shared between point-motion reveal and jit-lock.")
   (setq markdown-modern--chars-tick (buffer-chars-modified-tick))
   (add-hook 'after-change-functions #'markdown-modern--after-change nil t)
   (add-hook 'text-scale-mode-hook #'markdown-modern--on-text-scale nil t)
+  ;; Keep the reading width in every window that shows the buffer.  The
+  ;; buffer-local hooks get the window as argument.  Margins change only the
+  ;; body size, so a second run computes the same margins and stops there.
+  (add-hook 'window-size-change-functions #'markdown-modern--update-text-width nil t)
+  (add-hook 'window-buffer-change-functions #'markdown-modern--update-text-width nil t)
+  (markdown-modern--update-text-width-everywhere)
   ;; Clean up when switching to another major mode
   (add-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer nil t)
 
   ;; Set up imenu
   (setq-local imenu-create-index-function #'markdown-modern-imenu-create-index))
 
-(defun markdown-modern--apply-text-width ()
-  "Apply text width constraint using window margins."
-  (when (and markdown-modern-text-width (get-buffer-window))
-    (let* ((win (get-buffer-window))
-           (width (window-total-width win))
-           (text-width (+ markdown-modern-text-width markdown-modern-left-margin))
-           (right-margin (max 0 (- width text-width))))
-      (set-window-margins win markdown-modern-left-margin right-margin))))
+(defun markdown-modern--text-width-right-margin (available-px font-px char-px)
+  "Return the right margin that limits the text to the reading width.
+AVAILABLE-PX is the pixel width of the text area plus both margins.  FONT-PX
+is the column width of the buffer's default font, and CHAR-PX the frame's
+column width, the unit of window margins.  The text keeps
+`markdown-modern-text-width' plus `markdown-modern-left-margin' columns; a
+window narrower than that gets no margin."
+  (let ((text-px (* (+ markdown-modern-text-width markdown-modern-left-margin)
+                    font-px)))
+    (max 0 (floor (- available-px text-px) (max 1 char-px)))))
 
-(defun markdown-modern--on-window-size-change (frame)
-  "Update text width for the windows of FRAME on a size change."
-  (dolist (win (window-list frame))
-    (with-current-buffer (window-buffer win)
-      (when (derived-mode-p 'markdown-modern-mode)
-        (markdown-modern--apply-text-width)))))
+(defun markdown-modern--other-width-manager-p ()
+  "Return non-nil when another mode manages the window margins."
+  (or (bound-and-true-p visual-fill-column-mode)
+      (bound-and-true-p olivetti-mode)))
+
+(defun markdown-modern--update-text-width (&optional window)
+  "Set the right margin of WINDOW so its text keeps the reading width.
+WINDOW defaults to the selected window.  See `markdown-modern-text-width'."
+  (let ((win (or window (selected-window))))
+    (when (window-live-p win)
+      (with-current-buffer (window-buffer win)
+        (when (and markdown-modern-text-width
+                   (derived-mode-p 'markdown-modern-mode)
+                   (not (markdown-modern--other-width-manager-p)))
+          (let* ((margins (window-margins win))
+                 (left (or (car margins) 0))
+                 (right (or (cdr margins) 0))
+                 (char-px (frame-char-width (window-frame win)))
+                 (available-px (+ (window-body-width win t)
+                                  (* char-px (+ left right))))
+                 (font-px (with-selected-frame (window-frame win)
+                            (default-font-width)))
+                 (new-right (markdown-modern--text-width-right-margin
+                             available-px font-px char-px)))
+            (unless (= new-right right)
+              (set-window-margins win (car margins) new-right))))))))
+
+(defun markdown-modern--update-text-width-everywhere ()
+  "Update the reading width in every window that shows the current buffer."
+  (dolist (win (get-buffer-window-list nil nil t))
+    (markdown-modern--update-text-width win)))
 
 (defun markdown-modern--on-text-scale ()
-  "Recalculate measured list marker padding after a text size change."
+  "Refit the reading width and list marker padding after a text size change."
+  (markdown-modern--update-text-width-everywhere)
   (jit-lock-refontify))
 
 (defun markdown-modern--teardown-buffer ()
@@ -601,7 +622,8 @@ single source of truth shared between point-motion reveal and jit-lock.")
   (remove-hook 'after-change-functions #'markdown-modern--after-change t)
   (remove-hook 'text-scale-mode-hook #'markdown-modern--on-text-scale t)
   (remove-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer t)
-  (remove-hook 'window-size-change-functions #'markdown-modern--on-window-size-change)
+  (remove-hook 'window-size-change-functions #'markdown-modern--update-text-width t)
+  (remove-hook 'window-buffer-change-functions #'markdown-modern--update-text-width t)
 
   ;; Reset state
   (setq markdown-modern--revealed-region nil)
@@ -612,10 +634,8 @@ single source of truth shared between point-motion reveal and jit-lock.")
 
   ;; Disable only the visual modes markdown-modern turned on (see setup), so we
   ;; don't clobber settings the user manages elsewhere.
-  (when (or markdown-modern-manage-text-width markdown-modern-visual-line)
+  (when markdown-modern-visual-line
     (visual-line-mode -1))
-  (when (and markdown-modern-manage-text-width (fboundp 'visual-fill-column-mode))
-    (visual-fill-column-mode -1))
   (when markdown-modern-variable-pitch
     (variable-pitch-mode -1))
 
@@ -623,9 +643,11 @@ single source of truth shared between point-motion reveal and jit-lock.")
   (setq-local line-prefix nil)
   (setq-local wrap-prefix nil)
 
-  ;; Reset window margins
-  (when (get-buffer-window)
-    (set-window-margins (get-buffer-window) nil nil))
+  ;; Give back the right margins that the reading width took, unless another
+  ;; mode manages them.
+  (unless (markdown-modern--other-width-manager-p)
+    (dolist (win (get-buffer-window-list nil nil t))
+      (set-window-margins win (car (window-margins win)) right-margin-width)))
 
   ;; Clear overlays
   (markdown-modern-render--clear-all)

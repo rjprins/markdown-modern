@@ -27,6 +27,12 @@
      (markdown-modern--jit-fontify (point-min) (point-max))
      ,@body))
 
+(defmacro markdown-modern-render-test--joined (&rest body)
+  "Run BODY with paragraph line joining on (it is off by default)."
+  (declare (indent 0))
+  `(let ((markdown-modern-join-paragraph-lines t))
+     ,@body))
+
 (defun markdown-modern-render-test--ov (type)
   "Return the first overlay whose `markdown-modern-type' is TYPE, or nil."
   (cl-find-if (lambda (ov) (eq (overlay-get ov 'markdown-modern-type) type))
@@ -588,26 +594,47 @@ Undefined labels, footnotes and definitions inside code stay plain text."
 (ert-deftest render/link ()           (markdown-modern-render-test--assert-link))
 (ert-deftest render/code-block ()     (markdown-modern-render-test--assert-code-block))
 (ert-deftest render/table ()          (markdown-modern-render-test--assert-table))
-(ert-deftest render/soft-breaks ()    (markdown-modern-render-test--assert-soft-breaks))
+(ert-deftest render/soft-breaks ()
+  (markdown-modern-render-test--joined
+    (markdown-modern-render-test--assert-soft-breaks)))
 (ert-deftest render/unjoined-lines () (markdown-modern-render-test--assert-unjoined-lines))
+(ert-deftest render/lines-unjoined-by-default ()
+  "By default a paragraph shows its source lines."
+  (markdown-modern-render-test--with "one\ntwo\n"
+    (should (= (markdown-modern-render-test--count 'soft-break) 0))))
 (ert-deftest render/break-boundaries () (markdown-modern-render-test--assert-break-boundaries))
-(ert-deftest render/container-soft-breaks () (markdown-modern-render-test--assert-container-soft-breaks))
-(ert-deftest render/soft-break-editing () (markdown-modern-render-test--assert-soft-break-editing))
-(ert-deftest render/soft-breaks-after-blocks () (markdown-modern-render-test--assert-prose-after-blocks))
-(ert-deftest render/soft-break-navigation () (markdown-modern-render-test--assert-soft-break-navigation))
-(ert-deftest render/paragraph-reveal () (markdown-modern-render-test--assert-paragraph-reveal))
-(ert-deftest render/paragraph-reveal-delay () (markdown-modern-render-test--assert-paragraph-reveal-delay))
+(ert-deftest render/container-soft-breaks ()
+  (markdown-modern-render-test--joined
+    (markdown-modern-render-test--assert-container-soft-breaks)))
+(ert-deftest render/soft-break-editing ()
+  (markdown-modern-render-test--joined
+    (markdown-modern-render-test--assert-soft-break-editing)))
+(ert-deftest render/soft-breaks-after-blocks ()
+  (markdown-modern-render-test--joined
+    (markdown-modern-render-test--assert-prose-after-blocks)))
+(ert-deftest render/soft-break-navigation ()
+  (markdown-modern-render-test--joined
+    (markdown-modern-render-test--assert-soft-break-navigation)))
+(ert-deftest render/paragraph-reveal ()
+  (markdown-modern-render-test--joined
+    (markdown-modern-render-test--assert-paragraph-reveal)))
+(ert-deftest render/paragraph-reveal-delay ()
+  (markdown-modern-render-test--joined
+    (markdown-modern-render-test--assert-paragraph-reveal-delay)))
 (ert-deftest render/typing-list-item () (markdown-modern-render-test--assert-typing-list-item))
-(ert-deftest render/list-after-paragraph () (markdown-modern-render-test--assert-list-after-paragraph))
+(ert-deftest render/list-after-paragraph ()
+  (markdown-modern-render-test--joined
+    (markdown-modern-render-test--assert-list-after-paragraph)))
 (ert-deftest render/strikethrough () (markdown-modern-render-test--assert-strikethrough))
 
 (ert-deftest render/soft-breaks-next-to-code ()
   "A newline right before or after inline code joins; one inside it does not."
-  (dolist (case '(("one and\n`TAB` two\n" . 1)
-                  ("with a `x`\nat each\n" . 1)
-                  ("a `multi\nline` b\n" . 0)))
-    (markdown-modern-render-test--with (car case)
-      (should (= (markdown-modern-render-test--count 'soft-break) (cdr case))))))
+  (markdown-modern-render-test--joined
+   (dolist (case '(("one and\n`TAB` two\n" . 1)
+                   ("with a `x`\nat each\n" . 1)
+                   ("a `multi\nline` b\n" . 0)))
+     (markdown-modern-render-test--with (car case)
+       (should (= (markdown-modern-render-test--count 'soft-break) (cdr case)))))))
 
 (defun markdown-modern-render-test--visible-text ()
   "Return the buffer text that no overlay hides."
