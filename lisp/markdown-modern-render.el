@@ -1297,7 +1297,13 @@ narrower than a digit."
 (defun markdown-modern-render--list-item (elem)
   "Render list item element ELEM.
 Includes `wrap-prefix' for proper line continuation."
-  (let ((start (markdown-modern-node-start elem))
+  (let ((start (save-excursion
+                 ;; When a parent item's text starts at column 2 and its
+                 ;; children are indented 4 spaces, the grammar puts the extra
+                 ;; indent into the first child's node.  Its marker comes after.
+                 (goto-char (markdown-modern-node-start elem))
+                 (skip-chars-forward " \t")
+                 (point)))
         ;; The item's text can go on over several source lines.  Wrapped
         ;; lines anywhere in it line up with the text, not the marker.
         (text-end (or (cl-some (lambda (child)

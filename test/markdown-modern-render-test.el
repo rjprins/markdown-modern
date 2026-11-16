@@ -725,6 +725,21 @@ item must lose its old marker first."
     (should (= (markdown-modern-render-test--markers-at (+ (match-beginning 0) 3)) 1))
     (should (= (markdown-modern-render-test--count 'checkbox) 2))))
 
+(ert-deftest render/nested-list-items-four-space-indent ()
+  "Items nested four spaces deep all get a marker, the first one too.
+The grammar puts the indent past the parent's text column into the first
+child's node, so its marker does not start where the node does."
+  (markdown-modern-render-test--with
+      (concat "- one\n    - two\n    - three\n        - four\n- back\n\n"
+              "1. First\n    1. Nested\n    2. Again\n\n"
+              "- [ ] task\n    - [x] nested task\n")
+    (dolist (item '("- one" "- two" "- three" "- four" "- back"
+                    "1. Nested" "2. Again"))
+      (goto-char (point-min))
+      (search-forward item)
+      (should (= (markdown-modern-render-test--markers-at (match-beginning 0)) 1)))
+    (should (= (markdown-modern-render-test--count 'checkbox) 2))))
+
 (ert-deftest render/list-markers-stable-during-cursor-motion ()
   "Walking through lists repeatedly must not accumulate rendered markers."
   (dolist (text '("- first\n- second\n- third\n\n"
