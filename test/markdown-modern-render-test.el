@@ -997,6 +997,15 @@ faces around and inside it."
     (should-not (eq (get-char-property (match-beginning 0) 'face)
                     'markdown-modern-code-block))))
 
+(ert-deftest render/table-parse-row-escaped-pipe ()
+  "An escaped pipe is part of a cell, not a cell border."
+  (should (equal (markdown-modern-render--table-parse-row "| a \\| b | c |")
+                 '(" a \\| b " " c ")))
+  (should (equal (markdown-modern-render--table-parse-row "| a \\\\| b |")
+                 '(" a \\\\" " b ")))
+  (should (equal (markdown-modern-render--table-parse-row "| a | b |")
+                 '(" a " " b "))))
+
 (ert-deftest render/list-marker-reveal-pixel-alignment ()
   "Revealing an unordered marker does not move its text."
   (skip-unless (display-graphic-p))
