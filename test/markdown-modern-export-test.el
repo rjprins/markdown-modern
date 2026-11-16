@@ -274,5 +274,204 @@
   (should (equal (markdown-modern-export--escape-html "<a & b>")
                  "&lt;a &amp; b&gt;")))
 
+;;; Block Structure Tests
+
+(defconst mg-export-test-dir
+  (file-name-directory (or load-file-name buffer-file-name))
+  "Directory of this test file.")
+
+(defun mg-balanced-p (html)
+  "Return non-nil when the tags in HTML that the exporter writes nest properly."
+  (let ((case-fold-search nil)
+        (stack '())
+        (pos 0)
+        (ok t))
+    (while (and ok (string-match
+                    "<\\(/?\\)\\(p\\|blockquote\\|ul\\|ol\\|li\\|pre\\|code\\|table\\|thead\\|tbody\\|tr\\|th\\|td\\|h[1-6]\\|em\\|strong\\|del\\|a\\)[ >]"
+                    html pos))
+      (setq pos (match-end 0))
+      (let ((tag (match-string 2 html)))
+        (if (string-empty-p (match-string 1 html))
+            (push tag stack)
+          (if (equal (car stack) tag)
+              (pop stack)
+            (setq ok nil)))))
+    (and ok (null stack))))
+
+(ert-deftest export/fenced-code-in-list-item ()
+  "A fenced code block inside a list item does not break the rest."
+  (let ((html (mg-export "- An item:\n\n  ```sh\n  echo \"hi\"\n  ```\n\n## After\n\nText.")))
+    (should (string-match-p
+             (regexp-quote "<pre><code class=\"language-sh\">echo &quot;hi&quot;</code></pre>")
+             html))
+    (should (string-match-p (regexp-quote "<h2 id=\"after\">After</h2>") html))
+    (should (string-match-p (regexp-quote "<p>Text.</p>") html))
+    (should-not (string-match-p "&lt;" html))
+    (should (mg-balanced-p html))))
+
+(ert-deftest export/tilde-fence ()
+  "A ~~~ fence is a code block, not strikethrough."
+  (let ((html (mg-export "~~~javascript\nconst a = 1;\n~~~")))
+    (should (equal html "<pre><code class=\"language-javascript\">const a = 1;</code></pre>"))))
+
+(ert-deftest export/fence-longer-closing ()
+  "A fence closes only on a fence of the same kind, at least as long."
+  (let ((html (mg-export "````md\n```\ninner\n```\n````")))
+    (should (equal html "<pre><code class=\"language-md\">```\ninner\n```</code></pre>"))))
+
+(ert-deftest export/indented-code ()
+  "Four-space indented lines are a code block."
+  (let ((html (mg-export "Text.\n\n    line one\n      line two\n\nAfter.")))
+    (should (string-match-p
+             (regexp-quote "<pre><code>line one\n  line two</code></pre>")
+             html))
+    (should-not (string-match-p "<p>line" html))))
+
+(ert-deftest export/fenced-code-keeps-indented-lines ()
+  "Indented lines inside a fence stay in the code block."
+  (let ((html (mg-export "```elisp\n(defun f ()\n  \"Doc.\"\n  1)\n```")))
+    (should (equal html "<pre><code class=\"language-elisp\">(defun f ()\n  &quot;Doc.&quot;\n  1)</code></pre>"))))
+
+(ert-deftest export/fenced-code-keeps-markup ()
+  "Markdown inside a fence is not converted."
+  (let ((html (mg-export "```\n# not a heading\n- not a list\n> not a quote\n**not bold**\n```")))
+    (should (equal html "<pre><code># not a heading\n- not a list\n&gt; not a quote\n**not bold**</code></pre>"))))
+
+(ert-deftest export/blockquote-paragraph ()
+  "A blockquote holds a paragraph, closed inside it."
+  (should (equal (mg-export "> Line 1\n> Line 2")
+                 "<blockquote>\n<p>Line 1\nLine 2</p>\n</blockquote>")))
+
+(ert-deftest export/blockquote-nested ()
+  "A >> line nests a quote."
+  (should (equal (mg-export "> Outer\n>> Nested")
+                 "<blockquote>\n<p>Outer</p>\n<blockquote>\n<p>Nested</p>\n</blockquote>\n</blockquote>")))
+
+(ert-deftest export/blockquote-with-list ()
+  "A quote can hold a list and more paragraphs."
+  (let ((html (mg-export "> A list:\n> - first\n> - second\n>\n> And **bold**.")))
+    (should (equal html
+                   "<blockquote>\n<p>A list:</p>\n<ul>\n<li>first</li>\n<li>second</li>\n</ul>\n<p>And <strong>bold</strong>.</p>\n</blockquote>"))))
+
+(ert-deftest export/nested-list ()
+  "An indented list nests inside the item above it."
+  (should (equal (mg-export "- one\n  - two\n- three")
+                 "<ul>\n<li>one\n<ul>\n<li>two</li>\n</ul></li>\n<li>three</li>\n</ul>")))
+
+(ert-deftest export/list-item-continuation ()
+  "Indented lines continue a list item."
+  (should (equal (mg-export "- a long\n  item\n- b")
+                 "<ul>\n<li>a long\nitem</li>\n<li>b</li>\n</ul>")))
+
+(ert-deftest export/ordered-list-start ()
+  "An ordered list keeps its start number."
+  (mg-html-contains "3. three\n4. four" "<ol start=\"3\">"))
+
+(ert-deftest export/loose-list ()
+  "Items separated by blank lines get paragraphs."
+  (should (equal (mg-export "- a\n\n- b")
+                 "<ul>\n<li><p>a</p></li>\n<li><p>b</p></li>\n</ul>")))
+
+(ert-deftest export/list-then-rule ()
+  "A rule right after a list ends the list."
+  (should (equal (mg-export "Text\n- a\n- b\n---")
+                 "<p>Text</p>\n<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n<hr>")))
+
+(ert-deftest export/table-alignment ()
+  "Table columns keep their alignment, and cells get inline markup."
+  (let ((html (mg-export "| L | C | R |\n|:--|:-:|--:|\n| **a** | `b` | c |")))
+    (should (string-match-p (regexp-quote "<th style=\"text-align: center\">C</th>") html))
+    (should (string-match-p (regexp-quote "<td style=\"text-align: left\"><strong>a</strong></td>") html))
+    (should (string-match-p (regexp-quote "<td style=\"text-align: right\">c</td>") html))))
+
+;;; Inline Escape and Break Tests
+
+(ert-deftest export/backslash-escapes ()
+  "Backslash escapes give the literal character."
+  (let ((html (mg-export "\\*not italic\\*, \\`not code\\`, \\_x\\_")))
+    (should (equal html "<p>*not italic*, `not code`, _x_</p>"))))
+
+(ert-deftest export/escaped-heading-marker ()
+  "An escaped # does not start a heading."
+  (should (equal (mg-export "\\# not a heading") "<p># not a heading</p>")))
+
+(ert-deftest export/hard-break-spaces ()
+  "Two trailing spaces make a hard line break."
+  (should (equal (mg-export "one  \ntwo") "<p>one<br>\ntwo</p>")))
+
+(ert-deftest export/hard-break-backslash ()
+  "A trailing backslash makes a hard line break."
+  (should (equal (mg-export "one\\\ntwo") "<p>one<br>\ntwo</p>")))
+
+(ert-deftest export/text-is-escaped ()
+  "Plain < and & are escaped, entities are kept."
+  (should (equal (mg-export "a < b & c &amp; d") "<p>a &lt; b &amp; c &amp; d</p>")))
+
+(ert-deftest export/intraword-underscore ()
+  "Underscores inside words are not emphasis."
+  (should (equal (mg-export "snake_case_name") "<p>snake_case_name</p>")))
+
+(ert-deftest export/link-title ()
+  "A link title becomes a title attribute."
+  (mg-html-contains "[GitHub](https://github.com \"GitHub home\")"
+                    "<a href=\"https://github.com\" title=\"GitHub home\">GitHub</a>"))
+
+(ert-deftest export/reference-link ()
+  "Reference links use their definition, which is not shown."
+  (let ((html (mg-export "See [the log][log] and [log].\n\n[log]: ../CHANGELOG.md")))
+    (should (equal html "<p>See <a href=\"../CHANGELOG.md\">the log</a> and <a href=\"../CHANGELOG.md\">log</a>.</p>"))))
+
+(ert-deftest export/autolink ()
+  "An autolink becomes a link."
+  (mg-html-contains "<https://example.com/a_b>"
+                    "<a href=\"https://example.com/a_b\">https://example.com/a_b</a>"))
+
+;;; Math Tests
+
+(ert-deftest export/display-math-untouched ()
+  "Display math keeps its source, with no emphasis inside."
+  (let ((html (mg-export "$$\n\\int_{-\\infty}^{\\infty} e^{-x_1^2} dx\n$$")))
+    (should-not (string-match-p "<em>" html))
+    (should (string-match-p (regexp-quote "\\int_{-\\infty}^{\\infty} e^{-x_1^2} dx") html))))
+
+(ert-deftest export/inline-math-untouched ()
+  "Inline math keeps its source, with no emphasis inside."
+  (let ((html (mg-export "Sum $a_1 + b_1$ and $x*y*z$.")))
+    (should-not (string-match-p "<em>" html))
+    (should (string-match-p (regexp-quote "$a_1 + b_1$") html))
+    (should (string-match-p (regexp-quote "$x*y*z$") html))))
+
+(ert-deftest export/dollar-amounts-not-math ()
+  "Prices are not math, and emphasis next to them still works."
+  (should (equal (mg-export "From $5 to $10, *cheap*.")
+                 "<p>From $5 to $10, <em>cheap</em>.</p>")))
+
+;;; Raw HTML and Mermaid Tests
+
+(ert-deftest export/html-block-passes-through ()
+  "An HTML block is kept as is, with Markdown between its tags."
+  (let ((html (mg-export "<details>\n<summary>More</summary>\n\nHidden **text**.\n\n</details>")))
+    (should (equal html "<details>\n<summary>More</summary>\n<p>Hidden <strong>text</strong>.</p>\n</details>"))))
+
+(ert-deftest export/inline-html-passes-through ()
+  "Inline tags such as <kbd> are kept."
+  (should (equal (mg-export "Press <kbd>Ctrl</kbd> + <kbd>C</kbd>.")
+                 "<p>Press <kbd>Ctrl</kbd> + <kbd>C</kbd>.</p>")))
+
+(ert-deftest export/mermaid-as-code ()
+  "Mermaid blocks export as code."
+  (should (equal (mg-export "```mermaid\nflowchart TD\nA --> B\n```")
+                 "<pre><code class=\"language-mermaid\">flowchart TD\nA --&gt; B</code></pre>")))
+
+(ert-deftest export/manual-file ()
+  "The manual test file exports to well-nested HTML."
+  (let ((html (with-temp-buffer
+                (insert-file-contents (expand-file-name "manual.md" mg-export-test-dir))
+                (mg-export (buffer-string)))))
+    (should (mg-balanced-p html))
+    (should-not (string-match-p "&lt;h[1-6]\\|&lt;/\\?p&gt;" html))
+    (should-not (string-match-p "<p>\\(<pre\\|<ul\\|<blockquote\\|>\\)" html))
+    (should (string-match-p "<h2 id=\"export\">Export</h2>" html))))
+
 (provide 'markdown-modern-export-test)
 ;;; markdown-modern-export-test.el ends here

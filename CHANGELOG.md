@@ -69,6 +69,17 @@ on [Keep a Changelog](https://keepachangelog.com/).
   bullet instead of a raw `-`, and its wrapped text lines up.
 - Bullets follow the nesting level however deep it is indented, so a
   second-level item nested four spaces deep shows `○`, not `■`.
+- HTML export keeps the document's structure. A code block inside a list item
+  no longer turns the rest of the page into escaped text. `~~~` fences and
+  indented code export as code, and indented lines inside a fence stay in the
+  code block. Nested lists, nested quotes and a list inside a quote export as
+  nested HTML.
+- HTML export honours backslash escapes and hard line breaks (two trailing
+  spaces or a trailing backslash). Math is exported as written, without
+  emphasis inside, and underscores inside words stay as they are.
+- HTML export escapes `<` and `&` in text and keeps raw HTML such as
+  `<details>` and `<kbd>`. Link titles, reference links, autolinks and table
+  column alignment export too.
 
 ### Removed
 

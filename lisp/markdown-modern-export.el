@@ -270,8 +270,9 @@ Uses built-in converter (no external dependencies)."
          (output (or output-file
                      (read-file-name "Export to: " nil nil nil
                                     (file-name-nondirectory default-output))))
-         (title (or (markdown-modern-export--get-title)
-                    (file-name-base output)))
+         (title (markdown-modern-export--escape-html
+                 (or (markdown-modern-export--get-title)
+                     (file-name-base output))))
          (content (markdown-modern-export--markdown-to-html
                    (buffer-substring-no-properties (point-min) (point-max))))
          (html (format markdown-modern-export-html-template
@@ -300,227 +301,713 @@ Uses built-in converter (no external dependencies)."
 
 ;;; Markdown to HTML Conversion
 
+;; The converter works in two passes.  A line-based block pass splits the
+;; document into blocks: code, headings, rules, quotes, lists, tables, HTML,
+;; display math and paragraphs.  It recurses into quotes and list items.  An
+;; inline pass then renders the text of each paragraph, heading and table
+;; cell.  It sets code spans, math, raw HTML and backslash escapes aside
+;; first, so the emphasis and link rules never see them.
+
+(defvar markdown-modern-export--link-refs nil
+  "Hash table of link reference definitions, bound during a conversion.
+Keys are normalized labels, values are (URL . TITLE).")
+
+(defconst markdown-modern-export--html-block-tags
+  '("address" "article" "aside" "base" "basefont" "blockquote" "body"
+    "caption" "center" "col" "colgroup" "dd" "details" "dialog" "dir" "div"
+    "dl" "dt" "fieldset" "figcaption" "figure" "footer" "form" "frame"
+    "frameset" "h1" "h2" "h3" "h4" "h5" "h6" "head" "header" "hr" "html"
+    "iframe" "legend" "li" "link" "main" "menu" "menuitem" "nav" "noframes"
+    "ol" "optgroup" "option" "p" "param" "search" "section" "summary" "table"
+    "tbody" "td" "tfoot" "th" "thead" "title" "tr" "track" "ul")
+  "Tags that start an HTML block, as in CommonMark.")
+
+(defconst markdown-modern-export--tag-re
+  (concat "</?[A-Za-z][A-Za-z0-9-]*"
+          "\\(?:[ \t\n]+[A-Za-z_:][A-Za-z0-9_.:-]*"
+          "\\(?:[ \t\n]*=[ \t\n]*"
+          "\\(?:[^ \t\n\"'=<>`]+\\|'[^']*'\\|\"[^\"]*\"\\)\\)?\\)*"
+          "[ \t\n]*/?>")
+  "Regexp for an HTML open or closing tag.")
+
+(defconst markdown-modern-export--fence-re
+  "\\`\\( \\{0,3\\}\\)\\(`\\{3,\\}\\|~\\{3,\\}\\)\\(.*\\)\\'"
+  "Regexp for the opening line of a fenced code block.")
+
+(defconst markdown-modern-export--heading-re
+  "\\` \\{0,3\\}\\(#\\{1,6\\}\\)\\(?:[ \t]+\\(.*?\\)\\)?\\(?:[ \t]+#+\\)?[ \t]*\\'"
+  "Regexp for an ATX heading line.")
+
+(defconst markdown-modern-export--hr-re
+  (concat "\\` \\{0,3\\}\\(?:\\(?:\\*[ \t]*\\)\\{3,\\}"
+          "\\|\\(?:-[ \t]*\\)\\{3,\\}\\|\\(?:_[ \t]*\\)\\{3,\\}\\)\\'")
+  "Regexp for a horizontal rule.")
+
+(defconst markdown-modern-export--quote-re "\\` \\{0,3\\}> ?"
+  "Regexp for the marker of a blockquote line.")
+
+(defconst markdown-modern-export--item-re
+  (concat "\\`\\( \\{0,3\\}\\)\\([-*+]\\|\\([0-9]\\{1,9\\}\\)[.)]\\)"
+          "\\(?:\\( +\\)\\(.*\\)\\)?\\'")
+  "Regexp for the first line of a list item.")
+
+(defconst markdown-modern-export--setext-re "\\` \\{0,3\\}\\(=+\\|-+\\)[ \t]*\\'"
+  "Regexp for a setext heading underline.")
+
+(defconst markdown-modern-export--table-delimiter-re
+  "\\`[ \t]*|?\\(?:[ \t]*:?-+:?[ \t]*|\\)*[ \t]*:?-+:?[ \t]*|?[ \t]*\\'"
+  "Regexp for the delimiter row of a table.")
+
+(defconst markdown-modern-export--link-def-re
+  (concat "\\` \\{0,3\\}\\[\\([^]^][^]]*\\)\\]:[ \t]*<?\\([^ \t<>]+\\)>?"
+          "\\(?:[ \t]+\\(?:\"\\([^\"]*\\)\"\\|'\\([^']*\\)'\\|(\\([^)]*\\))\\)\\)?"
+          "[ \t]*\\'")
+  "Regexp for a link reference definition.")
+
 (defun markdown-modern-export--markdown-to-html (markdown)
   "Convert MARKDOWN string to HTML."
-  (with-temp-buffer
-    (insert markdown)
-    (goto-char (point-min))
-    ;; Process in order: blocks first, then inline
-    (markdown-modern-export--process-blocks)
-    (markdown-modern-export--process-inline)
-    (buffer-string)))
+  (let ((case-fold-search nil)
+        (markdown-modern-export--link-refs (make-hash-table :test #'equal)))
+    (markdown-modern-export--render-blocks
+     (car (markdown-modern-export--parse-blocks
+           (mapcar #'markdown-modern-export--expand-indent-tabs
+                   (split-string markdown "\r?\n"))))
+     nil)))
 
-(defun markdown-modern-export--process-blocks ()
-  "Process block-level elements in buffer."
-  ;; Process code blocks first (to protect their contents)
-  (markdown-modern-export--process-fenced-code-blocks)
-  ;; Then other blocks
-  (markdown-modern-export--process-headings)
-  (markdown-modern-export--process-blockquotes)
-  (markdown-modern-export--process-lists)
-  (markdown-modern-export--process-tables)
-  (markdown-modern-export--process-hrs)
-  (markdown-modern-export--process-paragraphs))
+;;; Block parsing
 
-(defun markdown-modern-export--process-inline ()
-  "Process inline elements in buffer."
-  ;; Process images BEFORE links (images use ![...] which contains link syntax)
-  (markdown-modern-export--process-images)
-  (markdown-modern-export--process-links)
-  (markdown-modern-export--process-bold)
-  (markdown-modern-export--process-italic)
-  (markdown-modern-export--process-strikethrough)
-  (markdown-modern-export--process-inline-code))
+(defun markdown-modern-export--expand-indent-tabs (line)
+  "Return LINE with tabs in its indentation expanded to 4-column stops."
+  (if (string-match "\\`[ \t]*\t" line)
+      (let ((end (match-end 0))
+            (col 0))
+        (dotimes (i end)
+          (setq col (if (eq (aref line i) ?\t) (* 4 (1+ (/ col 4))) (1+ col))))
+        (concat (make-string col ?\s) (substring line end)))
+    line))
 
-(defun markdown-modern-export--process-headings ()
-  "Convert markdown headings to HTML."
-  (goto-char (point-min))
-  (while (re-search-forward "^\\(#\\{1,6\\}\\) +\\(.+\\)$" nil t)
-    (let* ((level (length (match-string 1)))
-           (text (match-string 2))
-           (id (markdown-modern-export--heading-id text)))
-      (replace-match (format "<h%d id=\"%s\">%s</h%d>" level id text level)))))
+(defun markdown-modern-export--blank-p (line)
+  "Return non-nil when LINE holds only whitespace."
+  (string-match-p "\\`[ \t]*\\'" line))
 
-(defun markdown-modern-export--heading-id (text)
-  "Generate an ID from heading TEXT."
-  (downcase (replace-regexp-in-string
-             "[^a-zA-Z0-9]+" "-"
-             (string-trim text))))
+(defun markdown-modern-export--indent (line)
+  "Return the number of leading spaces in LINE."
+  (string-match "\\` *" line)
+  (match-end 0))
 
-(defun markdown-modern-export--process-fenced-code-blocks ()
-  "Convert fenced code blocks to HTML."
-  (goto-char (point-min))
-  ;; Process fenced code blocks by finding pairs of ```
-  (while (re-search-forward "^```\\([a-zA-Z0-9_+-]*\\)?$" nil t)
-    (let ((lang (or (match-string 1) ""))
-          (start (match-beginning 0))
-          (code-start (1+ (match-end 0))))
-      (when (re-search-forward "^```$" nil t)
-        (let* ((code-end (match-beginning 0))
-               (end (match-end 0))
-               (code (buffer-substring-no-properties code-start code-end)))
-          ;; Remove trailing newline from code if present
-          (when (and (> (length code) 0) (eq (aref code (1- (length code))) ?\n))
-            (setq code (substring code 0 -1)))
-          (delete-region start end)
-          (goto-char start)
-          (insert (format "<pre><code%s>%s</code></pre>"
-                          (if (string-empty-p lang) ""
-                            (format " class=\"language-%s\"" lang))
-                          (markdown-modern-export--escape-html code))))))))
+(defun markdown-modern-export--strip-indent (line n)
+  "Remove up to N leading spaces from LINE."
+  (substring line (min n (markdown-modern-export--indent line))))
 
-(defun markdown-modern-export--process-blockquotes ()
-  "Convert blockquotes to HTML."
-  (goto-char (point-min))
-  (while (re-search-forward "^\\(>+ ?\\(.+\\)\n?\\)+" nil t)
-    (let ((start (match-beginning 0))
-          (end (match-end 0)))
-      (save-excursion
-        (goto-char start)
-        (let ((content ""))
-          (while (and (< (point) end)
-                      (looking-at "^> ?\\(.*\\)$"))
-            (setq content (concat content (match-string 1) "\n"))
-            (forward-line 1))
-          (delete-region start (point))
-          (insert (format "<blockquote>\n%s</blockquote>\n"
-                         (string-trim content))))))))
+(defun markdown-modern-export--fence-open (line)
+  "Return (INDENT FENCE INFO) when LINE opens a fenced code block."
+  (when (string-match markdown-modern-export--fence-re line)
+    (let ((indent (length (match-string 1 line)))
+          (fence (match-string 2 line))
+          (info (string-trim (match-string 3 line))))
+      (unless (and (eq (aref fence 0) ?`) (string-search "`" info))
+        (list indent fence info)))))
 
-(defun markdown-modern-export--process-lists ()
-  "Convert lists to HTML."
-  ;; Unordered lists - match lines starting with list markers
-  (goto-char (point-min))
-  (while (re-search-forward "^[ \t]*[-*+] .+" nil t)
-    (beginning-of-line)
-    (let ((start (point))
-          (items '()))
-      ;; Collect consecutive list items
-      (while (and (not (eobp))
-                  (looking-at "^[ \t]*[-*+] \\(.+\\)$"))
-        (let ((item (match-string 1)))
-          ;; Check for task list
-          (if (string-match "^\\[\\([ xX]\\)\\] \\(.*\\)$" item)
-              (let ((checked (not (string= (match-string 1 item) " ")))
-                    (text (match-string 2 item)))
-                (push (format "<li class=\"task-list-item\"><input type=\"checkbox\"%s disabled> %s</li>"
-                              (if checked " checked" "")
-                              text)
-                      items))
-            (push (format "<li>%s</li>" item) items)))
-        (forward-line 1))
-      (delete-region start (point))
-      (insert (format "<ul>\n%s\n</ul>\n"
-                      (string-join (nreverse items) "\n")))))
-  ;; Ordered lists
-  (goto-char (point-min))
-  (while (re-search-forward "^[ \t]*[0-9]+[.)] .+" nil t)
-    (beginning-of-line)
-    (let ((start (point))
-          (items '()))
-      (while (and (not (eobp))
-                  (looking-at "^[ \t]*[0-9]+[.)] \\(.+\\)$"))
-        (push (format "<li>%s</li>" (match-string 1)) items)
-        (forward-line 1))
-      (delete-region start (point))
-      (insert (format "<ol>\n%s\n</ol>\n"
-                      (string-join (nreverse items) "\n"))))))
+(defun markdown-modern-export--html-block-type (line)
+  "Return the CommonMark HTML block type that LINE starts, or nil.
+Type 1 ends at a closing script, pre, style or textarea tag, type 2
+at -->, and types 6 and 7 at a blank line."
+  (cond
+   ((string-match-p "\\` \\{0,3\\}<\\(?:script\\|pre\\|style\\|textarea\\)\\(?:[ \t>]\\|\\'\\)"
+                    line)
+    1)
+   ((string-match-p "\\` \\{0,3\\}<!--" line) 2)
+   ((and (string-match "\\` \\{0,3\\}</?\\([A-Za-z][A-Za-z0-9-]*\\)\\(?:[ \t>]\\|/>\\|\\'\\)"
+                       line)
+         (member (downcase (match-string 1 line))
+                 markdown-modern-export--html-block-tags))
+    6)
+   ((string-match-p (concat "\\` \\{0,3\\}" markdown-modern-export--tag-re "[ \t]*\\'")
+                    line)
+    7)))
 
-(defun markdown-modern-export--process-tables ()
-  "Convert markdown tables to HTML."
-  (goto-char (point-min))
-  (while (re-search-forward "^|.+|" nil t)
-    (beginning-of-line)
-    (let ((start (point))
-          (rows '())
-          (is-header t))
-      ;; Collect consecutive table rows
-      (while (and (not (eobp))
-                  (looking-at "^|\\(.+\\)|[ \t]*$"))
-        (let* ((row-text (match-string 1))
-               (cells (split-string row-text "|")))
-          (if (string-match-p "^[-:|]+$" row-text)
-              ;; Separator row - switch from header to body
-              (setq is-header nil)
-            ;; Data row
-            (push (cons is-header cells) rows)))
-        (forward-line 1))
-      (delete-region start (point))
-      (insert (markdown-modern-export--build-table (nreverse rows))))))
+(defun markdown-modern-export--interrupts-p (line &optional any-item)
+  "Return non-nil when LINE starts a block that ends a paragraph.
+An ordered list item interrupts only when it starts at 1, unless
+ANY-ITEM is non-nil."
+  (or (markdown-modern-export--blank-p line)
+      (markdown-modern-export--fence-open line)
+      (string-match-p markdown-modern-export--heading-re line)
+      (string-match-p markdown-modern-export--hr-re line)
+      (string-match-p markdown-modern-export--quote-re line)
+      (and (string-match markdown-modern-export--item-re line)
+           (or any-item
+               (and (match-string 5 line)
+                    (not (markdown-modern-export--blank-p (match-string 5 line)))
+                    (or (not (match-string 3 line))
+                        (equal (match-string 3 line) "1")))))
+      (memq (markdown-modern-export--html-block-type line) '(1 2 6))))
 
-(defun markdown-modern-export--build-table (rows)
-  "Build HTML table from ROWS list of (is-header . cells)."
-  (let ((html "<table>\n")
-        (in-tbody nil))
-    (dolist (row rows)
-      (let ((is-header (car row))
-            (cells (cdr row)))
-        (if is-header
-            (progn
-              (setq html (concat html "<thead>\n<tr>"))
-              (dolist (cell cells)
-                (setq html (concat html (format "<th>%s</th>" (string-trim cell)))))
-              (setq html (concat html "</tr>\n</thead>\n")))
-          (unless in-tbody
-            (setq html (concat html "<tbody>\n"))
-            (setq in-tbody t))
-          (setq html (concat html "<tr>"))
-          (dolist (cell cells)
-            (setq html (concat html (format "<td>%s</td>" (string-trim cell)))))
-          (setq html (concat html "</tr>\n")))))
-    (when in-tbody
-      (setq html (concat html "</tbody>\n")))
-    (concat html "</table>\n")))
+(defun markdown-modern-export--parse-blocks (lines)
+  "Parse LINES into a list of blocks.
+Return (BLOCKS . LOOSE), where LOOSE is non-nil when a blank line
+separates two of the blocks."
+  (let* ((v (vconcat lines))
+         (n (length v))
+         (i 0)
+         blocks gap loose)
+    (while (< i n)
+      (if (markdown-modern-export--blank-p (aref v i))
+          (setq gap (and blocks t)
+                i (1+ i))
+        (pcase-let ((`(,block . ,next) (markdown-modern-export--parse-block v i)))
+          (when block
+            (when gap (setq loose t))
+            (setq gap nil)
+            (push block blocks))
+          (setq i next))))
+    (cons (nreverse blocks) loose)))
 
-(defun markdown-modern-export--process-hrs ()
-  "Convert horizontal rules to HTML."
-  (goto-char (point-min))
-  (while (re-search-forward "^\\(---+\\|\\*\\*\\*+\\|___+\\)$" nil t)
-    (replace-match "<hr>")))
-
-(defun markdown-modern-export--process-paragraphs ()
-  "Wrap remaining text in <p> tags."
-  (goto-char (point-min))
-  (while (not (eobp))
+(defun markdown-modern-export--parse-block (v i)
+  "Parse the block that starts at line I of the line vector V.
+Return (BLOCK . NEXT), where NEXT is the index of the line after it.
+BLOCK is nil for a line that only defines a link reference."
+  (let ((line (aref v i)))
     (cond
-     ;; Skip HTML tags
-     ((looking-at "^<")
-      (forward-line 1))
-     ;; Skip empty lines
-     ((looking-at "^[ \t]*$")
-      (forward-line 1))
-     ;; Wrap text in paragraph
-     (t
-      (let ((start (point)))
-        (while (and (not (eobp))
-                    (not (looking-at "^[ \t]*$"))
-                    (not (looking-at "^<")))
-          (forward-line 1))
-        (let ((text (string-trim (buffer-substring-no-properties start (point)))))
-          (delete-region start (point))
-          (insert (format "<p>%s</p>\n" text))))))))
+     ((markdown-modern-export--fence-open line)
+      (markdown-modern-export--parse-fence v i))
+     ((>= (markdown-modern-export--indent line) 4)
+      (markdown-modern-export--parse-indented-code v i))
+     ((string-match markdown-modern-export--heading-re line)
+      (cons (list 'heading (length (match-string 1 line))
+                  (or (match-string 2 line) ""))
+            (1+ i)))
+     ((string-match-p markdown-modern-export--hr-re line)
+      (cons (list 'hr) (1+ i)))
+     ((string-match-p markdown-modern-export--quote-re line)
+      (markdown-modern-export--parse-quote v i))
+     ((string-match-p markdown-modern-export--item-re line)
+      (markdown-modern-export--parse-list v i))
+     ((markdown-modern-export--html-block-type line)
+      (markdown-modern-export--parse-html v i))
+     ((markdown-modern-export--parse-math v i))
+     ((markdown-modern-export--parse-table v i))
+     ((string-match markdown-modern-export--link-def-re line)
+      (let ((label (markdown-modern-export--normalize-label (match-string 1 line))))
+        (unless (gethash label markdown-modern-export--link-refs)
+          (puthash label
+                   (cons (match-string 2 line)
+                         (or (match-string 3 line) (match-string 4 line)
+                             (match-string 5 line)))
+                   markdown-modern-export--link-refs)))
+      (cons nil (1+ i)))
+     (t (markdown-modern-export--parse-paragraph v i)))))
 
-;;; Inline Processing
+(defun markdown-modern-export--parse-fence (v i)
+  "Parse the fenced code block that opens at line I of V."
+  (pcase-let* ((`(,indent ,fence ,info)
+                (markdown-modern-export--fence-open (aref v i)))
+               (close-re (format "\\` \\{0,3\\}%s\\{%d,\\}[ \t]*\\'"
+                                 (regexp-quote (substring fence 0 1))
+                                 (length fence)))
+               (n (length v))
+               (j (1+ i))
+               (code '()))
+    (while (and (< j n) (not (string-match-p close-re (aref v j))))
+      (push (markdown-modern-export--strip-indent (aref v j) indent) code)
+      (setq j (1+ j)))
+    (cons (list 'code
+                (replace-regexp-in-string "\\`[.{]+\\|}\\'" ""
+                                          (or (car (split-string info)) ""))
+                (string-join (nreverse code) "\n"))
+          (min n (1+ j)))))
 
-(defun markdown-modern-export--process-links ()
-  "Convert markdown links to HTML."
+(defun markdown-modern-export--parse-indented-code (v i)
+  "Parse the indented code block that starts at line I of V."
+  (let ((n (length v))
+        (j i)
+        (last i))
+    (while (and (< j n)
+                (or (markdown-modern-export--blank-p (aref v j))
+                    (>= (markdown-modern-export--indent (aref v j)) 4)))
+      (unless (markdown-modern-export--blank-p (aref v j))
+        (setq last j))
+      (setq j (1+ j)))
+    (cons (list 'code nil
+                (mapconcat (lambda (line)
+                             (markdown-modern-export--strip-indent line 4))
+                           (cl-subseq v i (1+ last))
+                           "\n"))
+          (1+ last))))
+
+(defun markdown-modern-export--parse-quote (v i)
+  "Parse the blockquote that starts at line I of V."
+  (let ((n (length v))
+        (j i)
+        (inner '()))
+    (while (and (< j n)
+                (let ((line (aref v j)))
+                  (cond
+                   ((string-match markdown-modern-export--quote-re line)
+                    (push (substring line (match-end 0)) inner))
+                   ;; A lazy continuation line of a paragraph in the quote.
+                   ((and (not (markdown-modern-export--blank-p (car inner)))
+                         (not (markdown-modern-export--interrupts-p line t)))
+                    (push line inner)))))
+      (setq j (1+ j)))
+    (cons (list 'quote (car (markdown-modern-export--parse-blocks (nreverse inner))))
+          j)))
+
+(defun markdown-modern-export--item-info (line)
+  "Return (KIND INDENT FIRST START) when LINE starts a list item.
+KIND is the bullet or delimiter character, ordered when START is
+a number.  INDENT is the column the item's content starts at and
+FIRST the content on LINE."
+  (when (and (string-match markdown-modern-export--item-re line)
+             (not (string-match-p markdown-modern-export--hr-re line)))
+    (let* ((marker-end (match-end 2))
+           (spaces (length (or (match-string 4 line) "")))
+           (text (or (match-string 5 line) ""))
+           (start (and (match-string 3 line)
+                       (string-to-number (match-string 3 line))))
+           (kind (aref line (1- marker-end))))
+      (cond
+       ((string-empty-p text)
+        (list kind (1+ marker-end) "" start))
+       ;; Five or more spaces: the content is indented code.
+       ((> spaces 4)
+        (list kind (1+ marker-end) (concat (make-string (1- spaces) ?\s) text) start))
+       (t (list kind (+ marker-end spaces) text start))))))
+
+(defun markdown-modern-export--parse-list (v i)
+  "Parse the list that starts at line I of V."
+  (pcase-let* ((n (length v))
+               (`(,kind ,_ ,_ ,start) (markdown-modern-export--item-info (aref v i)))
+               (j i)
+               (items '())
+               (loose nil)
+               (info nil))
+    (while (and (< j n)
+                (setq info (markdown-modern-export--item-info (aref v j)))
+                (eq (car info) kind))
+      (pcase-let ((`(,_ ,width ,first ,_) info)
+                  (lines '())
+                  (task nil)
+                  (trailing 0))
+        (when (string-match "\\`\\[\\([ xX]\\)\\]\\(?:[ \t]+\\|\\'\\)" first)
+          (setq task (if (equal (match-string 1 first) " ") 'open 'checked)
+                first (substring first (match-end 0))))
+        (push first lines)
+        (setq j (1+ j))
+        (while (and (< j n)
+                    (let ((line (aref v j)))
+                      (cond
+                       ((markdown-modern-export--blank-p line)
+                        (push "" lines))
+                       ((>= (markdown-modern-export--indent line) width)
+                        (push (substring line width) lines))
+                       ;; A lazy continuation line of the item's paragraph.
+                       ((and (not (string-empty-p (car lines)))
+                             (not (markdown-modern-export--interrupts-p line t)))
+                        (push line lines)))))
+          (setq j (1+ j)))
+        (while (and lines (string-empty-p (car lines)))
+          (setq lines (cdr lines)
+                trailing (1+ trailing)))
+        (let ((parsed (markdown-modern-export--parse-blocks (nreverse lines))))
+          (when (cdr parsed) (setq loose t))
+          (push (list task (car parsed)) items))
+        (let ((next (and (< j n) (markdown-modern-export--item-info (aref v j)))))
+          (if (and next (eq (car next) kind))
+              (when (> trailing 0) (setq loose t))
+            ;; Leave the blank lines after the list to the caller.
+            (setq j (- j trailing))))))
+    (cons (list 'list start (nreverse items) loose) j)))
+
+(defun markdown-modern-export--parse-html (v i)
+  "Parse the HTML block that starts at line I of V."
+  (let* ((type (markdown-modern-export--html-block-type (aref v i)))
+         (end-re (pcase type
+                   (1 "</\\(?:script\\|pre\\|style\\|textarea\\)>")
+                   (2 "-->")))
+         (n (length v))
+         (j i))
+    (if end-re
+        (progn
+          (while (and (< j n) (not (string-match-p end-re (aref v j))))
+            (setq j (1+ j)))
+          (setq j (min n (1+ j))))
+      (while (and (< j n) (not (markdown-modern-export--blank-p (aref v j))))
+        (setq j (1+ j))))
+    (cons (list 'html (string-join (cl-subseq v i j) "\n")) j)))
+
+(defun markdown-modern-export--parse-math (v i)
+  "Parse a display math block of $$ lines at line I of V, or return nil.
+The block ends at a line that ends with $$, which can be the first."
+  (when (string-match-p "\\` \\{0,3\\}\\$\\$" (aref v i))
+    (let* ((n (length v))
+           (closing "\\$\\$[ \t]*\\'")
+           (first (string-trim (aref v i)))
+           (j (if (and (> (length first) 2) (string-match-p closing first))
+                  i
+                (let ((k (1+ i)))
+                  (while (and (< k n)
+                              (not (markdown-modern-export--blank-p (aref v k)))
+                              (not (string-match-p closing (aref v k))))
+                    (setq k (1+ k)))
+                  (and (< k n) (string-match-p closing (aref v k)) k)))))
+      (when j
+        (cons (list 'math (string-trim (string-join (cl-subseq v i (1+ j)) "\n")))
+              (1+ j))))))
+
+(defun markdown-modern-export--split-row (line)
+  "Split the table row LINE into trimmed cells.
+A backslash-escaped pipe stays in its cell."
+  (let ((text (string-trim line))
+        (cells '())
+        (cell "")
+        (i 0))
+    (when (string-prefix-p "|" text)
+      (setq text (substring text 1)))
+    (when (and (string-suffix-p "|" text) (not (string-suffix-p "\\|" text)))
+      (setq text (substring text 0 -1)))
+    (while (< i (length text))
+      (let ((c (aref text i)))
+        (cond
+         ((and (eq c ?\\) (< (1+ i) (length text)) (eq (aref text (1+ i)) ?|))
+          (setq cell (concat cell "\\|")
+                i (1+ i)))
+         ((eq c ?|)
+          (push cell cells)
+          (setq cell ""))
+         (t (setq cell (concat cell (string c))))))
+      (setq i (1+ i)))
+    (push cell cells)
+    (mapcar #'string-trim (nreverse cells))))
+
+(defun markdown-modern-export--parse-table (v i)
+  "Parse a table at line I of V, or return nil."
+  (let ((n (length v))
+        (header (aref v i)))
+    (when (and (< (1+ i) n)
+               (string-search "|" header)
+               (string-match-p markdown-modern-export--table-delimiter-re (aref v (1+ i)))
+               (string-search "-" (aref v (1+ i)))
+               (= (length (markdown-modern-export--split-row header))
+                  (length (markdown-modern-export--split-row (aref v (1+ i))))))
+      (let ((aligns (mapcar (lambda (cell)
+                              (let ((left (string-prefix-p ":" cell))
+                                    (right (string-suffix-p ":" cell)))
+                                (cond ((and left right) "center")
+                                      (left "left")
+                                      (right "right"))))
+                            (markdown-modern-export--split-row (aref v (1+ i)))))
+            (rows '())
+            (j (+ i 2)))
+        (while (and (< j n)
+                    (not (markdown-modern-export--interrupts-p (aref v j))))
+          (push (markdown-modern-export--split-row (aref v j)) rows)
+          (setq j (1+ j)))
+        (cons (list 'table aligns (markdown-modern-export--split-row header)
+                    (nreverse rows))
+              j)))))
+
+(defun markdown-modern-export--parse-paragraph (v i)
+  "Parse the paragraph that starts at line I of V.
+A setext underline turns it into a heading."
+  (let ((n (length v))
+        (j (1+ i))
+        (lines (list (string-trim-left (aref v i))))
+        (level nil))
+    (while (and (< j n) (not level)
+                (let ((line (aref v j)))
+                  (cond
+                   ((string-match markdown-modern-export--setext-re line)
+                    (setq level (if (eq (aref (match-string 1 line) 0) ?=) 1 2)))
+                   ((not (markdown-modern-export--interrupts-p line))
+                    (push (string-trim-left line) lines)))))
+      (setq j (1+ j)))
+    (let ((text (string-trim-right (string-join (nreverse lines) "\n"))))
+      (cons (if level (list 'heading level text) (list 'para text))
+            j))))
+
+;;; Block rendering
+
+(defun markdown-modern-export--render-blocks (blocks tight)
+  "Render BLOCKS as HTML.
+When TIGHT is non-nil, paragraphs are not wrapped in <p>."
+  (mapconcat (lambda (block) (markdown-modern-export--render-block block tight))
+             blocks "\n"))
+
+(defun markdown-modern-export--render-block (block tight &optional prefix)
+  "Render BLOCK as HTML.
+When TIGHT is non-nil, a paragraph is not wrapped in <p>.  PREFIX
+is HTML to put before a paragraph's text."
+  (pcase block
+    (`(para ,text)
+     (let ((html (concat prefix (markdown-modern-export--inline text))))
+       (if tight html (format "<p>%s</p>" html))))
+    (`(heading ,level ,text)
+     (format "<h%d id=\"%s\">%s</h%d>"
+             level (markdown-modern-export--heading-id text)
+             (markdown-modern-export--inline text) level))
+    (`(code ,lang ,text)
+     (format "<pre><code%s>%s</code></pre>"
+             (if (or (null lang) (string-empty-p lang)) ""
+               (format " class=\"language-%s\"" (markdown-modern-export--escape-html lang)))
+             (markdown-modern-export--escape-html text)))
+    (`(hr) "<hr>")
+    (`(html ,text) text)
+    (`(math ,text)
+     (format "<div class=\"math display\">%s</div>"
+             (markdown-modern-export--escape-html text)))
+    (`(quote ,blocks)
+     (format "<blockquote>\n%s\n</blockquote>"
+             (markdown-modern-export--render-blocks blocks nil)))
+    (`(list ,start ,items ,loose)
+     (let ((tag (if start "ol" "ul")))
+       (format "<%s%s>\n%s\n</%s>"
+               tag
+               (if (and start (/= start 1)) (format " start=\"%d\"" start) "")
+               (mapconcat (lambda (item)
+                            (markdown-modern-export--render-item item (not loose)))
+                          items "\n")
+               tag)))
+    (`(table ,aligns ,header ,rows)
+     (markdown-modern-export--render-table aligns header rows))))
+
+(defun markdown-modern-export--render-item (item tight)
+  "Render the list ITEM, a list (TASK BLOCKS), as an <li>.
+TASK is nil, `open' or `checked'.  When TIGHT is non-nil, its
+paragraphs are not wrapped in <p>."
+  (pcase-let* ((`(,task ,blocks) item)
+               (box (when task
+                      (format "<input type=\"checkbox\"%s disabled> "
+                              (if (eq task 'checked) " checked" "")))))
+    (format "<li%s>%s</li>"
+            (if task " class=\"task-list-item\"" "")
+            (if (and box (eq (car-safe (car blocks)) 'para))
+                (mapconcat #'identity
+                           (cons (markdown-modern-export--render-block
+                                  (car blocks) tight box)
+                                 (mapcar (lambda (block)
+                                           (markdown-modern-export--render-block block tight))
+                                         (cdr blocks)))
+                           "\n")
+              (concat box (markdown-modern-export--render-blocks blocks tight))))))
+
+(defun markdown-modern-export--render-table (aligns header rows)
+  "Render a table with column ALIGNS, HEADER cells and body ROWS."
+  (cl-flet ((row (tag cells)
+              (concat "<tr>"
+                      (mapconcat
+                       (lambda (pair)
+                         (format "<%s%s>%s</%s>"
+                                 tag
+                                 (if (cdr pair)
+                                     (format " style=\"text-align: %s\"" (cdr pair))
+                                   "")
+                                 (markdown-modern-export--inline (car pair))
+                                 tag))
+                       (cl-mapcar #'cons
+                                  (append cells
+                                          (make-list (max 0 (- (length aligns)
+                                                               (length cells)))
+                                                     ""))
+                                  aligns)
+                       "")
+                      "</tr>\n")))
+    (concat "<table>\n<thead>\n" (row "th" header) "</thead>\n"
+            (when rows
+              (concat "<tbody>\n"
+                      (mapconcat (lambda (cells) (row "td" cells)) rows "")
+                      "</tbody>\n"))
+            "</table>")))
+
+;;; Inline rendering
+
+(defun markdown-modern-export--inline (text)
+  "Render the inline Markdown in TEXT as HTML."
+  (let* ((slots (make-hash-table))
+         (count 0)
+         (stash (lambda (html)
+                  (puthash count html slots)
+                  (prog1 (format "\uE000%d\uE001" count)
+                    (setq count (1+ count))))))
+    (with-temp-buffer
+      (let ((case-fold-search nil))
+        (insert text)
+        (markdown-modern-export--inline-protect stash)
+        (markdown-modern-export--inline-links stash)
+        (markdown-modern-export--emphasis "***" "<strong><em>" "</em></strong>")
+        (markdown-modern-export--emphasis "___" "<strong><em>" "</em></strong>" t)
+        (markdown-modern-export--emphasis "**" "<strong>" "</strong>")
+        (markdown-modern-export--emphasis "__" "<strong>" "</strong>" t)
+        (markdown-modern-export--emphasis "*" "<em>" "</em>")
+        (markdown-modern-export--emphasis "_" "<em>" "</em>" t)
+        (markdown-modern-export--emphasis "~~" "<del>" "</del>")
+        (goto-char (point-min))
+        (while (re-search-forward " \\{2,\\}\n" nil t)
+          (replace-match "<br>\n" t t))
+        ;; Put back what was set aside.  A slot can hold other slots.
+        (goto-char (point-min))
+        (while (re-search-forward "\uE000\\([0-9]+\\)\uE001" nil t)
+          (let ((start (match-beginning 0)))
+            (replace-match (gethash (string-to-number (match-string 1)) slots) t t)
+            (goto-char start)))
+        (buffer-string)))))
+
+(defun markdown-modern-export--inline-protect (stash)
+  "Set aside code, math, raw HTML and escapes in the current buffer.
+Each is replaced with a placeholder from the function STASH, which
+takes the final HTML.  Escape other <, > and & characters."
   (goto-char (point-min))
-  (while (re-search-forward "\\[\\([^]]+\\)\\](\\([^)]+\\))" nil t)
-    (let ((text (match-string 1))
-          (url (match-string 2)))
-      (replace-match (format "<a href=\"%s\">%s</a>" url text) t t))))
+  (while (re-search-forward "[\\`$<>&]" nil t)
+    (let ((start (match-beginning 0))
+          (char (char-before)))
+      (goto-char start)
+      (pcase char
+        (?\\
+         (cond
+          ((looking-at "\\\\\\([!-/:-@[-`{-~]\\)")
+           (replace-match (funcall stash (markdown-modern-export--escape-html
+                                          (match-string 1)))
+                          t t))
+          ((looking-at "\\\\\n")
+           (replace-match (concat (funcall stash "<br>") "\n") t t))
+          (t (forward-char 1))))
+        (?`
+         (looking-at "`+")
+         (let ((ticks (length (match-string 0)))
+               (open-end (match-end 0))
+               close)
+           (goto-char open-end)
+           (while (and (not close) (re-search-forward "`+" nil t))
+             (when (= (- (match-end 0) (match-beginning 0)) ticks)
+               (setq close (match-beginning 0))))
+           (if (not close)
+               (goto-char open-end)
+             (let ((code (replace-regexp-in-string
+                          "\n" " " (buffer-substring-no-properties open-end close))))
+               (when (string-match-p "\\` .*[^ ].* \\'" code)
+                 (setq code (substring code 1 -1)))
+               (delete-region start (+ close ticks))
+               (goto-char start)
+               (insert (funcall stash
+                                (format "<code>%s</code>"
+                                        (markdown-modern-export--escape-html code))))))))
+        (?$
+         (cond
+          ((looking-at "\\$\\$\\(?:[^$]\\|\\$[^$]\\)+?\\$\\$")
+           (replace-match (funcall stash (format "<span class=\"math display\">%s</span>"
+                                                 (markdown-modern-export--escape-html
+                                                  (match-string 0))))
+                          t t))
+          ((looking-at "\\$[^$ \t\n]\\(?:[^$]*?[^$ \t\n\\]\\)?\\$\\([^0-9]\\|\\'\\)")
+           (let* ((end (or (match-beginning 1) (match-end 0)))
+                  (math (buffer-substring-no-properties start end)))
+             (delete-region start end)
+             (insert (funcall stash (format "<span class=\"math inline\">%s</span>"
+                                            (markdown-modern-export--escape-html math))))))
+          (t (forward-char 1))))
+        (?<
+         (cond
+          ((looking-at "<!--\\(?:[^-]\\|-[^-]\\)*-->")
+           (replace-match (funcall stash (match-string 0)) t t))
+          ((looking-at "<\\([A-Za-z][A-Za-z0-9+.-]\\{1,31\\}:[^ \t\n<>]*\\)>")
+           (let ((url (markdown-modern-export--escape-html (match-string 1))))
+             (replace-match (funcall stash (format "<a href=\"%s\">%s</a>" url url)) t t)))
+          ((looking-at "<\\([^ \t\n<>@\\]+@[^ \t\n<>\\]+\\)>")
+           (let ((mail (markdown-modern-export--escape-html (match-string 1))))
+             (replace-match (funcall stash (format "<a href=\"mailto:%s\">%s</a>" mail mail))
+                            t t)))
+          ((looking-at markdown-modern-export--tag-re)
+           (replace-match (funcall stash (match-string 0)) t t))
+          (t (delete-char 1)
+             (insert "&lt;"))))
+        (?>
+         (delete-char 1)
+         (insert "&gt;"))
+        (?&
+         (if (looking-at "&\\(?:#[0-9]\\{1,7\\}\\|#[xX][0-9a-fA-F]\\{1,6\\}\\|[A-Za-z][A-Za-z0-9]\\{0,31\\}\\);")
+             (goto-char (match-end 0))
+           (delete-char 1)
+           (insert "&amp;")))))))
 
-(defun markdown-modern-export--process-images ()
-  "Convert markdown images to HTML."
+(defun markdown-modern-export--normalize-label (label)
+  "Return LABEL normalized for matching link references."
+  (downcase (replace-regexp-in-string "[ \t\n]+" " " (string-trim label))))
+
+(defun markdown-modern-export--attribute (text)
+  "Return TEXT with its double quotes escaped for an HTML attribute."
+  (string-replace "\"" "&quot;" text))
+
+(defun markdown-modern-export--inline-links (stash)
+  "Convert links and images in the current buffer to HTML.
+Tags are replaced with placeholders from the function STASH, so
+URLs do not get emphasis."
   (goto-char (point-min))
-  (while (re-search-forward "!\\[\\([^]]*\\)\\](\\([^)]+\\))" nil t)
-    (let ((alt (match-string 1))
-          (src (match-string 2)))
-      (if (and markdown-modern-export-embed-images
-               (file-exists-p src))
-          ;; Embed as base64
-          (let ((data (markdown-modern-export--image-to-base64 src)))
-            (replace-match (format "<img src=\"%s\" alt=\"%s\">" data alt) t t))
-        (replace-match (format "<img src=\"%s\" alt=\"%s\">" src alt) t t)))))
+  (while (re-search-forward "!?\\[" nil t)
+    (let ((start (match-beginning 0))
+          url title end text)
+      (goto-char start)
+      (if (not (looking-at "\\(!\\)?\\[\\(\\(?:[^][]\\|\\[[^][]*\\]\\)*\\)\\]"))
+          (goto-char (1+ start))
+        (let ((image (match-beginning 1))
+              (text-end (match-end 0)))
+          (setq text (match-string 2))
+          (goto-char text-end)
+          (cond
+           ((looking-at (concat "([ \t\n]*\\([^ \t\n()]*\\(?:([^ \t\n()]*)[^ \t\n()]*\\)*\\)"
+                                "\\(?:[ \t\n]+\\(?:\"\\([^\"]*\\)\"\\|'\\([^']*\\)'\\)\\)?"
+                                "[ \t\n]*)"))
+            (setq url (markdown-modern-export--attribute (match-string 1))
+                  title (let ((title (or (match-string 2) (match-string 3))))
+                          (and title (markdown-modern-export--attribute title)))
+                  end (match-end 0)))
+           (t
+            (let* ((full (looking-at "\\[\\([^]]*\\)\\]"))
+                   (label (if (and full (not (string-empty-p (match-string 1))))
+                              (match-string 1)
+                            text))
+                   (ref (gethash (markdown-modern-export--normalize-label label)
+                                 markdown-modern-export--link-refs)))
+              (when ref
+                (setq url (markdown-modern-export--escape-html (car ref))
+                      title (and (cdr ref)
+                                 (markdown-modern-export--escape-html (cdr ref)))
+                      end (if full (match-end 0) text-end))))))
+          (if (not url)
+              (goto-char (1+ start))
+            (let ((title-attr (if title (format " title=\"%s\"" title) "")))
+              (delete-region start end)
+              (goto-char start)
+              (if image
+                  (insert
+                   (funcall stash
+                            (format "<img src=\"%s\" alt=\"%s\"%s>"
+                                    (if (and markdown-modern-export-embed-images
+                                             (file-exists-p url))
+                                        (markdown-modern-export--image-to-base64 url)
+                                      url)
+                                    (markdown-modern-export--attribute text)
+                                    title-attr)))
+                (insert (funcall stash (format "<a href=\"%s\"%s>" url title-attr)))
+                ;; Leave point before the text, so images inside it convert.
+                (save-excursion (insert text "</a>"))))))))))
+
+(defun markdown-modern-export--emphasis (delim open close &optional word-bound)
+  "Wrap text between DELIM pairs in the current buffer in OPEN and CLOSE.
+The text must not start or end with whitespace or DELIM's character.
+With WORD-BOUND, DELIM must not touch a letter or digit outside, so
+snake_case words stay as they are."
+  (let* ((char (substring delim 0 1))
+         (content (format "\\([^%s[:space:]]\\(?:[[:ascii:][:nonascii:]]*?[^%s[:space:]]\\)?\\)"
+                          char char))
+         (quoted (regexp-quote delim))
+         (re (if word-bound
+                 (concat "\\(?:^\\|[^[:alnum:]_]\\)\\(" quoted content quoted
+                         "\\)\\(?:[^[:alnum:]_]\\|$\\)")
+               (concat quoted content quoted))))
+    (goto-char (point-min))
+    (while (re-search-forward re nil t)
+      (replace-match (concat open (match-string (if word-bound 2 1)) close)
+                     t t nil (if word-bound 1 0)))))
 
 (defun markdown-modern-export--image-to-base64 (path)
   "Convert image at PATH to base64 data URI."
@@ -537,36 +1024,11 @@ Uses built-in converter (no external dependencies)."
                  (base64-encode-string (buffer-string) t))))
     (format "data:%s;base64,%s" mime data)))
 
-(defun markdown-modern-export--process-bold ()
-  "Convert bold markup to HTML."
-  (goto-char (point-min))
-  (while (re-search-forward "\\*\\*\\([^*]+\\)\\*\\*\\|__\\([^_]+\\)__" nil t)
-    (let ((text (or (match-string 1) (match-string 2))))
-      (replace-match (format "<strong>%s</strong>" text) t t))))
-
-(defun markdown-modern-export--process-italic ()
-  "Convert italic markup to HTML."
-  (goto-char (point-min))
-  (while (re-search-forward "\\*\\([^*]+\\)\\*\\|_\\([^_]+\\)_" nil t)
-    (let ((text (or (match-string 1) (match-string 2))))
-      ;; Avoid matching already-processed bold
-      (unless (or (string-prefix-p "strong>" text)
-                  (string-suffix-p "</strong" text))
-        (replace-match (format "<em>%s</em>" text) t t)))))
-
-(defun markdown-modern-export--process-strikethrough ()
-  "Convert strikethrough markup to HTML."
-  (goto-char (point-min))
-  (while (re-search-forward "~~\\([^~]+\\)~~" nil t)
-    (replace-match (format "<del>%s</del>" (match-string 1)) t t)))
-
-(defun markdown-modern-export--process-inline-code ()
-  "Convert inline code to HTML."
-  (goto-char (point-min))
-  (while (re-search-forward "`\\([^`]+\\)`" nil t)
-    (replace-match (format "<code>%s</code>"
-                          (markdown-modern-export--escape-html (match-string 1)))
-                  t t)))
+(defun markdown-modern-export--heading-id (text)
+  "Generate an ID from heading TEXT."
+  (downcase (replace-regexp-in-string
+             "[^a-zA-Z0-9]+" "-"
+             (string-trim text))))
 
 (defun markdown-modern-export--escape-html (text)
   "Escape HTML special characters in TEXT."
