@@ -232,6 +232,28 @@
     (fundamental-mode)
     (should (= (markdown-modern-setup-test--right-margin) 7))))
 
+(ert-deftest setup/split-advice-counts-reading-margin ()
+  "A markdown-modern window splits side by side unless the advice is off."
+  (markdown-modern-setup-test--with-window 40
+    (let ((split-width-threshold 60))
+      ;; The text area is 44 columns; without the margin it would be 80.
+      (should (= (window-body-width) 44))
+      (should (window-splittable-p (selected-window) t))
+      (should (= (window-body-width) 44))
+      (let ((markdown-modern-advise-window-splittable-p nil))
+        (should-not (window-splittable-p (selected-window) t))))))
+
+(ert-deftest setup/split-advice-option-removes-advice ()
+  "Turning the option off removes the advice."
+  (unwind-protect
+      (progn
+        (advice-add 'window-splittable-p :around
+                    #'markdown-modern--window-splittable-p)
+        (customize-set-variable 'markdown-modern-advise-window-splittable-p nil)
+        (should-not (advice-member-p #'markdown-modern--window-splittable-p
+                                     'window-splittable-p)))
+    (customize-set-variable 'markdown-modern-advise-window-splittable-p t)))
+
 (ert-deftest setup/text-width-narrow-window-keeps-fringes ()
   "A window too narrow for a margin keeps its fringes as they are."
   (let ((fringe-calls nil))

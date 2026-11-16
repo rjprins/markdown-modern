@@ -308,6 +308,7 @@ All options are under `M-x customize-group RET markdown-modern RET`. The faces
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `markdown-modern-text-width` | `80` | Maximum reading width, in columns of the buffer's default font (proportional characters under `variable-pitch-mode`, as in writeroom-mode). Text wraps there instead of at the window edge; `nil` = full window width. Left alone while `visual-fill-column-mode` or `olivetti-mode` is on |
+| `markdown-modern-advise-window-splittable-p` | `t` | Advise `window-splittable-p` so new windows (`*Help*`, Magit) still open beside a wide markdown-modern window despite its reading margin; `nil` = leave `window-splittable-p` alone |
 | `markdown-modern-table-max-width` | `nil` | Cap rendered table width; `nil` = fit to the window (over-wide columns wrap onto multiple lines so they never wrap the buffer). Set a large number for natural width + horizontal scroll (`C-c C-v t`) |
 | `markdown-modern-table-min-column-width` | `8` | Narrowest a column is shrunk to before its content wraps onto multiple lines |
 | `markdown-modern-table-max-cell-lines` | `nil` | Max wrapped lines per cell (`nil` = unlimited); content past the cap ends with `…` |

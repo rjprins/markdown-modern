@@ -16,6 +16,12 @@ on [Keep a Changelog](https://keepachangelog.com/).
   window. markdown-modern leaves the margins alone while
   `visual-fill-column-mode` or `olivetti-mode` is on, or when another package
   has set the right margin.
+- New windows such as `*Help*` or Magit still open beside a wide
+  markdown-modern window. Emacs splits side by side only when the text area is
+  at least `split-width-threshold` columns wide, so markdown-modern advises
+  `window-splittable-p` to count its reading margin as width. Set
+  `markdown-modern-advise-window-splittable-p` to `nil` to leave
+  `window-splittable-p` alone.
 - Paragraphs show their lines as written by default, so line commands such as
   `C-k` act on what you see and nothing changes while you type.
   `markdown-modern-join-paragraph-lines` now defaults to `nil`; set it to `t`

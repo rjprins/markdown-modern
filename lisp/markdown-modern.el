@@ -139,13 +139,54 @@ on top.  The width follows text scaling.
 markdown-modern makes room with a right window margin, and drops it while
 lines are truncated.  It leaves the margins alone while
 `visual-fill-column-mode' or `olivetti-mode' manages them, or when another
-package has set the right margin.  Set to nil to use the full window width."
+package has set the right margin.  To keep new windows opening beside a wide
+markdown-modern window, see `markdown-modern-advise-window-splittable-p'.
+Set to nil to use the full window width."
   :type '(choice (natnum :tag "Columns")
                  (const :tag "Full window width" nil))
   :safe (lambda (value) (or (null value) (natnump value)))
   :group 'markdown-modern)
 
 (defvar markdown-modern--right-margins)
+
+(defcustom markdown-modern-advise-window-splittable-p t
+  "Whether markdown-modern windows still split side by side.
+Emacs puts a new window, such as *Help* or Magit, beside the current one
+only when that window's text area is at least `split-width-threshold'
+columns wide.  The right margin that keeps `markdown-modern-text-width'
+makes the text area narrower, so new windows would open below.
+
+When non-nil, markdown-modern adds around advice to `window-splittable-p'
+that counts its own margin as width, for markdown-modern windows only.
+Set to nil to leave `window-splittable-p' alone; through Customize or
+`setopt' that removes the advice at once."
+  :type 'boolean
+  :set (lambda (symbol value)
+         (set-default-toplevel-value symbol value)
+         (unless value
+           (advice-remove 'window-splittable-p
+                          #'markdown-modern--window-splittable-p)))
+  :group 'markdown-modern)
+
+(defun markdown-modern--window-splittable-p (orig window &optional horizontal)
+  "Count the reading margin as width when Emacs asks if WINDOW can split.
+Around advice for `window-splittable-p'; ORIG is the original function, and
+WINDOW and HORIZONTAL its arguments.  Emacs splits side by side only when the
+text area is at least `split-width-threshold' columns wide, and the reading
+margin keeps it narrower.  For a markdown-modern window, ask without that
+margin.  Other windows get the plain answer."
+  (let ((margins (and horizontal (window-live-p window) (window-margins window))))
+    (if (and markdown-modern-advise-window-splittable-p
+             (cdr margins)
+             (> (cdr margins) 0)
+             (with-current-buffer (window-buffer window)
+               (and (derived-mode-p 'markdown-modern-mode)
+                    (memq (cdr margins) markdown-modern--right-margins))))
+        (progn
+          (set-window-margins window (car margins) 0)
+          (unwind-protect (funcall orig window horizontal)
+            (set-window-margins window (car margins) (cdr margins))))
+      (funcall orig window horizontal))))
 
 (make-obsolete-variable 'markdown-modern-manage-text-width
                         'markdown-modern-text-width "2.2.0")
@@ -563,6 +604,9 @@ single source of truth shared between point-motion reveal and jit-lock.")
   ;; body size, so a second run computes the same margins and stops there.
   (add-hook 'window-size-change-functions #'markdown-modern--update-text-width nil t)
   (add-hook 'window-buffer-change-functions #'markdown-modern--update-text-width nil t)
+  (when markdown-modern-advise-window-splittable-p
+    (advice-add 'window-splittable-p :around
+                #'markdown-modern--window-splittable-p))
   (markdown-modern--update-text-width-everywhere)
   ;; Clean up when switching to another major mode
   (add-hook 'change-major-mode-hook #'markdown-modern--teardown-buffer nil t)
@@ -1108,6 +1152,12 @@ when the edited line becomes a list item."
                      (markdown-modern-node-start node))
                headings))))
     (nreverse headings)))
+
+(defun markdown-modern-unload-function ()
+  "Remove the `window-splittable-p' advice when markdown-modern is unloaded.
+Return nil so that `unload-feature' goes on with the normal unloading."
+  (advice-remove 'window-splittable-p #'markdown-modern--window-splittable-p)
+  nil)
 
 (provide 'markdown-modern)
 ;;; markdown-modern.el ends here
