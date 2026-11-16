@@ -298,6 +298,8 @@ even when the surrounding inline markup is revealed."
                       (markdown-modern-node-end elem)))
       ('image (markdown-modern-render--image elem))
       ('autolink (markdown-modern-render--autolink elem))
+      ('escape (markdown-modern-render--backslash elem))
+      ('hard-break (markdown-modern-render--backslash elem))
       ;; Block elements
       ('code-block (markdown-modern-render--code-block elem))
       ('code-block-indented (markdown-modern-render--indented-code-block elem))
@@ -550,6 +552,16 @@ end the span at the first delimiter of a nested one, as in ***a***."
           (let ((ov (markdown-modern-render--get-overlay (- end 2) end)))
             (overlay-put ov 'display "")
             (overlay-put ov 'markdown-modern-type 'strike-delim)))))))
+
+(defun markdown-modern-render--backslash (elem)
+  "Hide the backslash that starts ELEM, an escape or a line break.
+`\\*' shows as `*', and a backslash at the end of a line, a hard line
+break, shows nothing.  A hard break of two spaces has no backslash."
+  (let ((start (markdown-modern-node-start elem)))
+    (when (eq (char-after start) ?\\)
+      (let ((ov (markdown-modern-render--get-overlay start (1+ start))))
+        (overlay-put ov 'display "")
+        (overlay-put ov 'markdown-modern-type 'escape-backslash)))))
 
 (defun markdown-modern-render--code-span (elem)
   "Render inline code span element ELEM."

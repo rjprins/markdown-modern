@@ -1032,7 +1032,7 @@ POS immediately before or after the markup counts as inside it."
 
 (defconst markdown-modern--reveal-inline-types
   '(emphasis strong strikethrough code-span link link-ref link-ref-collapsed
-    link-shortcut image autolink autolink-email)
+    link-shortcut image autolink autolink-email escape hard-break)
   "Inline markup element types that are revealed individually at point.")
 
 (defconst markdown-modern--marker-node-types

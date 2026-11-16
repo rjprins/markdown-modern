@@ -1006,6 +1006,25 @@ faces around and inside it."
   (should (equal (markdown-modern-render--table-parse-row "| a | b |")
                  '(" a " " b "))))
 
+(ert-deftest render/backslash-escape-hidden ()
+  "The backslash of an escape or a hard line break is hidden.
+A backslash inside code stays."
+  (markdown-modern-render-test--with "Not \\*italic\\* and `a\\b`.\nA break\\\nhere.\n"
+    (goto-char (point-min))
+    (search-forward "\\*")
+    (should (equal (get-char-property (match-beginning 0) 'display) ""))
+    (search-forward "a\\b")
+    (should-not (get-char-property (1+ (match-beginning 0)) 'display))
+    (search-forward "break\\")
+    (should (equal (get-char-property (1- (match-end 0)) 'display) ""))))
+
+(ert-deftest render/backslash-escape-revealed-at-point ()
+  "Point next to an escape reveals its backslash."
+  (markdown-modern-render-test--with "Not \\*italic\\* here.\n"
+    (goto-char (point-min))
+    (search-forward "\\*")
+    (should (markdown-modern--markup-element-at (point)))))
+
 (ert-deftest render/list-marker-reveal-pixel-alignment ()
   "Revealing an unordered marker does not move its text."
   (skip-unless (display-graphic-p))

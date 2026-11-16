@@ -77,6 +77,8 @@ on [Keep a Changelog](https://keepachangelog.com/).
   and with the code background. They showed as plain text.
 - An escaped pipe (`\|`) in a table cell stays in the cell, in the drawn
   table and in the row you edit. It split the cell in two.
+- A backslash escape such as `\*` shows as `*`, and a backslash that ends a
+  line for a hard break is hidden. Point next to one shows the backslash.
 - In a list nested four spaces deep, the first item under each parent shows a
   bullet instead of a raw `-`, and its wrapped text lines up.
 - Bullets follow the nesting level however deep it is indented, so a

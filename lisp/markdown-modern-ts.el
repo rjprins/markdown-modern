@@ -394,7 +394,8 @@ Optional START and END limit the range."
     (when (member type '("emphasis" "strong_emphasis" "strikethrough"
                         "code_span" "inline_link" "full_reference_link"
                         "collapsed_reference_link" "shortcut_link"
-                        "image" "uri_autolink" "email_autolink" "latex_block"))
+                        "image" "uri_autolink" "email_autolink" "latex_block"
+                        "backslash_escape" "hard_line_break"))
       (push node result))
     ;; Code and math contents stay literal, including Markdown delimiters.
     (unless (member type '("code_span" "latex_block"))
