@@ -201,10 +201,11 @@ no work. There is no source/rendered toggle to manage.
 You can also reveal the element at point on demand with
 `markdown-modern-toggle-element-at-point` (`C-c C-v e`).
 
-Inside a fenced code block, `C-c '` opens an indirect buffer narrowed to that
-block's contents, with the language's major mode when available. Edits update
-the Markdown buffer. Press `C-c '` again to finish, or `C-c C-k` to abort and
-restore the original code.
+Inside a fenced code block, `C-c '` opens a copy of the block's code in a
+buffer of its own, in the language's major mode when available, as `org-mode`
+does. In a list item or quote, the indentation or `>` in front of each line is
+left out while you edit. Press `C-c '` again to write the code back, or
+`C-c C-k` to leave the block as it was.
 
 Click a rendered Mermaid diagram, or press `C-c C-v d`
 (`markdown-modern-focus-diagram`) anywhere in its source block, to open a

@@ -293,7 +293,6 @@ the inline grammar still parses them as such inside the code_span."
                 (markdown-modern-edit-code-block)
                 (setq edit (current-buffer))
                 (should (derived-mode-p 'python-mode))
-                (should (buffer-narrowed-p))
                 (should (equal (buffer-substring-no-properties (point-min) (point-max))
                                "x"))
                 (with-current-buffer source
@@ -333,9 +332,8 @@ the inline grammar still parses them as such inside the code_span."
               (progn
                 (markdown-modern-edit-code-block)
                 (setq edit (current-buffer))
-                (should (eq (buffer-base-buffer) source))
+                (should (eq markdown-modern-code-edit--source-buffer source))
                 (should (derived-mode-p 'emacs-lisp-mode))
-                (should (buffer-narrowed-p))
                 (should (equal (buffer-substring-no-properties (point-min) (point-max))
                                (nth 2 case)))
                 (markdown-modern-code-edit-abort))
@@ -412,6 +410,49 @@ top level."
                            (newline 1 t)))
                        #'markdown-modern-code-edit-finish))
                  "1) Item\n\n```emacs-lisp\n(defun f ()\n  (message \"hi\"))\n\n```\n")))
+
+(ert-deftest integration/code-edit-block-in-container ()
+  "Code in a list item or a quote keeps the item's indentation or the
+quote's markers, also when the block was empty."
+  (dolist (case '(("- item\n\n  ```sh\n  echo a\n\n  echo b\n  ```\n"
+                   "echo a\n\necho b"
+                   "- item\n\n  ```sh\n  echo a\n\n  echo b\n  echo c\n  ```\n")
+                  ("> ```sh\n> echo a\n>\n> ```\n"
+                   "echo a\n"
+                   "> ```sh\n> echo a\n> echo c\n> ```\n")
+                  ("- ```sh\n  ```\n" ""
+                   "- ```sh\n  echo c\n  ```\n")
+                  ("> ```sh\n> ```\n" ""
+                   "> ```sh\n> echo c\n> ```\n")))
+    (let (seen)
+      (should (equal (car (markdown-modern-integration-test--edit-code
+                           (nth 0 case)
+                           (lambda ()
+                             (setq seen (buffer-string))
+                             (goto-char (point-max))
+                             (unless (or (bobp) (bolp)) (insert "\n"))
+                             (insert "echo c"))
+                           #'markdown-modern-code-edit-finish))
+                     (nth 2 case)))
+      (should (equal seen (nth 1 case))))))
+
+(ert-deftest integration/code-edit-kill-buffer-leaves-block ()
+  "Killing the editor leaves the block and the modified flag as they were."
+  (save-window-excursion
+    (with-temp-buffer
+      (insert "```sh\n```\n")
+      (markdown-modern-mode)
+      (set-buffer-modified-p nil)
+      (switch-to-buffer (current-buffer))
+      (goto-char 7)
+      (let ((source (current-buffer)))
+        (markdown-modern-edit-code-block)
+        (insert "echo a")
+        (kill-buffer (current-buffer))
+        (with-current-buffer source
+          (should (equal (buffer-string) "```sh\n```\n"))
+          (should-not (buffer-modified-p))
+          (should-not markdown-modern--code-edit-buffer))))))
 
 (ert-deftest integration/code-edit-gives-back-the-window ()
   "Finishing or aborting closes the window the editor opened."

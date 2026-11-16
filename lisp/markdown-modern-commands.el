@@ -899,23 +899,28 @@ revealed lines (by parsing raw markdown syntax at point)."
       (message "No link at point"))))
 
 ;;; Code Block Edit Mode
+;;
+;; Like `org-edit-special', `C-c '' copies the code of a block into a buffer
+;; of its own, in the language's major mode, and writes it back on `C-c ''.
+;; A copy keeps the language's indentation, syntax and jit-lock away from
+;; the Markdown around the block.  The text in front of the code on each
+;; line, the indentation of a list item or the `>' of a quote, is taken off
+;; for editing and put back when writing.
 
 (defvar-local markdown-modern-code-edit--source-buffer nil
-  "Source buffer for code edit indirect buffer.")
-
-(defvar-local markdown-modern-code-edit--block-bounds nil
-  "Cons of start and end markers for the full code block.")
+  "The Markdown buffer this code edit buffer writes back to.")
 
 (defvar-local markdown-modern-code-edit--content-bounds nil
-  "Cons of start and end markers for the code content region.")
+  "Markers in the source buffer around the code of the block.")
 
 (defvar-local markdown-modern-code-edit--original-content nil
-  "Original content of the code block, for abort/revert.")
+  "The code as it was copied, without line prefixes or final newline.")
 
-(defvar-local markdown-modern-code-edit--unmodified-hash nil
-  "The `buffer-hash' of the source when editing began, if it was unmodified.
-Leaving the editor with the text back as it was then leaves the source
-unmodified.")
+(defvar-local markdown-modern-code-edit--line-prefix nil
+  "The text in front of the code on each line of the block.")
+
+(defvar-local markdown-modern-code-edit--final-newline nil
+  "Non-nil if the code ends with a newline in the source, before a fence.")
 
 (defvar markdown-modern-code-edit-mode-map
   (let ((map (make-sparse-keymap)))
@@ -925,186 +930,174 @@ unmodified.")
   "Keymap for `markdown-modern-code-edit-mode'.")
 
 (define-minor-mode markdown-modern-code-edit-mode
-  "Minor mode for editing a code block in an indirect buffer."
+  "Minor mode for editing a copy of a Markdown code block."
   :lighter " MdM-Edit"
   :keymap markdown-modern-code-edit-mode-map)
 
+(defun markdown-modern-code-edit--strip-prefix (line prefix)
+  "Return LINE without as much of PREFIX as it starts with."
+  (let ((i 0)
+        (n (min (length line) (length prefix))))
+    (while (and (< i n) (eq (aref line i) (aref prefix i)))
+      (setq i (1+ i)))
+    (substring line i)))
+
+(defun markdown-modern-code-edit--add-prefix (code prefix)
+  "Return CODE with PREFIX in front of each line.
+An empty line gets PREFIX without its trailing spaces, so a line in a
+quote keeps its `>' and a line in a list item stays empty."
+  (mapconcat (lambda (line)
+               (if (string-empty-p line)
+                   (string-trim-right prefix)
+                 (concat prefix line)))
+             (split-string code "\n")
+             "\n"))
+
 ;;;###autoload
 (defun markdown-modern-edit-code-block ()
-  "Edit code block at point in an indirect buffer with the correct major mode.
-Like org-mode's `org-edit-special': opens a narrowed indirect buffer
-with the language's major mode.  The buffer shows the code without the
-newline before the closing fence, so text added at its end stays inside
-the block."
+  "Edit the code block at point in a buffer of its own.
+The buffer is in the language's major mode.  \\<markdown-modern-code-edit-mode-map>\\[markdown-modern-code-edit-finish] writes the code back,
+\\[markdown-modern-code-edit-abort] leaves the block as it was."
   (interactive)
-  (when (and (boundp 'markdown-modern--code-edit-buffer)
-             markdown-modern--code-edit-buffer
+  (when (and markdown-modern--code-edit-buffer
              (buffer-live-p markdown-modern--code-edit-buffer))
     (user-error "Already editing a code block; finish or abort first"))
   (let ((info (markdown-modern--fenced-code-block-content-at (point))))
     (unless info
       (user-error "Not inside a fenced code block"))
     (let* ((source-buf (current-buffer))
-           (unmodified-hash (and (not (buffer-modified-p)) (buffer-hash)))
-           (offset (- (point) (plist-get info :content-start)))
            (block-start (plist-get info :block-start))
-           (block-end (plist-get info :block-end))
-           (content-start (plist-get info :content-start))
-           (content-end (plist-get info :content-end))
+           ;; In a list item or quote the parse tree's content starts after
+           ;; the first line's prefix and ends before the closing fence's.
+           ;; Take whole lines.
+           (content-start (save-excursion
+                            (goto-char (plist-get info :content-start))
+                            (line-beginning-position)))
+           (content-end (save-excursion
+                          (goto-char (plist-get info :content-end))
+                          (skip-chars-backward " \t>" (line-beginning-position))
+                          (if (bolp) (point) (plist-get info :content-end))))
            (language (plist-get info :language))
-           (original (buffer-substring-no-properties content-start content-end))
-           (buf-name (format "*MdM-Edit:%s*" (or language "code")))
-           edit-buf)
-      ;; An empty block gets a line to type on, so the code does not end up
-      ;; on the closing fence.  Finishing without code takes it out again.
-      (when (and (= content-start content-end)
-                 (save-excursion (goto-char content-start) (not (eobp))))
-        (save-excursion
-          (goto-char content-start)
-          (insert "\n"))
-        (setq content-end (1+ content-end)
-              block-end (1+ block-end)))
-      (setq edit-buf (make-indirect-buffer source-buf buf-name t))
-      ;; Unrender the block so raw text is visible
-      (when (and (boundp 'markdown-modern--rendering-enabled)
-                 markdown-modern--rendering-enabled)
-        (markdown-modern-render--unrender-region block-start block-end))
-      ;; Set up state in source buffer
+           ;; The opening fence shows what comes in front of the code: the
+           ;; indentation of a list item and the markers of a quote.  A list
+           ;; marker on the fence's line counts as indentation.
+           (prefix (save-excursion
+                     (goto-char block-start)
+                     (re-search-forward "[`~]" (line-end-position) 'move)
+                     (replace-regexp-in-string
+                      "[^> \t]" " "
+                      (buffer-substring-no-properties
+                       (line-beginning-position)
+                       (max (line-beginning-position) (1- (point)))))))
+           (source-text (buffer-substring-no-properties content-start content-end))
+           (final-newline (or (string-suffix-p "\n" source-text)
+                              ;; An empty block before its closing fence.
+                              (and (string-empty-p source-text)
+                                   (save-excursion
+                                     (goto-char content-start)
+                                     (not (eobp))))))
+           (lines (split-string (string-remove-suffix "\n" source-text) "\n"))
+           (code (mapconcat (lambda (line)
+                              (markdown-modern-code-edit--strip-prefix line prefix))
+                            lines "\n"))
+           ;; Point's line and column in the code.
+           (line (if (< (point) content-start) 0
+                   (count-lines content-start (line-beginning-position))))
+           (column (max 0 (- (current-column) (length prefix))))
+           (edit-buf (generate-new-buffer
+                      (format "*MdM-Edit:%s*" (or language "code")))))
       (setq markdown-modern--code-edit-buffer edit-buf)
-      ;; Set up the indirect buffer
       (with-current-buffer edit-buf
-        ;; Leave the newline before the closing fence outside the editor.
-        (narrow-to-region content-start
-                          (if (and (> content-end content-start)
-                                   (eq (char-before content-end) ?\n))
-                              (1- content-end)
-                            content-end))
-        (goto-char (max (point-min) (min (point-max) (+ content-start offset))))
-        ;; Set major mode based on language.
-        ;; Must run without delay-mode-hooks so font-lock, indentation,
-        ;; completion, and other mode features fully activate.  Keep their
-        ;; set-up messages out of the echo area: jit-lock, for one, cannot
-        ;; work in an indirect buffer and says so every time.
+        (insert code)
+        (goto-char (point-min))
+        (forward-line line)
+        (move-to-column column)
         (when language
-          (let ((mode (markdown-modern-render--language-to-mode language)))
-            (when mode
-              (let ((inhibit-message t))
-                (funcall mode)))))
-        ;; Set buffer-local state
-        (setq markdown-modern-code-edit--source-buffer source-buf)
-        (setq markdown-modern-code-edit--block-bounds
-              (cons (copy-marker block-start) (copy-marker block-end t)))
-        (setq markdown-modern-code-edit--content-bounds
-              (cons (copy-marker content-start) (copy-marker content-end t)))
-        (setq markdown-modern-code-edit--original-content original)
-        (setq markdown-modern-code-edit--unmodified-hash unmodified-hash)
-        (markdown-modern-code-edit--indent-in-block)
-        ;; Enable the minor mode
+          (when-let* ((mode (markdown-modern-render--language-to-mode language)))
+            (funcall mode)))
+        (setq markdown-modern-code-edit--source-buffer source-buf
+              markdown-modern-code-edit--content-bounds
+              (cons (with-current-buffer source-buf (copy-marker content-start))
+                    (with-current-buffer source-buf (copy-marker content-end)))
+              markdown-modern-code-edit--original-content code
+              markdown-modern-code-edit--line-prefix prefix
+              markdown-modern-code-edit--final-newline final-newline)
+        (set-buffer-modified-p nil)
         (markdown-modern-code-edit-mode 1)
-        ;; Header line with hints
         (setq header-line-format
               (substitute-command-keys
-               "Editing code block.  \\[markdown-modern-code-edit-finish] to finish, \\[markdown-modern-code-edit-abort] to abort"))
-        ;; Clean up on external buffer kill
+               "Editing code block.  \\<markdown-modern-code-edit-mode-map>\\[markdown-modern-code-edit-finish] to finish, \\[markdown-modern-code-edit-abort] to abort"))
         (add-hook 'kill-buffer-hook #'markdown-modern-code-edit--on-kill nil t))
-      ;; Show the edit buffer
       (pop-to-buffer edit-buf))))
 
-(defun markdown-modern-code-edit--indent-in-block ()
-  "Make indentation in this code edit buffer see only the code block.
-`indent-according-to-mode' widens the buffer first, and in this indirect
-buffer that shows the whole Markdown file to the language's indentation.
-`RET' then re-indented the line before it as if it were at the top level.
-Wrap `indent-line-function' to narrow to the block again."
-  (let ((indent indent-line-function)
-        (bounds markdown-modern-code-edit--content-bounds))
-    (unless (memq indent indent-line-ignored-functions)
-      (setq-local indent-line-function
-                  (lambda ()
-                    (save-restriction
-                      (narrow-to-region (car bounds) (cdr bounds))
-                      (funcall indent)))))))
-
-(defun markdown-modern-code-edit--leave (edit-buf source-pos)
-  "Close code edit buffer EDIT-BUF and go back to its source buffer.
+(defun markdown-modern-code-edit--leave (source-pos)
+  "Close this code edit buffer and go back to its source buffer.
 Give back the window the editor took.  Put point at SOURCE-POS in the
-source, when non-nil.  Re-render the code block."
+source, when non-nil."
   (let ((source-buf markdown-modern-code-edit--source-buffer)
-        ;; The markers belong to EDIT-BUF and die with it.
-        (block-start (marker-position (car markdown-modern-code-edit--block-bounds)))
-        (block-end (marker-position (cdr markdown-modern-code-edit--block-bounds)))
-        (unmodified-hash markdown-modern-code-edit--unmodified-hash)
-        (window (get-buffer-window edit-buf)))
-    (widen)
+        (bounds markdown-modern-code-edit--content-bounds)
+        (window (get-buffer-window (current-buffer))))
     (remove-hook 'kill-buffer-hook #'markdown-modern-code-edit--on-kill t)
     (if (window-live-p window)
         (quit-window t window)
-      (kill-buffer edit-buf))
+      (kill-buffer (current-buffer)))
     (when (buffer-live-p source-buf)
       (if-let* ((source-window (get-buffer-window source-buf)))
           (select-window source-window)
         (switch-to-buffer source-buf))
       (when source-pos
         (goto-char source-pos))
-      (setq markdown-modern--code-edit-buffer nil)
-      ;; Back where it started, the text is not modified.
-      (when (and unmodified-hash (equal (buffer-hash) unmodified-hash))
-        (set-buffer-modified-p nil))
-      (when (and (boundp 'markdown-modern--rendering-enabled)
-                 markdown-modern--rendering-enabled)
-        (markdown-modern-render--render-region block-start block-end)))))
+      (setq markdown-modern--code-edit-buffer nil))
+    (set-marker (car bounds) nil)
+    (set-marker (cdr bounds) nil)))
 
 ;;;###autoload
 (defun markdown-modern-code-edit-finish ()
-  "Finish editing code block and return to source buffer.
-Re-renders the code block region."
+  "Write the code back to its block and return to the source buffer.
+The block changes only if the code did."
   (interactive)
   (unless markdown-modern-code-edit--source-buffer
     (user-error "Not in a code edit buffer"))
-  (let ((content-bounds markdown-modern-code-edit--content-bounds)
-        (pos (point)))
-    (widen)
-    ;; A block left empty loses the line it was given to type on.
-    (when (and (equal markdown-modern-code-edit--original-content "")
-               (equal (buffer-substring-no-properties
-                       (car content-bounds) (cdr content-bounds))
-                      "\n"))
-      (delete-region (car content-bounds) (cdr content-bounds))
-      (setq pos (marker-position (car content-bounds))))
-    (markdown-modern-code-edit--leave (current-buffer) pos)))
+  (let* ((code (buffer-substring-no-properties (point-min) (point-max)))
+         (prefix markdown-modern-code-edit--line-prefix)
+         (bounds markdown-modern-code-edit--content-bounds)
+         (line (1- (line-number-at-pos)))
+         (column (current-column))
+         (source-pos nil))
+    (when (buffer-live-p markdown-modern-code-edit--source-buffer)
+      (unless (equal code markdown-modern-code-edit--original-content)
+        (let ((text (if (string-empty-p code) ""
+                      (concat (markdown-modern-code-edit--add-prefix code prefix)
+                              (if markdown-modern-code-edit--final-newline "\n" "")))))
+          (with-current-buffer markdown-modern-code-edit--source-buffer
+            (save-excursion
+              (goto-char (car bounds))
+              (delete-region (car bounds) (cdr bounds))
+              (insert text)))))
+      ;; Point goes to the same place in the code in the source.
+      (with-current-buffer markdown-modern-code-edit--source-buffer
+        (save-excursion
+          (goto-char (car bounds))
+          (forward-line line)
+          (when (< (point) (cdr bounds))
+            (move-to-column (+ (length prefix) column)))
+          (setq source-pos (min (point) (max (car bounds) (cdr bounds)))))))
+    (markdown-modern-code-edit--leave source-pos)))
 
 ;;;###autoload
 (defun markdown-modern-code-edit-abort ()
-  "Abort editing code block, restoring original content."
+  "Leave the code block as it was and return to the source buffer."
   (interactive)
   (unless markdown-modern-code-edit--source-buffer
     (user-error "Not in a code edit buffer"))
-  (let ((content-bounds markdown-modern-code-edit--content-bounds)
-        (original markdown-modern-code-edit--original-content))
-    (widen)
-    (unless (equal (buffer-substring-no-properties
-                    (car content-bounds) (cdr content-bounds))
-                   original)
-      (let ((inhibit-read-only t))
-        (save-excursion
-          (goto-char (car content-bounds))
-          (delete-region (car content-bounds) (cdr content-bounds))
-          (insert original))))
-    (markdown-modern-code-edit--leave (current-buffer) nil)))
+  (markdown-modern-code-edit--leave nil))
 
 (defun markdown-modern-code-edit--on-kill ()
-  "Handle external kill of code edit buffer (e.g., \\`C-x k\\`).
-Cleans up source buffer state and re-renders the code block."
-  (when (and markdown-modern-code-edit--source-buffer
-             (buffer-live-p markdown-modern-code-edit--source-buffer))
-    (let ((source-buf markdown-modern-code-edit--source-buffer)
-          (block-bounds markdown-modern-code-edit--block-bounds))
-      (with-current-buffer source-buf
-        (setq markdown-modern--code-edit-buffer nil)
-        (when (and (boundp 'markdown-modern--rendering-enabled)
-                   markdown-modern--rendering-enabled)
-          (markdown-modern-render--render-region
-           (marker-position (car block-bounds)) (marker-position (cdr block-bounds))))))))
+  "Forget the code edit buffer in its source when it is killed another way.
+As with `markdown-modern-code-edit-abort', the block stays as it was."
+  (when (buffer-live-p markdown-modern-code-edit--source-buffer)
+    (with-current-buffer markdown-modern-code-edit--source-buffer
+      (setq markdown-modern--code-edit-buffer nil))))
 
 (provide 'markdown-modern-commands)
 ;;; markdown-modern-commands.el ends here
