@@ -976,6 +976,14 @@ Lines of a nested item are left alone."
       (search-forward "---")
       (should (= 1 (count-screen-lines (match-beginning 0) (match-end 0)))))))
 
+(ert-deftest render/bold-face-keeps-surrounding-faces ()
+  "Bold sets only the weight, so strike-through and code faces still apply.
+A face that inherits `default' specifies every attribute and overrides the
+faces around and inside it."
+  (dolist (attribute '(:strike-through :family :foreground :height))
+    (should (eq (face-attribute 'markdown-modern-bold attribute nil t)
+                'unspecified))))
+
 (ert-deftest render/list-marker-reveal-pixel-alignment ()
   "Revealing an unordered marker does not move its text."
   (skip-unless (display-graphic-p))

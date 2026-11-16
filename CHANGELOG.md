@@ -70,6 +70,9 @@ on [Keep a Changelog](https://keepachangelog.com/).
   narrow window. A terminal still shows characters, as many as fit.
 - Math with a script inside a script, such as `e^{-x^2}`, no longer shows a
   stray `^`.
+- Bold text keeps the styles around and inside it: `~~struck **bold**~~` is
+  struck through, `***bold italic***` is italic, and code inside bold keeps
+  its colour. The bold face inherited `default`, which overrode them.
 - In a list nested four spaces deep, the first item under each parent shows a
   bullet instead of a raw `-`, and its wrapped text lines up.
 - Bullets follow the nesting level however deep it is indented, so a

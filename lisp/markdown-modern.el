@@ -287,7 +287,7 @@ When enabled, the background color extends to the right margin."
   :group 'markdown-modern-faces)
 
 (defface markdown-modern-bold
-  '((t :weight bold :inherit default))
+  '((t :weight bold))
   "Face for bold/strong text."
   :group 'markdown-modern-faces)
 
