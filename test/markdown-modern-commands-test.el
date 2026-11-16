@@ -221,6 +221,27 @@ Use [ and ] to mark region boundaries in INITIAL."
   "1. a\n2. |b\n" "1. a\n   2. |b\n"
   (markdown-modern-demote-item))
 
+(mg-cmd-test list-demote-in-quote
+  "In a quote, demoting indents after the quote marker."
+  "> - a\n> - |b\n>   more\n" "> - a\n>   - |b\n>     more\n"
+  (markdown-modern-demote-item))
+
+(mg-cmd-test list-promote-in-quote
+  "In a quote, promoting outdents after the quote marker."
+  "> - a\n>   - |b\n" "> - a\n> - |b\n"
+  (markdown-modern-promote-item))
+
+(ert-deftest cmd/list-promote-top-of-quote ()
+  "A top-level item in a quote stays in the quote."
+  (with-temp-buffer
+    (insert "> - a\n> - b\n")
+    (markdown-modern-ts--init)
+    (goto-char (point-max))
+    (forward-line -1)
+    (end-of-line)
+    (should-error (markdown-modern-promote-item) :type 'user-error)
+    (should (equal (buffer-string) "> - a\n> - b\n"))))
+
 (ert-deftest cmd/list-demote-first-item ()
   "The first item of a list has nothing to nest under."
   (with-temp-buffer

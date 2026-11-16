@@ -566,19 +566,42 @@ item: in SECOND when POINT-IN-SECOND is non-nil, else in FIRST."
     (goto-char (+ (car a) offset
                   (if point-in-second 0 (+ (length text-b) (length gap)))))))
 
+(defun markdown-modern--list-item-quote-depth (item)
+  "Return how many block quotes contain list ITEM."
+  (let ((depth 0)
+        (node (treesit-node-parent item)))
+    (while node
+      (when (equal (treesit-node-type node) "block_quote")
+        (setq depth (1+ depth)))
+      (setq node (treesit-node-parent node)))
+    depth))
+
+(defun markdown-modern--skip-quote-prefix (depth)
+  "Move point past up to DEPTH quote markers at the start of this line.
+Each marker is `>' with the spaces before it and one space after it.  A
+lazy continuation line can have fewer markers."
+  (dotimes (_ depth)
+    (when (looking-at "[ \t]*>[ \t]?")
+      (goto-char (match-end 0)))))
+
 (defun markdown-modern--shift-list-item (item columns)
   "Indent the lines of list ITEM by COLUMNS, or outdent when negative.
-Outdenting removes at most the whitespace a line has."
-  (let ((region (markdown-modern--list-item-region item)))
+The indentation goes after the quote markers of a list inside a quote.
+Outdenting removes at most the spaces a line has."
+  (let ((region (markdown-modern--list-item-region item))
+        (depth (markdown-modern--list-item-quote-depth item)))
     (save-excursion
       (goto-char (car region))
       (let ((end (copy-marker (cdr region))))
         (while (< (point) end)
+          (markdown-modern--skip-quote-prefix depth)
           (unless (looking-at-p "[ \t]*$")
             (if (> columns 0)
                 (insert (make-string columns ?\s))
-              (let ((indent (current-indentation)))
-                (indent-line-to (max 0 (+ indent columns))))))
+              (delete-region (point)
+                             (save-excursion
+                               (skip-chars-forward " " (+ (point) (- columns)))
+                               (point)))))
           (forward-line 1))
         (set-marker end nil)))))
 
@@ -586,15 +609,28 @@ Outdenting removes at most the whitespace a line has."
 (defun markdown-modern-promote-item ()
   "Move the list item at point out one level.
 Nested items and continuation lines move with it.  A top-level item that is
-indented moves to the left edge."
+indented moves to the left edge, or in a quote to the edge of the quote."
   (interactive)
   (let* ((item (or (markdown-modern--list-item-node)
                    (user-error "Not in a list item")))
-         (parent (treesit-parent-until
-                  (treesit-node-parent item)
-                  (lambda (n) (equal (treesit-node-type n) "list_item"))))
+         ;; The parent item, unless a quote comes first: the item cannot
+         ;; leave the quote.
+         (container (treesit-parent-until
+                     (treesit-node-parent item)
+                     (lambda (n) (member (treesit-node-type n)
+                                         '("list_item" "block_quote")))))
+         (parent (and container
+                      (equal (treesit-node-type container) "list_item")
+                      container))
          (column (markdown-modern--list-item-column item))
-         (target (if parent (markdown-modern--list-item-column parent) 0)))
+         (target (if parent
+                     (markdown-modern--list-item-column parent)
+                   (save-excursion
+                     (goto-char (markdown-modern--list-item-marker-start item))
+                     (beginning-of-line)
+                     (markdown-modern--skip-quote-prefix
+                      (markdown-modern--list-item-quote-depth item))
+                     (current-column)))))
     (when (<= column target)
       (user-error "Already at the top level"))
     (markdown-modern--shift-list-item item (- target column))))
