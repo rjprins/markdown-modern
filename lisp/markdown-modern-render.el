@@ -1784,12 +1784,15 @@ lines is dropped and the last kept line is truncated to end with `…'."
           kept)
       lines)))
 
-(defun markdown-modern-render--table-format-row (cells widths is-separator)
+(defun markdown-modern-render--table-format-row (cells widths is-separator
+                                                      &optional vertical)
   "Format CELLS with WIDTHS.  Return a (possibly multi-line) string block.
 IS-SEPARATOR non-nil formats the `├─┼─┤' separator row.  For data rows, each
 cell is wrapped to its column width and the row is as tall as the cell needing
-the most lines; shorter cells are padded with blanks so the box stays aligned."
-  (let ((num-cols (length widths)))
+the most lines; shorter cells are padded with blanks so the box stays aligned.
+VERTICAL is the string drawn between cells, `│' by default."
+  (let ((num-cols (length widths))
+        (vertical (or vertical "│")))
     (if is-separator
         ;; Separator row - single line
         (concat "├" (mapconcat (lambda (w) (make-string (+ w 2) ?─)) widths "┼") "┤")
@@ -1813,7 +1816,9 @@ the most lines; shorter cells are padded with blanks so the box stays aligned."
                      (line (or (nth k (nth col cell-lines)) ""))
                      (pad (max 0 (- width (string-width line)))))
                 (push (concat " " line (make-string pad ?\s) " ") parts)))
-            (push (concat "│" (mapconcat #'identity (nreverse parts) "│") "│") out)))
+            (push (concat vertical (mapconcat #'identity (nreverse parts) vertical)
+                          vertical)
+                  out)))
         (mapconcat #'identity (nreverse out) "\n")))))
 
 (defun markdown-modern-render--table-border-overlay (pos string after)
@@ -1833,6 +1838,34 @@ leaves intact while a neighbouring row is being edited."
     (push ov markdown-modern-render--overlays)
     ov))
 
+(defun markdown-modern-render--table-pixel-lines-p ()
+  "Non-nil when table grid lines are drawn as thin lines.
+On a graphical display a `│' is often shorter than the line, so the vertical
+lines it draws are broken; a terminal draws box characters whole."
+  (display-graphic-p))
+
+(defun markdown-modern-render--table-thin-lines ()
+  "Return how the grid of a table is drawn on a graphical display, as a plist.
+:vertical is the string between two cells: a `|' in a tenth of the table
+font, coloured like its background, so it is a few pixels wide and as tall as
+the row.  :face is its face, also used on the `|' of the row being edited.
+:color is the colour of all grid lines."
+  (let* ((color (or (face-foreground 'markdown-modern-table-border nil t)
+                    "gray50"))
+         (face `(:inherit markdown-modern-table :height 0.1
+                 :foreground ,color :background ,color)))
+    (list :vertical (propertize "|" 'face face) :face face :color color)))
+
+(defun markdown-modern-render--table-thin-row-face (thin is-header above below)
+  "Return the face of a table row's text drawn with THIN grid lines.
+IS-HEADER selects the header face.  ABOVE non-nil draws the line above the
+row as an overline, BELOW the line below it as an underline."
+  (let ((color (plist-get thin :color)))
+    `(,@(and above (list :overline color))
+      ,@(and below (list :underline (list :color color :position t)))
+      :inherit ,(if is-header 'markdown-modern-table-header
+                  'markdown-modern-table))))
+
 (defun markdown-modern-render--table-edit-overlay (start end prop value)
   "Helper: overlay START..END with PROP set to VALUE, tagged as table-edit."
   (let ((ov (markdown-modern-render--get-overlay start end)))
@@ -1841,7 +1874,8 @@ leaves intact while a neighbouring row is being edited."
     (overlay-put ov 'markdown-modern-type 'table-edit)
     ov))
 
-(defun markdown-modern-render--table-row-edit (bol eol is-header widths)
+(defun markdown-modern-render--table-row-edit (bol eol is-header widths
+                                                   &optional thin)
   "Render the table row BOL..EOL as an editable, aligned grid row.
 The cell text stays as real, editable buffer text; each `|' is shown as a `│'
 glyph, and each cell's surrounding whitespace is replaced by table-face spaces
@@ -1850,8 +1884,16 @@ spaces in the same fixed-pitch face the box uses, the column borders line up
 exactly with the rest of the box at any zoom/`text-scale' level -- no pixel
 measurement, which `window-font-width' reports incorrectly under remapping.
 IS-HEADER selects the header face.  Re-aligns live: each edit re-renders the
-row, recomputing the padding for the cell's new content width."
-  (let* ((face (if is-header 'markdown-modern-table-header 'markdown-modern-table))
+row, recomputing the padding for the cell's new content width.
+
+THIN, on a graphical display, is a plist from
+`markdown-modern-render--table-thin-lines'.  Each `|' then keeps its own glyph
+in the face of a thin line, and the row's face gets the line above it (and
+below it, with :last), as in the rows that are not being edited."
+  (let* ((face (if thin
+                   (markdown-modern-render--table-thin-row-face
+                    thin is-header t (plist-get thin :last))
+                 (if is-header 'markdown-modern-table-header 'markdown-modern-table)))
          (glyph (propertize "│" 'face 'markdown-modern-table-border))
          (pipes nil))
     ;; Face over the whole line so the cell text uses the fixed-pitch table font
@@ -1865,7 +1907,12 @@ row, recomputing the padding for the cell's new content width."
                         (markdown-modern-render--unescaped-pipes
                          (buffer-substring-no-properties bol eol))))
     (dolist (p pipes)
-      (markdown-modern-render--table-edit-overlay p (1+ p) 'display glyph))
+      (if thin
+          ;; Over the row's own face.
+          (overlay-put (markdown-modern-render--table-edit-overlay
+                        p (1+ p) 'face (plist-get thin :face))
+                       'priority 201)
+        (markdown-modern-render--table-edit-overlay p (1+ p) 'display glyph)))
     ;; Pad each cell (between consecutive pipes) to `width' + 2 display columns.
     ;; The cell's own text and spaces stay REAL buffer text -- nothing `display's
     ;; over them -- so point tracks exactly where you type, including spaces
@@ -1948,7 +1995,97 @@ in place as an editable, aligned grid row (see
 `markdown-modern-render--table-row-edit'); every other row shows the rendered
 box.  Overlays override `line-prefix'/`wrap-prefix' with empty strings: Emacs
 applies those to every visual line, and the buffer-local indent would otherwise
-push the box past the window width and wrap it."
+push the box past the window width and wrap it.
+
+On a graphical display the grid is drawn with thin lines instead, see
+`markdown-modern-render--table-create-thin-overlays'."
+  (if (markdown-modern-render--table-pixel-lines-p)
+      (markdown-modern-render--table-create-thin-overlays rows row-info widths)
+    (markdown-modern-render--table-create-box-overlays rows row-info widths)))
+
+(defun markdown-modern-render--table-create-thin-overlays (rows row-info widths)
+  "Create overlays rendering table ROWS (ROW-INFO, WIDTHS) with thin lines.
+A vertical line is a thin `|' (see `markdown-modern-render--table-thin-lines').
+A horizontal line is an overline on the first screen line of the row below
+it, and the bottom line an underline on the last screen line of the last row,
+so a grid line takes no screen line of its own.  The line under the header is
+the overline of the first data row, and the delimiter row is invisible; it
+shows as its `| --- |' source while it or the header row is being edited, so
+it can be reached and changed."
+  (let* ((thin (markdown-modern-render--table-thin-lines))
+         (vertical (plist-get thin :vertical))
+         (reveal markdown-modern--revealed-region)
+         (active-of (lambda (info)
+                      (and reveal
+                           (<= (car reveal) (nth 1 info))
+                           (>= (cdr reveal) (nth 0 info)))))
+         (last-row (let ((i 0) last)
+                     (dolist (info row-info last)
+                       (unless (nth 2 info) (setq last i))
+                       (setq i (1+ i)))))
+         (show-delimiter (seq-some (lambda (info)
+                                     (and (or (nth 2 info) (nth 3 info))
+                                          (funcall active-of info)))
+                                   row-info))
+         (row-idx 0))
+    (dolist (info row-info)
+      (let* ((bol (nth 0 info))
+             (eol (nth 1 info))
+             (is-sep (nth 2 info))
+             (is-hdr (nth 3 info))
+             (is-last (eql row-idx last-row))
+             (cells (nth row-idx rows)))
+        (cond
+         ((and is-sep show-delimiter)
+          (let ((ov (markdown-modern-render--get-overlay bol eol)))
+            (overlay-put ov 'face 'markdown-modern-table)
+            (overlay-put ov 'priority 200)
+            (overlay-put ov 'markdown-modern-type 'table-edit)))
+         (is-sep
+          ;; Hide the whole line.  At the end of the buffer it has no line
+          ;; break of its own, so hide the one before it.
+          (let ((ov (if (< eol (point-max))
+                        (markdown-modern-render--get-overlay bol (1+ eol))
+                      (markdown-modern-render--get-overlay (max (point-min)
+                                                                (1- bol))
+                                                           eol))))
+            (overlay-put ov 'invisible t)
+            (overlay-put ov 'priority 200)
+            (overlay-put ov 'markdown-modern-type 'table)))
+         ((funcall active-of info)
+          (markdown-modern-render--table-row-edit
+           bol eol is-hdr widths (append (list :last is-last) thin)))
+         (t
+          (let* ((shown (copy-sequence
+                         (markdown-modern-render--table-format-row
+                          cells widths nil vertical)))
+                 (len (length shown))
+                 (first-end (or (string-search "\n" shown) len))
+                 (last-start (let ((i (seq-position (reverse shown) ?\n)))
+                               (if i (- len i) 0)))
+                 (ov (markdown-modern-render--get-overlay bol eol)))
+            ;; Append, so a vertical line keeps its own face.
+            (add-face-text-property
+             0 len (markdown-modern-render--table-thin-row-face
+                    thin is-hdr nil nil)
+             t shown)
+            (add-face-text-property 0 first-end
+                                    (list :overline (plist-get thin :color))
+                                    nil shown)
+            (when is-last
+              (add-face-text-property
+               last-start len
+               (list :underline (list :color (plist-get thin :color)
+                                      :position t))
+               nil shown))
+            (overlay-put ov 'display shown)
+            (overlay-put ov 'priority 200)
+            (overlay-put ov 'markdown-modern-type 'table))))
+        (setq row-idx (1+ row-idx))))))
+
+(defun markdown-modern-render--table-create-box-overlays (rows row-info widths)
+  "Create overlays rendering table ROWS (ROW-INFO, WIDTHS) in box characters.
+See `markdown-modern-render--table-create-overlays'."
   (let* ((top-border (propertize
                       (concat "┌" (mapconcat (lambda (w) (make-string (+ w 2) ?─)) widths "┬") "┐\n")
                       'face 'markdown-modern-table))

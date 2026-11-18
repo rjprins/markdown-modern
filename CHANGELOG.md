@@ -5,6 +5,13 @@ on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- On a graphical display, tables draw thin, unbroken grid lines. A vertical
+  line was a `│` character, which in many fonts is shorter than the line, so
+  it showed as a dashed line. The horizontal lines no longer take a line of
+  their own, so tables are shorter. A terminal still draws box characters.
+
 ### Fixed
 
 - A table whose delimiter row has spaces around the dashes, such as

@@ -1132,6 +1132,101 @@ Neither the checkbox nor the task line's leading bullet is revealed."
       ;; Spans more than one line (the whole fenced block).
       (should (> (- (cdr r) (car r)) 4)))))
 
+(defmacro markdown-modern-render-test--with-thin-lines (text &rest body)
+  "Render TEXT as on a graphical display, with thin grid lines, and run BODY."
+  (declare (indent 1))
+  `(cl-letf (((symbol-function 'markdown-modern-render--table-pixel-lines-p)
+              (lambda () t)))
+     (markdown-modern-render-test--with ,text ,@body)))
+
+(defun markdown-modern-render-test--shown-rows ()
+  "Return the display strings of the rendered table rows, in buffer order."
+  (mapcar (lambda (ov) (overlay-get ov 'display))
+          (sort (seq-filter (lambda (ov)
+                              (and (eq (overlay-get ov 'markdown-modern-type) 'table)
+                                   (stringp (overlay-get ov 'display))))
+                            (overlays-in (point-min) (point-max)))
+                (lambda (a b) (< (overlay-start a) (overlay-start b))))))
+
+(defun markdown-modern-render-test--face-attr (string pos attr)
+  "Return face attribute ATTR of STRING at POS, from the first face having it."
+  (let ((face (get-text-property pos 'face string)))
+    (seq-some (lambda (f) (and (listp f) (plist-get f attr)))
+              (if (keywordp (car-safe face)) (list face) (ensure-list face)))))
+
+(ert-deftest render/table-thin-lines-vertical ()
+  "On a graphical display a vertical line is a tiny `|' coloured as its background.
+A `│' is shorter than the line in many fonts, so it draws a broken line."
+  (markdown-modern-render-test--with-thin-lines
+      "| a | b |\n|---|---|\n| 1 | 2 |\n"
+    (let ((rows (markdown-modern-render-test--shown-rows)))
+      (should (= (length rows) 2))
+      (dolist (shown rows)
+        (should-not (string-search "│" shown))
+        (dolist (i (list 0 (1- (length shown))))
+          (should (eq (aref shown i) ?|))
+          (should (eql (markdown-modern-render-test--face-attr shown i :height) 0.1))
+          (should (equal (markdown-modern-render-test--face-attr shown i :foreground)
+                         (markdown-modern-render-test--face-attr shown i :background))))))))
+
+(ert-deftest render/table-thin-lines-horizontal ()
+  "Horizontal lines are an overline on each row and an underline on the last.
+No grid line takes a screen line of its own, and the delimiter row is hidden."
+  (markdown-modern-render-test--with-thin-lines
+      "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\nafter\n"
+    (let ((rows (markdown-modern-render-test--shown-rows)))
+      (should (= (length rows) 3))
+      (dolist (shown rows)
+        (should (markdown-modern-render-test--face-attr shown 2 :overline)))
+      (should-not (markdown-modern-render-test--face-attr (nth 1 rows) 2 :underline))
+      (should (markdown-modern-render-test--face-attr (nth 2 rows) 2 :underline))
+      ;; No box characters and no separate grid lines.
+      (should-not (seq-some (lambda (ov) (overlay-get ov 'before-string))
+                            (overlays-in (point-min) (point-max))))
+      ;; The delimiter row, with its line break, is invisible.
+      (should (get-char-property 11 'invisible))
+      (should (get-char-property 20 'invisible))
+      (should-not (get-char-property 21 'invisible)))))
+
+(ert-deftest render/table-thin-lines-multi-line-row ()
+  "Only the first screen line of a wrapped row gets the line above it."
+  (let ((markdown-modern-table-max-cell-lines nil)
+        (markdown-modern-table-max-width 20))
+    (markdown-modern-render-test--with-thin-lines
+        "| a | b |\n|---|---|\n| 1 | one two three four five six |\n"
+      (let* ((shown (nth 1 (markdown-modern-render-test--shown-rows)))
+             (break (string-search "\n" shown)))
+        (should break)
+        (should (markdown-modern-render-test--face-attr shown 2 :overline))
+        (should-not (markdown-modern-render-test--face-attr shown (+ break 3)
+                                                             :overline))
+        (should (markdown-modern-render-test--face-attr shown (- (length shown) 2)
+                                                         :underline))))))
+
+(ert-deftest render/table-thin-lines-edited-row ()
+  "The row being edited keeps each `|' as itself, in the thin line's face.
+With a `display' on a `|', Emacs can draw point on a neighbouring line."
+  (markdown-modern-render-test--with-thin-lines
+      "| a | b |\n|---|---|\n| 1 | 2 |\n"
+    (setq markdown-modern--revealed-region (markdown-modern--markup-element-at 23))
+    (markdown-modern--jit-fontify (point-min) (point-max))
+    (dolist (p '(21 25 29))
+      (should (eq (char-after p) ?|))
+      (should-not (get-char-property p 'display))
+      (should (eql (plist-get (get-char-property p 'face) :height) 0.1)))
+    (should (plist-get (get-char-property 23 'face) :overline))
+    (should (plist-get (get-char-property 23 'face) :underline))))
+
+(ert-deftest render/table-thin-lines-delimiter-shown-while-editing-header ()
+  "Editing the header row shows the delimiter row, so it can be reached."
+  (markdown-modern-render-test--with-thin-lines
+      "| a | b |\n|---|---|\n| 1 | 2 |\n"
+    (should (get-char-property 11 'invisible))
+    (setq markdown-modern--revealed-region (markdown-modern--markup-element-at 3))
+    (markdown-modern--jit-fontify (point-min) (point-max))
+    (should-not (get-char-property 11 'invisible))
+    (should-not (get-char-property 11 'display))))
+
 (ert-deftest render/table-row-reveal-keeps-box ()
   "Revealing a row keeps the other rows boxed and draws the active row editable."
   (markdown-modern-render-test--with "| a | b |\n|---|---|\n| 1 | 2 |\n"
