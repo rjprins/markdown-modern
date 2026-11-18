@@ -1909,7 +1909,9 @@ Always finds the COMPLETE table by scanning beyond element boundaries."
                  (eol (line-end-position))
                  (line (buffer-substring-no-properties bol eol))
                  (cells (markdown-modern-render--table-parse-row line))
-                 (is-sep (and cells (string-match-p "^[ \t]*|[-:|]+|" line))))
+                 ;; Cells may pad their dashes with spaces: `| --- |'.
+                 (is-sep (and cells (string-match-p
+                                     "^[ \t]*|[-:| \t]*-[-:| \t]*$" line))))
             (when cells
               (push cells rows)
               (push (list bol eol is-sep

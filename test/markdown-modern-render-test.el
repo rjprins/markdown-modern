@@ -1112,6 +1112,17 @@ Neither the checkbox nor the task line's leading bullet is revealed."
       ;; The region stays on the data row; it must not reach the earlier rows.
       (should (>= (car r) 21)))))
 
+(ert-deftest render/table-spaced-delimiter-row ()
+  "A delimiter row with spaces inside its cells renders as a grid line."
+  (dolist (delim '("|---|---|" "| --- | :---: |" "|\t--- | ---:\t|"))
+    (markdown-modern-render-test--with
+        (concat "| a | b |\n" delim "\n| 1 | 2 |\n")
+      (goto-char (point-min))
+      (forward-line 1)
+      (let ((shown (get-char-property (point) 'display)))
+        (should (stringp shown))
+        (should-not (string-search "-" shown))))))
+
 (ert-deftest render/non-table-block-not-narrowed ()
   "Revealing a non-table block still returns the whole multi-line block."
   (markdown-modern-render-test--with "```\nx\n```\n"

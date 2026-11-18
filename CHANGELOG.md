@@ -3,6 +3,14 @@
 All notable changes to markdown-modern are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- A table whose delimiter row has spaces around the dashes, such as
+  `| --- | --- |`, no longer shows that row as a row of `---` cells. It now
+  draws as the line under the header, as `|---|---|` already did.
+
 ## [2.2.0] - 2026-11-16
 
 ### Changed
