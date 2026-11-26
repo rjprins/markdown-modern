@@ -480,6 +480,63 @@ single source of truth shared between point-motion reveal and jit-lock.")
 (defvar-local markdown-modern--code-edit-buffer nil
   "Indirect buffer currently editing a code block, or nil.")
 
+;;; Mouse Wheel Scrolling
+
+;; A wheel step can leave `window-start' partway through a source line, as
+;; in a table row drawn as a multi-line display string or past a joined line
+;; break.  Redisplay of the selected window keeps such a start.  A full
+;; redisplay, as when the wheel scrolls a window that is not selected, moves
+;; it to the nearest screen-line start it finds from the line's beginning,
+;; which can be where the step began.  Then every step is undone and the
+;; window never moves.  A start right after a newline is always kept.
+
+(defvar mwheel-scroll-up-function)
+(defvar mwheel-scroll-down-function)
+
+(defun markdown-modern--wheel-line-start (start forward)
+  "Return the source-line start after START, or before it if not FORWARD.
+Signal `end-of-buffer' or `beginning-of-buffer' when there is none."
+  (save-excursion
+    (goto-char start)
+    (if forward
+        (progn (forward-line 1)
+               (when (eobp) (signal 'end-of-buffer nil)))
+      (beginning-of-line)
+      (when (= (point) start)
+        (when (bobp) (signal 'beginning-of-buffer nil))
+        (forward-line -1)))
+    (point)))
+
+(defun markdown-modern--wheel-scroll (function amount)
+  "Scroll by AMOUNT with FUNCTION, past a start that redisplay undoes.
+When the window start is back where the last wheel step in the same
+direction began, redisplay moved it back, so go to the next source-line
+start instead."
+  (let* ((window (selected-window))
+         (start (window-start window))
+         (last (window-parameter window 'markdown-modern--wheel-last)))
+    (set-window-parameter window 'markdown-modern--wheel-last nil)
+    (if (and (eq last-command 'mwheel-scroll)
+             (eq (car last) function)
+             (eql start (nth 1 last))
+             (not (eql start (nth 2 last))))
+        (let* ((forward (eq function #'scroll-up))
+               (target (markdown-modern--wheel-line-start start forward)))
+          (set-window-start window target)
+          (when (and forward (< (point) target))
+            (goto-char target)))
+      (funcall function amount))
+    (set-window-parameter window 'markdown-modern--wheel-last
+                          (list function start (window-start window)))))
+
+(defun markdown-modern--wheel-up (&optional amount)
+  "Scroll text up by AMOUNT lines for `mwheel-scroll-up-function'."
+  (markdown-modern--wheel-scroll #'scroll-up amount))
+
+(defun markdown-modern--wheel-down (&optional amount)
+  "Scroll text down by AMOUNT lines for `mwheel-scroll-down-function'."
+  (markdown-modern--wheel-scroll #'scroll-down amount))
+
 ;;; Mode Definition
 
 (defvar markdown-modern-mode-map
@@ -630,6 +687,10 @@ LOOKING-AT are as described there."
     (visual-line-mode 1))
   (when markdown-modern-variable-pitch
     (variable-pitch-mode 1))
+
+  ;; Keep wheel scrolling from sticking on rendered lines.
+  (setq-local mwheel-scroll-up-function #'markdown-modern--wheel-up)
+  (setq-local mwheel-scroll-down-function #'markdown-modern--wheel-down)
 
   ;; Initialize rendering
   (markdown-modern-render--init)

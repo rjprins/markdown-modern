@@ -216,5 +216,81 @@ The heading renderer must descend into its own inline markup."
       (should (= delims 4))
       (should (= contents 2)))))
 
+;;; Mouse wheel scrolling
+
+(defmacro markdown-modern-jit-test--with-wheel-window (&rest body)
+  "Show a buffer of numbered lines in the selected window and run BODY."
+  (declare (indent 0))
+  `(save-window-excursion
+     (delete-other-windows)
+     (with-temp-buffer
+       (dotimes (i 60) (insert (format "line %02d\n" i)))
+       (switch-to-buffer (current-buffer))
+       (set-window-parameter nil 'markdown-modern--wheel-last nil)
+       ,@body)))
+
+(defun markdown-modern-jit-test--line-start (n)
+  "Return the start of line N, counting from 1."
+  (save-excursion (goto-char (point-min)) (forward-line (1- n)) (point)))
+
+(ert-deftest jit/wheel-mode-installs-scroll-functions ()
+  "The mode scrolls the wheel through its own functions, in its buffer only."
+  (with-temp-buffer
+    (markdown-modern-mode)
+    (should (eq mwheel-scroll-up-function #'markdown-modern--wheel-up))
+    (should (eq mwheel-scroll-down-function #'markdown-modern--wheel-down))
+    (should (local-variable-p 'mwheel-scroll-up-function))))
+
+(ert-deftest jit/wheel-step-undone-by-redisplay-moves-to-next-line ()
+  "A wheel step that redisplay moved back to its start goes to the next line.
+Here the last step went from the start of line 10 to partway through it, and
+redisplay put the start back."
+  (markdown-modern-jit-test--with-wheel-window
+    (let ((start (markdown-modern-jit-test--line-start 10))
+          (last-command 'mwheel-scroll))
+      (set-window-start nil start)
+      (goto-char start)
+      (set-window-parameter nil 'markdown-modern--wheel-last
+                            (list #'scroll-up start (+ start 3)))
+      (markdown-modern--wheel-up 1)
+      (should (= (window-start) (markdown-modern-jit-test--line-start 11)))
+      (should (>= (point) (window-start))))))
+
+(ert-deftest jit/wheel-step-undone-backward-moves-to-previous-line ()
+  "Scrolling back, an undone step goes to the previous line's start."
+  (markdown-modern-jit-test--with-wheel-window
+    (let ((start (+ (markdown-modern-jit-test--line-start 10) 3))
+          (last-command 'mwheel-scroll))
+      (set-window-start nil start)
+      (set-window-parameter nil 'markdown-modern--wheel-last
+                            (list #'scroll-down start (1- start)))
+      (markdown-modern--wheel-down 1)
+      (should (= (window-start) (markdown-modern-jit-test--line-start 10))))))
+
+(ert-deftest jit/wheel-step-scrolls-normally-otherwise ()
+  "A wheel step scrolls as usual unless the last wheel step was undone."
+  (markdown-modern-jit-test--with-wheel-window
+    (let* ((start (markdown-modern-jit-test--line-start 10))
+           (calls 0)
+           (scroll (lambda (_amount) (setq calls (1+ calls)))))
+      (set-window-start nil start)
+      ;; The last step's start was kept: nothing was undone.
+      (let ((last-command 'mwheel-scroll))
+        (set-window-parameter nil 'markdown-modern--wheel-last
+                              (list scroll start start))
+        (markdown-modern--wheel-scroll scroll 1))
+      ;; Another command ran since the last wheel step.
+      (let ((last-command 'next-line))
+        (set-window-parameter nil 'markdown-modern--wheel-last
+                              (list scroll start (1+ start)))
+        (markdown-modern--wheel-scroll scroll 1))
+      ;; The last step went the other way.
+      (let ((last-command 'mwheel-scroll))
+        (set-window-parameter nil 'markdown-modern--wheel-last
+                              (list #'scroll-down start (1+ start)))
+        (markdown-modern--wheel-scroll scroll 1))
+      (should (= calls 3))
+      (should (= (window-start) start)))))
+
 (provide 'markdown-modern-jit-test)
 ;;; markdown-modern-jit-test.el ends here

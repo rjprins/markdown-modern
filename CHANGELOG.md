@@ -17,6 +17,13 @@ on [Keep a Changelog](https://keepachangelog.com/).
 - A table whose delimiter row has spaces around the dashes, such as
   `| --- | --- |`, no longer shows that row as a row of `---` cells. It now
   draws as the line under the header, as `|---|---|` already did.
+- The mouse wheel no longer gets stuck in a window that is not selected, as
+  in a terminal frame with a split window. A wheel step could stop partway
+  through a wrapped table row or a joined paragraph or blockquote line, and
+  Emacs then put the window back where the step began, every time. The next
+  wheel step now moves on to the next source line. Thanks to Hemant Kumar
+  ([@gnufied](https://github.com/gnufied)) for the report and the analysis
+  ([#19](https://github.com/rjprins/markdown-modern/issues/19)).
 
 ## [2.2.0] - 2026-11-16
 
