@@ -73,6 +73,36 @@ then be drawn again."
       (insert "z")
       (should (second-table-drawn-p)))))
 
+(ert-deftest jit/revert-keeps-parse-tree-right ()
+  "Reverting to a changed file leaves the same parse tree as a fresh parse.
+A parse from the after-change hook while `insert-file-contents' replaces
+text left the heading inside the paragraph's section for good."
+  (let ((file (make-temp-file "markdown-modern" nil ".md")))
+    (unwind-protect
+        (cl-labels ((tree (node)
+                      (cons (list (treesit-node-type node)
+                                  (treesit-node-start node)
+                                  (treesit-node-end node))
+                            (mapcar #'tree (treesit-node-children node t)))))
+          (with-temp-file file (insert "Pa\n\nb.\n\n## B\n"))
+          (with-current-buffer (find-file-noselect file t)
+            (unwind-protect
+                (progn
+                  (markdown-modern-mode)
+                  (jit-lock-fontify-now)
+                  (with-temp-file file (insert "Pa\n\nb, more.\n\n## B\n"))
+                  (revert-buffer t t t)
+                  (jit-lock-fontify-now)
+                  (let ((fresh (treesit-parser-create 'markdown nil t)))
+                    (unwind-protect
+                        (should (equal (tree (treesit-parser-root-node
+                                              markdown-modern-ts--parser))
+                                       (tree (treesit-parser-root-node fresh))))
+                      (treesit-parser-delete fresh))))
+              (set-buffer-modified-p nil)
+              (kill-buffer))))
+      (delete-file file))))
+
 (ert-deftest jit/window-resize-refits-tables ()
   "Tables are drawn again when a window resize changes the width they fit."
   (save-window-excursion

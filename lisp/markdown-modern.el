@@ -466,6 +466,10 @@ Inherits `fixed-pitch' so columns stay aligned under `variable-pitch-mode'."
 (defvar-local markdown-modern--chars-tick nil
   "Value of `buffer-chars-modified-tick' after the last command.")
 
+(defvar-local markdown-modern--link-check-pending nil
+  "Non-nil when an edit may have changed the reference link definitions.
+The next render checks them; see `markdown-modern--after-change'.")
+
 (defvar markdown-modern--paragraph-timer nil
   "Idle timer that changes which paragraph shows its source lines.")
 
@@ -1046,6 +1050,11 @@ renders, then re-reveals the element under point so the revealed markup
 survives scroll/edit re-renders.  Returns a `jit-lock-bounds' cons reporting
 the true rendered extent."
   (when markdown-modern--rendering-enabled
+    (when markdown-modern--link-check-pending
+      (setq markdown-modern--link-check-pending nil)
+      (when (markdown-modern-render--link-definitions-changed-p)
+        ;; Links elsewhere in the buffer may now resolve differently.
+        (jit-lock-refontify)))
     (let* ((b (markdown-modern--extend-region-to-blocks start end))
            ;; Rendering can grow the region further, for example from one
            ;; list item to its whole list.
@@ -1261,26 +1270,29 @@ edited shows its source lines, until point leaves it."
 ;;; Core Functions
 
 (defun markdown-modern--after-change (start end _old-len)
-  "Invalidate the block containing START..END so jit-lock re-renders it.
-This does no rendering itself: it only marks the affected block stale, so the
-heavy work happens lazily in `markdown-modern--jit-fontify' on the next
-redisplay.  Block widening ensures multi-line edits (closing a fence, adding a
-table row) re-render the whole construct, not just the changed line.  The
-block that ends on the line above is included too: an edit can end it, as
-when the edited line becomes a list item."
+  "Mark the lines of START..END stale so jit-lock re-renders them.
+This does no rendering itself, so the heavy work happens lazily in
+`markdown-modern--jit-fontify' on the next redisplay, which widens the
+lines to their whole blocks.  The line above is included too: an edit can
+end the block on it, as when the edited line becomes a list item.
+
+This must not use the parse tree.  A parse from this hook while
+`insert-file-contents' replaces text, as a revert does, can leave the tree
+wrong for good: in Emacs 31.1 a heading stayed inside the section before
+it, so it was not drawn as one."
   (when markdown-modern--rendering-enabled
-    (let* ((above (save-excursion
-                    (goto-char (min start end))
-                    (forward-line 0)
-                    (max (point-min) (1- (point)))))
-           (b (if (markdown-modern-render--link-definitions-changed-p)
-                  ;; Links elsewhere in the buffer may now resolve differently.
-                  (cons (point-min) (point-max))
-                (markdown-modern--extend-region-to-blocks above (max start end)))))
+    (let ((above (save-excursion
+                   (goto-char (min start end))
+                   (forward-line 0)
+                   (max (point-min) (1- (point)))))
+          (below (save-excursion
+                   (goto-char (max start end))
+                   (min (point-max) (1+ (line-end-position))))))
+      (setq markdown-modern--link-check-pending t)
       (if (fboundp 'jit-lock-refontify)
-          (jit-lock-refontify (car b) (cdr b))
+          (jit-lock-refontify above below)
         (with-silent-modifications
-          (put-text-property (car b) (cdr b) 'fontified nil))))))
+          (put-text-property above below 'fontified nil))))))
 
 (defun markdown-modern--after-reparse (ranges parser)
   "Mark the blocks around RANGES for re-rendering.
